@@ -17,9 +17,9 @@ export default async function RosterPage() {
   }
 
   const [rosters, shiftTemplates, staffRows, branches] = await Promise.all([
-    fetchRows(context.supabase, "rosters", 200),
-    fetchRows(context.supabase, "shift_templates", 100),
-    fetchRows(context.supabase, "staff", 200),
+    fetchRows(context.supabase, "rosters", 500),
+    fetchRows(context.supabase, "shift_templates", 200),
+    fetchRows(context.supabase, "staff", 300),
     fetchRows(context.supabase, "branches", 100),
   ]);
 
@@ -27,7 +27,7 @@ export default async function RosterPage() {
     <div className="space-y-6">
       <PageHeader
         title="Roster"
-        description="Review scheduled shifts, filter by branch or date, and manage roster publishing where permitted."
+        description="Build daily clinic coverage by branch and date, load existing assignments, and adjust shift times when the day needs custom scheduling."
       />
       <RosterManagementPage
         rosters={rosters.rows}
