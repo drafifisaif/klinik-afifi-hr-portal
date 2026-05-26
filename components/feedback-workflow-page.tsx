@@ -51,7 +51,7 @@ export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentSt
     target_staff_id: "",
     portal_area: "",
     expected_action: "",
-    priority: "medium",
+    priority: "normal",
     is_anonymous: false,
   });
 
@@ -130,7 +130,7 @@ export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentSt
       target_staff_id: "",
       portal_area: "",
       expected_action: "",
-      priority: "medium",
+      priority: "normal",
       is_anonymous: false,
     });
     router.refresh();
@@ -149,11 +149,13 @@ export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentSt
                 <select value={form.priority} onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))} className={inputClass}>
                   {[
                     "low",
-                    "medium",
+                    "normal",
                     "high",
                     "urgent",
                   ].map((priority) => (
-                    <option key={priority} value={priority}>{priority}</option>
+                    <option key={priority} value={priority}>
+                      {priority === "normal" ? "Normal" : priority.charAt(0).toUpperCase() + priority.slice(1)}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -204,7 +206,7 @@ export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentSt
                   </div>
                   <p className="mt-4 text-sm leading-6 text-[var(--foreground)]">{String(row.message ?? "-")}</p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Priority: {String(row.priority ?? "medium")}</div>
+                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Priority: {String(row.priority ?? "normal").replaceAll("_", " ")}</div>
                     <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Expected action: {String(row.expected_action ?? "-")}</div>
                   </div>
                 </article>
