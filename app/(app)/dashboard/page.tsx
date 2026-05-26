@@ -182,11 +182,7 @@ function isPendingLeaveStatus(row: TableRow) {
   return normalizeString(row.status) === "pending";
 }
 
-function isAssignedOperationalIssue(row: TableRow, profileId: string, branchId: string) {
-  if (String(row.assigned_to ?? "") !== profileId) {
-    return false;
-  }
-
+function isBranchOperationalIssue(row: TableRow, branchId: string) {
   if (String(row.branch_id ?? "") !== branchId) {
     return false;
   }
@@ -195,6 +191,13 @@ function isAssignedOperationalIssue(row: TableRow, profileId: string, branchId: 
     return false;
   }
 
+  const targetType = normalizeString(row.target_type);
+  if (targetType === "hr" || targetType === "staff") {
+    return false;
+  }
+
+  const category = normalizeString(row.category);
+  const assignedDepartment = normalizeString(row.assigned_department);
   const haystack = [
     row.category,
     row.title,
@@ -213,12 +216,33 @@ function isAssignedOperationalIssue(row: TableRow, profileId: string, branchId: 
     "maintenance",
     "roster",
     "shift",
+    "equipment",
     "branch task",
     "branch operation",
     "clinic issue",
   ];
 
-  return operationalKeywords.some((keyword) => haystack.includes(keyword));
+  const sensitiveKeywords = [
+    "disciplinary",
+    "discipline",
+    "staff complaint",
+    "complaint staff",
+    "harassment",
+    "bully",
+    "bullying",
+    "misconduct",
+    "hr sensitive",
+  ];
+
+  if (sensitiveKeywords.some((keyword) => haystack.includes(keyword))) {
+    return false;
+  }
+
+  const operationCategoryMatches = ["operation", "facility", "roster", "maintenance", "equipment"].includes(category);
+  const operationRoutingMatches = targetType === "operation" || assignedDepartment === "operation";
+  const operationKeywordMatches = operationalKeywords.some((keyword) => haystack.includes(keyword));
+
+  return operationCategoryMatches || operationRoutingMatches || operationKeywordMatches;
 }
 
 async function queryRows(executor: () => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<RowQueryResult> {
@@ -515,7 +539,10 @@ function renderFeedbackItem(row: TableRow, staffRows: TableRow[]) {
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(staff?.full_name ?? row.target_type ?? "-")} · {formatDateTime(row.created_at)}</p>
           <p className="mt-3 text-sm text-[var(--foreground)]">{String(row.message ?? "-")}</p>
         </div>
-        <StatusBadge value={String(row.status ?? "new")} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusBadge value={String(row.status ?? "new")} />
+          <StatusBadge value={String(row.priority ?? "normal")} />
+        </div>
       </div>
     </div>
   );
@@ -650,7 +677,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const todayDoctors = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "doctor").length;
   const todaySupport = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "staff").length;
   const incompleteProfiles = branchStaffRows.rows.filter(isStaffRecordIncomplete);
-  const assignedOperationalIssues = branchFeedbackRows.rows.filter((row) => isAssignedOperationalIssue(row, profileId, branchId));
+  const assignedOperationalIssues = branchFeedbackRows.rows.filter((row) => isBranchOperationalIssue(row, branchId));
 
   return (
     <div className="space-y-8">
@@ -676,7 +703,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
           { href: "/leave", label: "Apply Leave", helper: "Mohon cuti peribadi" },
           { href: "/mc", label: "Upload MC", helper: "Hantar MC sendiri" },
           { href: "/roster", label: "Manage Roster", helper: "Semak dan kemas kini roster cawangan" },
-          { href: "/feedback/manage", label: "View Assigned Issues", helper: "Lihat isu operasi yang diassign kepada anda" },
+          { href: "/feedback/manage", label: "View Branch Issues", helper: "Lihat isu operasi cawangan yang relevan" },
           { href: "/staff", label: "View Branch Staff", helper: "Semak rekod staff cawangan" },
         ]}
       />
@@ -686,7 +713,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
         <StatCard title="Today Doctors On Duty" value={todayDoctors} description="Bilangan doktor atau locum yang bertugas hari ini." icon={Stethoscope} />
         <StatCard title="Today Staff On Duty" value={todaySupport} description="Bilangan support staff yang bertugas hari ini." icon={Users} />
         <StatCard title="Pending Leave Requests" value={branchLeaveRows.rows.length} description="Permohonan cuti cawangan yang masih menunggu semakan." icon={ClipboardList} />
-        <StatCard title="Assigned Operational Issues" value={assignedOperationalIssues.length} description="Isu operasi cawangan yang diassign khusus kepada anda." icon={MessageSquareMore} />
+        <StatCard title="Branch Operational Issues" value={assignedOperationalIssues.length} description="Isu operasi cawangan yang relevan untuk tindakan atau pemantauan anda." icon={MessageSquareMore} />
         <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff cawangan yang masih perlukan kemaskini penting." icon={UserRound} />
       </section>
 
@@ -704,11 +731,11 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
           emptyDescription="Bagus, semua permohonan cuti cawangan sudah ditangani buat masa ini."
         />
         <DashboardList
-          title="Assigned Operational Issues"
-          description="Hanya isu operasi, facility, roster, atau tugasan cawangan yang diassign kepada anda dipaparkan di sini."
+          title="Branch Operational Issues"
+          description="Hanya isu operasi, facility, roster, equipment, atau tugasan cawangan dari branch anda dipaparkan di sini."
           items={assignedOperationalIssues.slice(0, 5).map((row) => renderFeedbackItem(row, branchStaffRows.rows))}
-          emptyTitle="Tiada isu operasi diassign"
-          emptyDescription="Tiada isu operasi cawangan yang sedang diassign kepada anda sekarang."
+          emptyTitle="Tiada isu operasi cawangan"
+          emptyDescription="Tiada isu operasi cawangan yang relevan untuk dipantau sekarang."
         />
       </div>
     </div>
