@@ -182,6 +182,45 @@ function isPendingLeaveStatus(row: TableRow) {
   return normalizeString(row.status) === "pending";
 }
 
+function isAssignedOperationalIssue(row: TableRow, profileId: string, branchId: string) {
+  if (String(row.assigned_to ?? "") !== profileId) {
+    return false;
+  }
+
+  if (String(row.branch_id ?? "") !== branchId) {
+    return false;
+  }
+
+  if (row.is_anonymous === true) {
+    return false;
+  }
+
+  const haystack = [
+    row.category,
+    row.title,
+    row.message,
+    row.portal_area,
+    row.expected_action,
+    row.assigned_department,
+    row.target_type,
+  ]
+    .map((value) => normalizeString(value))
+    .join(" ");
+
+  const operationalKeywords = [
+    "operation",
+    "facility",
+    "maintenance",
+    "roster",
+    "shift",
+    "branch task",
+    "branch operation",
+    "clinic issue",
+  ];
+
+  return operationalKeywords.some((keyword) => haystack.includes(keyword));
+}
+
 async function queryRows(executor: () => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<RowQueryResult> {
   try {
     const { data, error } = await executor();
@@ -599,7 +638,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("rosters").select("*").eq("staff_id", staffId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(20)),
     queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(200)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).eq("status", "pending").limit(80)),
-    queryRows(() => supabase.from("feedbacks").select("*").eq("branch_id", branchId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).limit(80)),
+    queryRows(() => supabase.from("feedbacks").select("*").eq("branch_id", branchId).eq("assigned_to", profileId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).limit(80)),
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
   ]);
@@ -611,6 +650,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const todayDoctors = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "doctor").length;
   const todaySupport = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "staff").length;
   const incompleteProfiles = branchStaffRows.rows.filter(isStaffRecordIncomplete);
+  const assignedOperationalIssues = branchFeedbackRows.rows.filter((row) => isAssignedOperationalIssue(row, profileId, branchId));
 
   return (
     <div className="space-y-8">
@@ -636,7 +676,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
           { href: "/leave", label: "Apply Leave", helper: "Mohon cuti peribadi" },
           { href: "/mc", label: "Upload MC", helper: "Hantar MC sendiri" },
           { href: "/roster", label: "Manage Roster", helper: "Semak dan kemas kini roster cawangan" },
-          { href: "/feedback", label: "View Feedback", helper: "Lihat isu cawangan dan maklum balas" },
+          { href: "/feedback/manage", label: "View Assigned Issues", helper: "Lihat isu operasi yang diassign kepada anda" },
           { href: "/staff", label: "View Branch Staff", helper: "Semak rekod staff cawangan" },
         ]}
       />
@@ -646,7 +686,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
         <StatCard title="Today Doctors On Duty" value={todayDoctors} description="Bilangan doktor atau locum yang bertugas hari ini." icon={Stethoscope} />
         <StatCard title="Today Staff On Duty" value={todaySupport} description="Bilangan support staff yang bertugas hari ini." icon={Users} />
         <StatCard title="Pending Leave Requests" value={branchLeaveRows.rows.length} description="Permohonan cuti cawangan yang masih menunggu semakan." icon={ClipboardList} />
-        <StatCard title="Pending Feedback" value={branchFeedbackRows.rows.length} description="Maklum balas baru atau isu aktif dari cawangan anda." icon={MessageSquareMore} />
+        <StatCard title="Assigned Operational Issues" value={assignedOperationalIssues.length} description="Isu operasi cawangan yang diassign khusus kepada anda." icon={MessageSquareMore} />
         <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff cawangan yang masih perlukan kemaskini penting." icon={UserRound} />
       </section>
 
@@ -664,11 +704,11 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
           emptyDescription="Bagus, semua permohonan cuti cawangan sudah ditangani buat masa ini."
         />
         <DashboardList
-          title="Branch Feedback"
-          description="Maklum balas aktif untuk cawangan yang masih perlukan susulan."
-          items={branchFeedbackRows.rows.slice(0, 5).map((row) => renderFeedbackItem(row, branchStaffRows.rows))}
-          emptyTitle="Tiada feedback baru"
-          emptyDescription="Tiada isu baru dari cawangan anda buat masa ini."
+          title="Assigned Operational Issues"
+          description="Hanya isu operasi, facility, roster, atau tugasan cawangan yang diassign kepada anda dipaparkan di sini."
+          items={assignedOperationalIssues.slice(0, 5).map((row) => renderFeedbackItem(row, branchStaffRows.rows))}
+          emptyTitle="Tiada isu operasi diassign"
+          emptyDescription="Tiada isu operasi cawangan yang sedang diassign kepada anda sekarang."
         />
       </div>
     </div>
