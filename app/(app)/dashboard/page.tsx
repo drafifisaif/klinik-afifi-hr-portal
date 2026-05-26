@@ -344,41 +344,94 @@ function HolidayWidget({ holiday }: { holiday: TableRow | null }) {
 }
 
 function RosterPreview({ title, description, rows, staffRows, shiftTemplates, focusStaffId, branches }: { title: string; description: string; rows: TableRow[]; staffRows: TableRow[]; shiftTemplates: TableRow[]; focusStaffId?: string | null; branches: BranchOption[] }) {
+  const groupedRows = rows.reduce<Record<string, { doctors: TableRow[]; staff: TableRow[] }>>((groups, row) => {
+    const rosterDate = String(row.roster_date ?? row.date ?? "");
+    const staff = staffRows.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
+    const roleOnShift = inferRoleOnShift(row, staff);
+
+    if (!groups[rosterDate]) {
+      groups[rosterDate] = { doctors: [], staff: [] };
+    }
+
+    if (roleOnShift === "doctor") {
+      groups[rosterDate].doctors.push(row);
+    } else {
+      groups[rosterDate].staff.push(row);
+    }
+
+    return groups;
+  }, {});
+
+  const orderedDates = Object.keys(groupedRows)
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, 7);
+
+  function renderRosterItems(items: TableRow[], emptyLabel: string) {
+    if (!items.length) {
+      return <p className="text-sm text-[var(--muted-foreground)]">{emptyLabel}</p>;
+    }
+
+    return (
+      <div className="space-y-3">
+        {items.map((row) => {
+          const staff = staffRows.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
+          const isOwnShift = focusStaffId && String(row.staff_id ?? "") === String(focusStaffId);
+
+          return (
+            <div key={String(row.id ?? `${row.staff_id}-${row.shift_template_id}`)} className="rounded-2xl bg-[var(--card-muted)] px-4 py-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">{String(staff?.full_name ?? row.staff_id ?? "-")}</p>
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">{String(staff?.position ?? "Tidak ditetapkan")}</p>
+                </div>
+                {isOwnShift ? <StatusBadge value="Own Shift" /> : null}
+              </div>
+              <div className="mt-3 grid gap-2 text-sm text-[var(--muted-foreground)] sm:grid-cols-2">
+                <p>Shift: {getShiftName(row, shiftTemplates)}</p>
+                <p>Time: {getTimeRange(row, shiftTemplates)}</p>
+              </div>
+              {row.notes ? <p className="mt-3 text-sm text-[var(--foreground)]">Notes: {String(row.notes)}</p> : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <FormSection title={title} description={description}>
-      {rows.length ? (
+      {orderedDates.length ? (
         <div className="space-y-4">
-          {rows.slice(0, 7).map((row) => {
-            const staff = staffRows.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
-            const isOwnShift = focusStaffId && String(row.staff_id ?? "") === String(focusStaffId);
+          {orderedDates.map((date) => {
+            const dateGroup = groupedRows[date];
             return (
-              <div key={String(row.id ?? `${row.staff_id}-${row.roster_date}`)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
+              <div key={date} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-base font-semibold text-[var(--foreground)]">{formatDate(row.roster_date ?? row.date)}</p>
-                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(branches, String(row.branch_id ?? ""))}</p>
+                    <p className="text-base font-semibold text-[var(--foreground)]">{formatDate(date)}</p>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(branches, String(dateGroup.doctors[0]?.branch_id ?? dateGroup.staff[0]?.branch_id ?? ""))}</p>
                   </div>
-                  {isOwnShift ? <StatusBadge value="Own Shift" /> : null}
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">
-                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Staff</p>
-                    <p className="mt-2 font-semibold">{String(staff?.full_name ?? row.staff_id ?? "-")}</p>
-                  </div>
-                  <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">
-                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Position</p>
-                    <p className="mt-2 font-semibold">{String(staff?.position ?? "Tidak ditetapkan")}</p>
-                  </div>
-                  <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">
-                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Shift</p>
-                    <p className="mt-2 font-semibold">{getShiftName(row, shiftTemplates)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">
-                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Time</p>
-                    <p className="mt-2 font-semibold">{getTimeRange(row, shiftTemplates)}</p>
+                  <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm font-semibold text-[var(--foreground)]">
+                    {dateGroup.doctors.length + dateGroup.staff.length} assignment
                   </div>
                 </div>
-                {row.notes ? <p className="mt-4 text-sm text-[var(--muted-foreground)]">Notes: {String(row.notes)}</p> : null}
+
+                <div className="mt-5 space-y-5">
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                      <Stethoscope className="h-4 w-4 text-[var(--accent)]" />
+                      Doktor Bertugas
+                    </div>
+                    {renderRosterItems(dateGroup.doctors, "Tiada doktor diset untuk tarikh ini.")}
+                  </div>
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                      <Users className="h-4 w-4 text-[var(--accent)]" />
+                      Staff Bertugas
+                    </div>
+                    {renderRosterItems(dateGroup.staff, "Tiada staff diset untuk tarikh ini.")}
+                  </div>
+                </div>
               </div>
             );
           })}
