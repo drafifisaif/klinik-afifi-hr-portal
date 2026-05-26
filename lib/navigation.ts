@@ -1,16 +1,21 @@
 import {
   Bell,
+  BriefcaseMedical,
+  CalendarClock,
   ClipboardList,
+  FileBadge,
   FileCheck,
+  FileSearch,
   FileText,
   LayoutDashboard,
   MessageSquare,
   MessageSquareMore,
   Settings,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 
-import type { AppRouteKey, NavItem, UserRole } from "@/lib/types";
+import type { AppRouteKey, NavItem, NavigationGroup, UserRole } from "@/lib/types";
 
 const NAVIGATION: NavItem[] = [
   {
@@ -19,6 +24,7 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Home",
     icon: LayoutDashboard,
     routeKey: "dashboard",
+    group: "core_hr",
   },
   {
     href: "/staff",
@@ -26,6 +32,7 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Staff",
     icon: Users,
     routeKey: "staff",
+    group: "core_hr",
   },
   {
     href: "/leave",
@@ -33,6 +40,7 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Leave",
     icon: ClipboardList,
     routeKey: "leave",
+    group: "core_hr",
   },
   {
     href: "/mc",
@@ -40,6 +48,7 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "MC",
     icon: FileCheck,
     routeKey: "mc",
+    group: "core_hr",
   },
   {
     href: "/feedback",
@@ -47,6 +56,7 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Feedback",
     icon: MessageSquare,
     routeKey: "feedback",
+    group: "core_hr",
   },
   {
     href: "/feedback/manage",
@@ -54,6 +64,15 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Manage",
     icon: MessageSquareMore,
     routeKey: "feedbackManage",
+    group: "core_hr",
+  },
+  {
+    href: "/roster",
+    label: "Roster",
+    shortLabel: "Roster",
+    icon: CalendarClock,
+    routeKey: "roster",
+    group: "core_hr",
   },
   {
     href: "/notifications",
@@ -61,13 +80,55 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Alerts",
     icon: Bell,
     routeKey: "notifications",
+    group: "core_hr",
   },
   {
-    href: "/circulars",
-    label: "Circulars",
-    shortLabel: "Circulars",
+    href: "/staff-compliance",
+    label: "Staff Documents",
+    shortLabel: "Docs",
+    icon: FileBadge,
+    routeKey: "staffCompliance",
+    group: "staff_compliance",
+  },
+  {
+    href: "/staff-compliance/requirements",
+    label: "Document Requirements",
+    shortLabel: "Reqs",
     icon: FileText,
-    routeKey: "circulars",
+    routeKey: "staffComplianceRequirements",
+    group: "staff_compliance",
+  },
+  {
+    href: "/staff-compliance/expiry",
+    label: "Expiry Tracking",
+    shortLabel: "Expiry",
+    icon: FileSearch,
+    routeKey: "staffComplianceExpiry",
+    group: "staff_compliance",
+  },
+  {
+    href: "/clinic-compliance",
+    label: "Clinic Documents",
+    shortLabel: "Clinic",
+    icon: BriefcaseMedical,
+    routeKey: "clinicCompliance",
+    group: "clinic_compliance",
+  },
+  {
+    href: "/clinic-compliance/branch",
+    label: "Branch Compliance",
+    shortLabel: "Branch",
+    icon: ShieldCheck,
+    routeKey: "clinicComplianceBranch",
+    group: "clinic_compliance",
+  },
+  {
+    href: "/clinic-compliance/expiry",
+    label: "Expiry Tracking",
+    shortLabel: "Expiry",
+    icon: FileSearch,
+    routeKey: "clinicComplianceExpiry",
+    group: "clinic_compliance",
   },
   {
     href: "/settings",
@@ -75,13 +136,32 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "Settings",
     icon: Settings,
     routeKey: "settings",
+    group: "settings",
+  },
+  {
+    href: "/circulars",
+    label: "Circulars",
+    shortLabel: "Circulars",
+    icon: FileText,
+    routeKey: "circulars",
+    group: "settings",
   },
 ];
 
 const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
   staff: ["dashboard", "leave", "mc", "feedback", "circulars", "settings"],
-  branch_pic: ["dashboard", "staff", "leave", "feedback", "circulars", "settings"],
-  operation: ["dashboard", "feedbackManage", "notifications", "circulars", "settings"],
+  branch_pic: ["dashboard", "staff", "leave", "feedback", "roster", "circulars", "settings"],
+  operation: [
+    "dashboard",
+    "feedbackManage",
+    "notifications",
+    "roster",
+    "clinicCompliance",
+    "clinicComplianceBranch",
+    "clinicComplianceExpiry",
+    "circulars",
+    "settings",
+  ],
   hr: [
     "dashboard",
     "staff",
@@ -89,10 +169,24 @@ const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
     "mc",
     "feedbackManage",
     "notifications",
+    "roster",
+    "staffCompliance",
+    "staffComplianceRequirements",
+    "staffComplianceExpiry",
+    "clinicCompliance",
+    "clinicComplianceBranch",
+    "clinicComplianceExpiry",
     "circulars",
     "settings",
   ],
   super_admin: NAVIGATION.map((item) => item.routeKey),
+};
+
+const GROUP_LABELS: Record<NavigationGroup, string> = {
+  core_hr: "Core HR",
+  staff_compliance: "Staff Compliance",
+  clinic_compliance: "Clinic Compliance",
+  settings: "Settings",
 };
 
 export function normalizeRole(value: unknown): UserRole {
@@ -115,4 +209,8 @@ export function getRoleNavigation(role: UserRole) {
 
 export function canAccessRoute(role: UserRole, routeKey: AppRouteKey) {
   return ROLE_ACCESS[role].includes(routeKey);
+}
+
+export function getNavigationGroupLabel(group: NavigationGroup) {
+  return GROUP_LABELS[group];
 }

@@ -1,6 +1,6 @@
 # Klinik Afifi HR Portal
 
-Deploy-ready HR portal foundation built with Next.js App Router, TypeScript, Tailwind CSS, Supabase Auth, Supabase Postgres, and Supabase Storage.
+Deploy-ready HR portal foundation and Batch 2 modules built with Next.js App Router, TypeScript, Tailwind CSS, Supabase Auth, Supabase Postgres, and Supabase Storage.
 
 ## Stack
 
@@ -19,8 +19,31 @@ Deploy-ready HR portal foundation built with Next.js App Router, TypeScript, Tai
 - Current profile lookup from the `profiles` table
 - Role-based navigation for `super_admin`, `hr`, `operation`, `branch_pic`, and `staff`
 - Reusable dashboard components and shared app shell
-- Foundation routes for dashboard, staff, leave, MC uploads, feedback, notifications, circulars, and settings
 - Safe loading, empty, and error states throughout the app
+
+## Batch 2 modules
+
+### Core HR
+
+- Dashboard with expanded operational stats
+- Staff directory with create and edit form
+- Leave workspace
+- MC upload workspace
+- Feedback workspace
+- Roster management and filtering
+- Notifications log
+
+### Staff Compliance
+
+- Staff documents upload and listing
+- Document requirements management
+- Expiry tracking for staff documents
+
+### Clinic Compliance
+
+- Clinic documents upload and listing
+- Branch compliance grouped view
+- Expiry tracking for clinic documents
 
 ## Routes
 
@@ -31,13 +54,20 @@ Deploy-ready HR portal foundation built with Next.js App Router, TypeScript, Tai
 - `/mc`
 - `/feedback`
 - `/feedback/manage`
+- `/roster`
 - `/notifications`
+- `/staff-compliance`
+- `/staff-compliance/requirements`
+- `/staff-compliance/expiry`
+- `/clinic-compliance`
+- `/clinic-compliance/branch`
+- `/clinic-compliance/expiry`
 - `/circulars`
 - `/settings`
 
 ## Environment variables
 
-Only the public Supabase variables are required in this foundation:
+Only the public Supabase variables are required in this project:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-project-url
@@ -75,17 +105,50 @@ pnpm lint
 
 ## Supabase notes
 
+### Auth
+
 - Auth uses Supabase email/password sign-in.
-- Storage upload foundation uses the `mc-uploads` bucket.
-- Data pages read from these existing tables:
-  - `profiles`
-  - `branches`
-  - `staff`
-  - `leave_requests`
-  - `feedbacks`
-  - `feedback_comments`
-  - `notifications`
-  - `circulars`
+- The frontend only uses `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- No `service_role` key is used in the frontend.
+
+### Storage
+
+- `mc-uploads`
+- `staff-compliance`
+- `clinic-compliance`
+- `staff-documents`
+- `circular-attachments`
+
+Batch 2 document pages upload files into:
+
+- `staff-compliance`
+- `clinic-compliance`
+
+Files are not exposed publicly in this batch. The app stores the Supabase Storage path in the database and shows filename/status in the UI.
+
+### Tables used
+
+Core HR:
+
+- `profiles`
+- `branches`
+- `staff`
+- `leave_requests`
+- `feedbacks`
+- `feedback_comments`
+- `notifications`
+- `shift_templates`
+- `rosters`
+- `circulars`
+
+Staff Compliance:
+
+- `document_requirements`
+- `staff_documents`
+
+Clinic Compliance:
+
+- `clinic_compliance_documents`
 
 ## Project structure
 
@@ -98,13 +161,17 @@ app/
   (app)/mc
   (app)/feedback
   (app)/feedback/manage
+  (app)/roster
   (app)/notifications
+  (app)/staff-compliance
+  (app)/clinic-compliance
   (app)/circulars
   (app)/settings
 components/
 lib/
   auth.ts
   data.ts
+  navigation.ts
   types.ts
   supabase/
 ```
@@ -117,8 +184,8 @@ The app is ready for Vercel deployment.
 2. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the Vercel project environment settings.
 3. Deploy.
 
-## Extension ideas
+## Batch 2 follow-up ideas
 
-- Add server actions or API routes for leave and feedback mutations once the final column schema is confirmed.
-- Expand role-based policies with row-level security in Supabase.
-- Add charts, approval flows, and read receipts on top of the existing shared components.
+- Add signed URL downloads for private compliance files.
+- Tighten row-level filtering further based on final branch and ownership relationships.
+- Connect leave, feedback, and roster forms to richer approval workflows and audit history.

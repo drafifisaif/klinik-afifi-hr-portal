@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+import type { TableRow } from "@/lib/types";
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -69,4 +71,83 @@ export function deriveColumns(rows: Record<string, unknown>[], preferred: string
 export function isStatusLikeKey(key: string) {
   const normalized = key.toLowerCase();
   return normalized.includes("status") || normalized.includes("state");
+}
+
+export function normalizeString(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+export function formatDate(value: unknown) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("en-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+export function formatDateInput(value: unknown) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+export function daysUntil(dateValue: unknown) {
+  if (!dateValue) {
+    return null;
+  }
+
+  const target = new Date(String(dateValue));
+
+  if (Number.isNaN(target.getTime())) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+
+  return Math.ceil((target.getTime() - today.getTime()) / 86400000);
+}
+
+export function mapRowsWithId(rows: TableRow[]) {
+  return rows.map<TableRow>((row, index) => ({
+    ...row,
+    id: row.id ?? `${row.created_at ?? row.file_url ?? row.document_name ?? index}`,
+  }));
+}
+
+export function matchesBranch(row: TableRow, branchId?: string | null) {
+  if (!branchId) {
+    return true;
+  }
+
+  return String(row.branch_id ?? "") === branchId;
+}
+
+export function getFilename(path: unknown) {
+  if (!path) {
+    return "-";
+  }
+
+  const value = String(path);
+  const parts = value.split("/");
+  return parts[parts.length - 1] || value;
 }

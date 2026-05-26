@@ -1,10 +1,16 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
-import type { TableRow } from "@/lib/types";
+import type { Profile, TableRow, UserRole } from "@/lib/types";
+import { daysUntil, normalizeString } from "@/lib/utils";
 
 export interface QueryResult {
   rows: TableRow[];
   error: string | null;
+}
+
+export interface ExpiryStatus {
+  label: "valid" | "expiring_soon" | "expired" | "pending_review";
+  daysRemaining: number | null;
 }
 
 export async function fetchRows(
@@ -124,4 +130,83 @@ export function filterPublishedCirculars(rows: TableRow[]) {
 
     return status === "published" || status === "active";
   });
+}
+
+export function filterRowsForScope(
+  rows: TableRow[],
+  role: UserRole,
+  profile: Profile | null,
+  userId: string,
+) {
+  if (role === "super_admin" || role === "hr" || role === "operation") {
+    return rows;
+  }
+
+  if (role === "branch_pic") {
+    if (!profile?.branch_id) {
+      return rows;
+    }
+
+    return rows.filter((row) => String(row.branch_id ?? "") === String(profile.branch_id));
+  }
+
+  return rows.filter((row) => {
+    const rowUserId = String(row.user_id ?? row.created_by ?? row.profile_id ?? row.staff_id ?? "");
+    return rowUserId === userId;
+  });
+}
+
+export function getExpiryStatus(row: TableRow, field = "expiry_date"): ExpiryStatus {
+  const statusValue = normalizeString(row.status ?? row.review_status ?? row.document_status);
+
+  if (statusValue === "pending_review") {
+    return {
+      label: "pending_review",
+      daysRemaining: daysUntil(row[field]),
+    };
+  }
+
+  const remaining = daysUntil(row[field]);
+
+  if (remaining === null) {
+    return {
+      label: "pending_review",
+      daysRemaining: null,
+    };
+  }
+
+  if (remaining < 0) {
+    return {
+      label: "expired",
+      daysRemaining: remaining,
+    };
+  }
+
+  if (remaining <= 60) {
+    return {
+      label: "expiring_soon",
+      daysRemaining: remaining,
+    };
+  }
+
+  return {
+    label: "valid",
+    daysRemaining: remaining,
+  };
+}
+
+export function filterExpiringRows(rows: TableRow[], field = "expiry_date") {
+  return rows.filter((row) => {
+    const status = getExpiryStatus(row, field);
+    return status.label === "expired" || status.label === "expiring_soon";
+  });
+}
+
+export function countExpiringRows(rows: TableRow[], field = "expiry_date") {
+  return filterExpiringRows(rows, field).length;
+}
+
+export function countTodayRoster(rows: TableRow[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today).length;
 }
