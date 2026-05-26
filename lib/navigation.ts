@@ -158,7 +158,7 @@ const NAVIGATION: NavItem[] = [
 ];
 
 const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
-  staff: ["dashboard", "leave", "mc", "feedback", "circulars", "settings"],
+  staff: ["dashboard", "leave", "mc", "feedback", "roster", "circulars", "settings"],
   branch_pic: [
     "dashboard",
     "staff",
