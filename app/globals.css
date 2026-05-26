@@ -1,0 +1,60 @@
+:root {
+  --background: #f4f7f7;
+  --foreground: #163235;
+  --muted-foreground: #5e7477;
+  --card: #ffffff;
+  --card-muted: #eef3f3;
+  --border: #d8e5e6;
+  --accent: #0f9d94;
+  --accent-foreground: #f4fffe;
+  --ring: rgba(15, 157, 148, 0.16);
+  --danger: #dc6262;
+  --success: #2d8a63;
+  --warning: #d39b32;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(15, 157, 148, 0.08), transparent 28%),
+    linear-gradient(180deg, #f8fbfb 0%, #f4f7f7 100%);
+  color: var(--foreground);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+}
+
+::selection {
+  background: rgba(15, 157, 148, 0.16);
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
