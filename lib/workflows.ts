@@ -1,0 +1,194 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { normalizeRole } from "@/lib/navigation";
+import { createClient } from "@/lib/supabase/server";
+import type { LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
+import { buildLeaveBalanceSummary } from "@/lib/data";
+
+export async function getCurrentUserContext() {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return {
+      supabase: null,
+      user: null,
+      profile: null,
+      staff: null,
+      role: "staff" as UserRole,
+    };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      supabase,
+      user: null,
+      profile: null,
+      staff: null,
+      role: "staff" as UserRole,
+    };
+  }
+
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const profile = profileData
+    ? ({
+        ...profileData,
+        email: user.email ?? profileData.email ?? null,
+        role: normalizeRole(profileData.role),
+      } as Profile)
+    : ({
+        id: user.id,
+        email: user.email ?? null,
+        full_name: user.user_metadata.full_name ?? null,
+        role: "staff",
+      } as Profile);
+
+  const { data: staffData } = await supabase
+    .from("staff")
+    .select("*")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  return {
+    supabase,
+    user,
+    profile,
+    staff: (staffData as TableRow | null) ?? null,
+    role: normalizeRole(profile.role),
+  };
+}
+
+export async function fetchLinkedProfileAndStaff(supabase: SupabaseClient, profileId: string) {
+  const [{ data: profileData }, { data: staffData }] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", profileId).maybeSingle(),
+    supabase.from("staff").select("*").eq("profile_id", profileId).maybeSingle(),
+  ]);
+
+  return {
+    profile: (profileData as Profile | null) ?? null,
+    staff: (staffData as TableRow | null) ?? null,
+  };
+}
+
+export async function fetchLatestLeaveEntitlement(
+  supabase: SupabaseClient | null,
+  staffId?: string | null,
+) {
+  if (!supabase || !staffId) {
+    return null;
+  }
+
+  const currentYear = new Date().getFullYear();
+
+  const preferred = await supabase
+    .from("leave_entitlements")
+    .select("*")
+    .eq("staff_id", staffId)
+    .eq("entitlement_year", currentYear)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (preferred.data) {
+    return preferred.data as TableRow;
+  }
+
+  const fallback = await supabase
+    .from("leave_entitlements")
+    .select("*")
+    .eq("staff_id", staffId)
+    .order("entitlement_year", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return (fallback.data as TableRow | null) ?? null;
+}
+
+export async function fetchLeaveBalance(
+  supabase: SupabaseClient | null,
+  staffId?: string | null,
+  profileId?: string | null,
+): Promise<LeaveBalanceSummary> {
+  if (!supabase || !staffId) {
+    return buildLeaveBalanceSummary(null, []);
+  }
+
+  const entitlement = await fetchLatestLeaveEntitlement(supabase, staffId);
+  const leaveRowsResult = await supabase
+    .from("leave_requests")
+    .select("*")
+    .eq("staff_id", staffId);
+
+  const leaveRows = (leaveRowsResult.data as TableRow[] | null) ?? [];
+  const scopedLeaveRows = profileId
+    ? leaveRows.filter((row) => String(row.profile_id ?? profileId) === profileId || String(row.staff_id ?? "") === staffId)
+    : leaveRows;
+
+  return buildLeaveBalanceSummary(entitlement, scopedLeaveRows);
+}
+
+export async function createNotificationRows(
+  supabase: SupabaseClient | null,
+  payloads: TableRow[],
+) {
+  if (!supabase || !payloads.length) {
+    return;
+  }
+
+  // TODO: integrate Resend/SMTP worker to send pending notification emails asynchronously.
+  await supabase.from("notifications").insert(payloads);
+}
+
+export async function resolveFeedbackRecipients(
+  supabase: SupabaseClient | null,
+  targetType: string,
+  targetStaffId?: string | null,
+) {
+  if (!supabase) {
+    return [] as TableRow[];
+  }
+
+  const recipients: TableRow[] = [];
+
+  if (targetType === "staff" && targetStaffId) {
+    const { data: targetStaff } = await supabase
+      .from("staff")
+      .select("profile_id, email, full_name")
+      .eq("id", targetStaffId)
+      .maybeSingle();
+
+    if (targetStaff?.profile_id) {
+      recipients.push(targetStaff as TableRow);
+    }
+
+    return recipients;
+  }
+
+  const roleNames =
+    targetType === "hr" || targetType === "portal_system"
+      ? ["hr", "super_admin"]
+      : targetType === "operation"
+        ? ["operation", "super_admin"]
+        : [];
+
+  if (!roleNames.length) {
+    return recipients;
+  }
+
+  const { data: matchingProfiles } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, role")
+    .in("role", roleNames);
+
+  return (matchingProfiles as TableRow[] | null) ?? [];
+}

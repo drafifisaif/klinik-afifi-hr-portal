@@ -26,12 +26,17 @@ export default async function StaffComplianceDocumentsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Staff Documents"
-        description="Upload and track staff compliance documents while keeping private files inside Supabase Storage."
+        description="Upload real compliance documents to private storage and review expiry and workflow status safely."
       />
       <StaffCompliancePage
         documents={documents.rows}
         staff={staffRows.rows}
-        branches={branches.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id)}
+        branches={branches.rows
+          .map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) }))
+          .filter((row) => row.id)}
+        role={context.role}
+        profile={context.profile}
+        currentStaff={context.staff}
         error={documents.error ?? staffRows.error ?? branches.error}
       />
     </div>

@@ -1,7 +1,11 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
-import type { Profile, TableRow, UserRole } from "@/lib/types";
-import { daysUntil, normalizeString } from "@/lib/utils";
+import type { LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
+import {
+  calculateLeaveDays,
+  daysUntil,
+  normalizeString,
+} from "@/lib/utils";
 
 export interface QueryResult {
   rows: TableRow[];
@@ -93,7 +97,7 @@ export function filterRowsByKnownOwner(rows: TableRow[], userId: string, profile
     return rows;
   }
 
-  const ownerKeys = ["user_id", "profile_id", "created_by", "staff_id"];
+  const ownerKeys = ["user_id", "profile_id", "created_by", "staff_id", "submitted_by"];
 
   return rows.filter((row) =>
     ownerKeys.some((key) => identifiers.includes(String(row[key] ?? ""))),
@@ -151,7 +155,9 @@ export function filterRowsForScope(
   }
 
   return rows.filter((row) => {
-    const rowUserId = String(row.user_id ?? row.created_by ?? row.profile_id ?? row.staff_id ?? "");
+    const rowUserId = String(
+      row.user_id ?? row.created_by ?? row.profile_id ?? row.staff_id ?? row.submitted_by ?? "",
+    );
     return rowUserId === userId;
   });
 }
@@ -209,4 +215,150 @@ export function countExpiringRows(rows: TableRow[], field = "expiry_date") {
 export function countTodayRoster(rows: TableRow[]) {
   const today = new Date().toISOString().slice(0, 10);
   return rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today).length;
+}
+
+export function filterLeaveRequestsForRole(
+  rows: TableRow[],
+  role: UserRole,
+  profile: Profile | null,
+  userId: string,
+  staffId?: string | null,
+) {
+  if (role === "super_admin" || role === "hr") {
+    return rows;
+  }
+
+  if (role === "branch_pic") {
+    return rows.filter((row) => String(row.branch_id ?? "") === String(profile?.branch_id ?? ""));
+  }
+
+  return rows.filter((row) => {
+    const rowProfileId = String(row.profile_id ?? row.submitted_by ?? "");
+    const rowStaffId = String(row.staff_id ?? "");
+    return rowProfileId === userId || (staffId ? rowStaffId === staffId : false);
+  });
+}
+
+export function filterMcRequestsForRole(
+  rows: TableRow[],
+  role: UserRole,
+  profile: Profile | null,
+  userId: string,
+  staffId?: string | null,
+) {
+  const mcRows = rows.filter((row) => normalizeString(row.leave_type) === "medical_leave");
+  return filterLeaveRequestsForRole(mcRows, role, profile, userId, staffId);
+}
+
+export function calculateApprovedLeaveUsage(rows: TableRow[]) {
+  return rows.reduce<{ annual: number; medical: number }>(
+    (summary, row) => {
+      if (normalizeString(row.status) !== "approved") {
+        return summary;
+      }
+
+      const leaveType = normalizeString(row.leave_type);
+      const totalDays = Number(row.total_days ?? 0) || calculateLeaveDays(
+        String(row.start_date ?? ""),
+        String(row.end_date ?? ""),
+        row.half_day === true,
+      );
+
+      if (leaveType === "annual_leave") {
+        summary.annual += totalDays;
+      }
+
+      if (leaveType === "medical_leave") {
+        summary.medical += totalDays;
+      }
+
+      return summary;
+    },
+    { annual: 0, medical: 0 },
+  );
+}
+
+export function buildLeaveBalanceSummary(
+  entitlement: TableRow | null,
+  leaveRows: TableRow[],
+): LeaveBalanceSummary {
+  const usage = calculateApprovedLeaveUsage(leaveRows);
+  const annualTotal = Number(entitlement?.annual_leave_total ?? 0);
+  const annualOpening = Number(entitlement?.annual_leave_opening_used ?? 0);
+  const medicalTotal = Number(entitlement?.medical_leave_total ?? 0);
+  const medicalOpening = Number(entitlement?.medical_leave_opening_used ?? 0);
+
+  return {
+    annual: {
+      total: annualTotal,
+      openingUsed: annualOpening,
+      portalUsed: usage.annual,
+      remaining: annualTotal - annualOpening - usage.annual,
+    },
+    medical: {
+      total: medicalTotal,
+      openingUsed: medicalOpening,
+      portalUsed: usage.medical,
+      remaining: medicalTotal - medicalOpening - usage.medical,
+    },
+    entitlementYear: entitlement ? Number(entitlement.entitlement_year ?? null) : null,
+    note: entitlement ? String(entitlement.opening_balance_note ?? "") || null : null,
+  };
+}
+
+export function filterFeedbackForManageView(
+  rows: TableRow[],
+  role: UserRole,
+  profile: Profile | null,
+  userId: string,
+  staffId?: string | null,
+) {
+  if (role === "super_admin" || role === "hr") {
+    return rows;
+  }
+
+  if (role === "operation") {
+    return rows.filter((row) => normalizeString(row.target_type) === "operation");
+  }
+
+  if (role === "branch_pic") {
+    return rows.filter((row) => {
+      const isBranch = String(row.branch_id ?? "") === String(profile?.branch_id ?? "");
+      const anonymous = row.is_anonymous === true;
+      return isBranch && !anonymous;
+    });
+  }
+
+  return rows.filter((row) => {
+    const submittedBy = String(row.submitted_by ?? "");
+    const targetStaffId = String(row.target_staff_id ?? "");
+    return submittedBy === userId || (staffId ? targetStaffId === staffId : false);
+  });
+}
+
+export function filterNotificationsForUser(rows: TableRow[], profileId: string) {
+  return rows.filter((row) => String(row.recipient_profile_id ?? "") === profileId);
+}
+
+export function countUnreadNotifications(rows: TableRow[], profileId: string) {
+  return filterNotificationsForUser(rows, profileId).filter((row) => row.is_read !== true).length;
+}
+
+export function getNextHoliday(rows: TableRow[], branchId?: string | null) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const candidates = rows
+    .filter((row) => {
+      const holidayDate = new Date(String(row.holiday_date ?? ""));
+      if (Number.isNaN(holidayDate.getTime())) {
+        return false;
+      }
+      holidayDate.setHours(0, 0, 0, 0);
+      const matchesBranch = !row.branch_id || String(row.branch_id) === String(branchId ?? "");
+      return holidayDate >= today && matchesBranch;
+    })
+    .sort((left, right) => String(left.holiday_date ?? "").localeCompare(String(right.holiday_date ?? "")));
+
+  return candidates[0] ?? null;
 }

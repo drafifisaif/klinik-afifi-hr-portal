@@ -1,9 +1,8 @@
 import { EmptyState } from "@/components/empty-state";
+import { NotificationCenterPage } from "@/components/notification-center-page";
 import { PageHeader } from "@/components/page-header";
-import { SimpleTable } from "@/components/simple-table";
 import { requireRouteAccess } from "@/lib/auth";
-import { fetchRows } from "@/lib/data";
-import { deriveColumns } from "@/lib/utils";
+import { fetchRows, filterNotificationsForUser } from "@/lib/data";
 
 export default async function NotificationsPage() {
   const context = await requireRouteAccess("notifications");
@@ -12,33 +11,21 @@ export default async function NotificationsPage() {
     return (
       <EmptyState
         title="Notifications access restricted"
-        description="Your current role does not include notification log monitoring."
+        description="Sign in to view your in-app notification inbox."
       />
     );
   }
 
-  const result = await fetchRows(context.supabase, "notifications", 50);
+  const result = await fetchRows(context.supabase, "notifications", 200);
+  const rows = filterNotificationsForUser(result.rows, context.user.id);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Notifications"
-        description="Monitor system and workflow notification logs coming from the notifications table."
+        description="Review feedback and workflow notifications, then mark them as read once handled."
       />
-      {result.error ? (
-        <EmptyState title="Unable to load notifications" description={result.error} />
-      ) : result.rows.length ? (
-        <SimpleTable
-          caption="Notification table"
-          columns={deriveColumns(result.rows, ["title", "type", "status", "created_at", "recipient_id"])}
-          rows={result.rows}
-        />
-      ) : (
-        <EmptyState
-          title="No notification logs yet"
-          description="Notification rows will appear here once they are written to Supabase."
-        />
-      )}
+      <NotificationCenterPage rows={rows} error={result.error} />
     </div>
   );
 }

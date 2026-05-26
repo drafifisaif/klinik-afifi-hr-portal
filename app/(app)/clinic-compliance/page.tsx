@@ -25,12 +25,15 @@ export default async function ClinicComplianceDocumentsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Clinic Documents"
-        description="Upload and review clinic compliance documents by branch and category while keeping files private."
+        description="Upload and review clinic compliance records by branch while keeping private files inside Supabase Storage."
       />
       <ClinicCompliancePage
         rows={documents.rows}
-        branches={branches.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id)}
+        branches={branches.rows
+          .map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) }))
+          .filter((row) => row.id)}
         role={context.role}
+        profile={context.profile}
         error={documents.error ?? branches.error}
       />
     </div>

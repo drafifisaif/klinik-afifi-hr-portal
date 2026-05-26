@@ -36,6 +36,7 @@ export type AppRouteKey =
   | "feedbackManage"
   | "notifications"
   | "roster"
+  | "holidays"
   | "staffCompliance"
   | "staffComplianceRequirements"
   | "staffComplianceExpiry"
@@ -57,4 +58,21 @@ export interface BranchOption {
 export interface SelectOption {
   value: string;
   label: string;
+}
+
+export interface LeaveBalanceSummary {
+  annual: {
+    total: number;
+    openingUsed: number;
+    portalUsed: number;
+    remaining: number;
+  };
+  medical: {
+    total: number;
+    openingUsed: number;
+    portalUsed: number;
+    remaining: number;
+  };
+  entitlementYear: number | null;
+  note: string | null;
 }

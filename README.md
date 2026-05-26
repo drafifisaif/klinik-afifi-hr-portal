@@ -1,6 +1,6 @@
 # Klinik Afifi HR Portal
 
-Deploy-ready HR portal foundation and Batch 2 modules built with Next.js App Router, TypeScript, Tailwind CSS, Supabase Auth, Supabase Postgres, and Supabase Storage.
+Deploy-ready HR portal foundation with Batch 2 and Batch 3B workflow modules built with Next.js App Router, TypeScript, Tailwind CSS, Supabase Auth, Supabase Postgres, and Supabase Storage.
 
 ## Stack
 
@@ -45,6 +45,45 @@ Deploy-ready HR portal foundation and Batch 2 modules built with Next.js App Rou
 - Branch compliance grouped view
 - Expiry tracking for clinic documents
 
+## Batch 3B workflow wiring
+
+### Self profile flow
+
+- Settings is now `My Profile`
+- Logged-in users without a linked `staff` row can complete their staff profile in-app
+- Personal profile updates now write to `profiles` and linked `staff` records
+- HR and super admin can update organizational fields and profile role
+
+### Real leave and MC workflows
+
+- Leave form now inserts real rows into `leave_requests`
+- Leave review updates support `pending`, `approved`, `rejected`, and `cancelled`
+- Review metadata writes `reviewed_by`, `reviewed_at`, and `review_note`
+- Leave balance now reads from `leave_entitlements` and approved `leave_requests`
+- MC upload now stores the private storage path in `attachment_url` and creates a `medical_leave` request
+
+### Feedback workflow and notifications
+
+- Feedback form now inserts real `feedbacks` records
+- Feedback manage flow supports assignment, status updates, and `feedback_comments`
+- Notification rows are created for feedback submission, reply, and status change events
+- Topbar now shows unread notification count
+- Notifications page supports read tracking with `is_read`
+- Email sending stays safely pending with TODO hooks for a future worker or provider integration
+
+### Compliance uploads
+
+- Staff compliance uploads store private bucket paths in `staff_documents.file_url`
+- Clinic compliance uploads store private bucket paths in `clinic_compliance_documents.file_url`
+- HR and super admin can review staff document status updates
+
+### Roster and holidays
+
+- Branch PIC can create branch shift templates and manage own branch roster
+- HR and super admin can manage global and branch templates
+- Holidays module added with create, edit, delete, and branch-aware visibility
+- Dashboard includes next clinic holiday countdown
+
 ## Routes
 
 - `/login`
@@ -55,6 +94,7 @@ Deploy-ready HR portal foundation and Batch 2 modules built with Next.js App Rou
 - `/feedback`
 - `/feedback/manage`
 - `/roster`
+- `/holidays`
 - `/notifications`
 - `/staff-compliance`
 - `/staff-compliance/requirements`
@@ -119,12 +159,14 @@ pnpm lint
 - `staff-documents`
 - `circular-attachments`
 
-Batch 2 document pages upload files into:
-
-- `staff-compliance`
-- `clinic-compliance`
-
 Files are not exposed publicly in this batch. The app stores the Supabase Storage path in the database and shows filename/status in the UI.
+
+### Notifications and email
+
+- Notification logging in the `notifications` table is active for feedback workflows
+- `email_status` is written as `pending`
+- TODO hooks are left in place for future Resend, SMTP, or background worker integration
+- Missing email provider configuration does not break the build
 
 ### Tables used
 
@@ -139,6 +181,8 @@ Core HR:
 - `notifications`
 - `shift_templates`
 - `rosters`
+- `holidays`
+- `leave_entitlements`
 - `circulars`
 
 Staff Compliance:
@@ -162,6 +206,7 @@ app/
   (app)/feedback
   (app)/feedback/manage
   (app)/roster
+  (app)/holidays
   (app)/notifications
   (app)/staff-compliance
   (app)/clinic-compliance
@@ -173,6 +218,8 @@ lib/
   data.ts
   navigation.ts
   types.ts
+  workflows.ts
+  notification-helpers.ts
   supabase/
 ```
 
@@ -184,8 +231,8 @@ The app is ready for Vercel deployment.
 2. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the Vercel project environment settings.
 3. Deploy.
 
-## Batch 2 follow-up ideas
+## Batch 3B follow-up ideas
 
-- Add signed URL downloads for private compliance files.
-- Tighten row-level filtering further based on final branch and ownership relationships.
-- Connect leave, feedback, and roster forms to richer approval workflows and audit history.
+- Add signed URL download and preview flows for private compliance and MC files.
+- Move notification email sending into a server-side worker or function.
+- Tighten RLS and role-specific filtering further once the full production schema and policies are finalized.

@@ -95,6 +95,26 @@ export function formatDate(value: unknown) {
   }).format(date);
 }
 
+export function formatDateTime(value: unknown) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("en-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function formatDateInput(value: unknown) {
   if (!value) {
     return "";
@@ -150,4 +170,44 @@ export function getFilename(path: unknown) {
   const value = String(path);
   const parts = value.split("/");
   return parts[parts.length - 1] || value;
+}
+
+export function calculateLeaveDays(startDate: string, endDate: string, halfDay: boolean) {
+  if (!startDate || !endDate) {
+    return 0;
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return 0;
+  }
+
+  const dayCount = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  return halfDay ? 0.5 : dayCount;
+}
+
+export function sanitizeFilename(filename: string) {
+  return filename
+    .toLowerCase()
+    .replace(/[^a-z0-9.\-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+export function formatCountdown(days: number | null) {
+  if (days === null) {
+    return "-";
+  }
+
+  if (days < 0) {
+    return `${Math.abs(days)}d ago`;
+  }
+
+  if (days === 0) {
+    return "Today";
+  }
+
+  return `${days}d left`;
 }
