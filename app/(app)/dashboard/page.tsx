@@ -178,6 +178,10 @@ function countResolvedThisWeek(feedbacks: TableRow[]) {
   }).length;
 }
 
+function isPendingLeaveStatus(row: TableRow) {
+  return normalizeString(row.status) === "pending";
+}
+
 async function queryRows(executor: () => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<RowQueryResult> {
   try {
     const { data, error } = await executor();
@@ -594,7 +598,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("leave_entitlements").select("*").eq("staff_id", staffId).order("entitlement_year", { ascending: false }).limit(5)),
     queryRows(() => supabase.from("rosters").select("*").eq("staff_id", staffId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(20)),
     queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(200)),
-    queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).in("status", ["pending", "submitted"]).limit(80)),
+    queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).eq("status", "pending").limit(80)),
     queryRows(() => supabase.from("feedbacks").select("*").eq("branch_id", branchId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).limit(80)),
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
@@ -681,7 +685,7 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
     queryRows(() => supabase.from("staff").select("*").limit(300)),
   ]);
 
-  const pendingLeave = leaveRows.rows.filter((row) => ["pending", "submitted"].includes(normalizeString(row.status)));
+  const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus);
   const pendingMc = pendingLeave.filter((row) => normalizeString(row.leave_type) === "medical_leave" || Boolean(row.attachment_url));
   const pendingDocReview = staffDocs.rows.filter((row) => normalizeString(row.status) === "pending_review");
   const incompleteProfiles = staffRows.rows.filter(isStaffRecordIncomplete);
@@ -816,7 +820,7 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
   ]);
 
-  const pendingLeave = leaveRows.rows.filter((row) => ["pending", "submitted"].includes(normalizeString(row.status))).length;
+  const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus).length;
   const openIssues = feedbackRows.rows.filter((row) => !["resolved", "closed"].includes(normalizeString(row.status))).length;
   const complianceSoon = countExpiringRows(staffDocs.rows) + countExpiringRows(clinicDocs.rows);
   const nextHoliday = getNextHoliday(holidays.rows, null);
@@ -824,7 +828,7 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
   const branchIssueSummary = branches.map((branch) => ({
     branch,
     openIssues: feedbackRows.rows.filter((row) => String(row.branch_id ?? "") === branch.id && !["resolved", "closed"].includes(normalizeString(row.status))).length,
-    pendingLeave: leaveRows.rows.filter((row) => String(row.branch_id ?? "") === branch.id && ["pending", "submitted"].includes(normalizeString(row.status))).length,
+    pendingLeave: leaveRows.rows.filter((row) => String(row.branch_id ?? "") === branch.id && isPendingLeaveStatus(row)).length,
     activeStaff: staffRows.rows.filter((row) => String(row.branch_id ?? "") === branch.id && normalizeString(row.status) !== "resigned").length,
   })).filter((item) => item.activeStaff || item.pendingLeave || item.openIssues);
 
