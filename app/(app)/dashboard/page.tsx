@@ -628,7 +628,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
-  const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, branchStaffRows, feedbackRows, profileRows] = await Promise.all([
+  const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, branchStaffRows, feedbackRows, profileRows, staffDirectoryRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(120)),
@@ -638,6 +638,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("feedbacks").select("*").eq("target_staff_id", staffId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(40)),
     queryRows(() => supabase.from("profiles").select("*").limit(200)),
+    queryRows(() => supabase.from("staff").select("*").limit(400)),
   ]);
 
   const nextHoliday = getNextHoliday(holidays.rows, branchId);
@@ -648,7 +649,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, holidays.error, rosters.error, shiftTemplates.error, leaveRows.error, entitlementRows.error, branchStaffRows.error, feedbackRows.error, profileRows.error]} />
+      <PartialDataNotice errors={[notifications.error, holidays.error, rosters.error, shiftTemplates.error, leaveRows.error, entitlementRows.error, branchStaffRows.error, feedbackRows.error, profileRows.error, staffDirectoryRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Warga Klinik Afifi")}`}
         subtitle="Ruang kerja peribadi anda memudahkan semakan roster, cuti, MC, dan notifikasi penting tanpa gangguan metrik global yang tidak berkaitan."
@@ -695,7 +696,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
         <DashboardList
           title="Feedback Untuk Saya"
           description="Maklum balas yang ditujukan terus kepada akaun staff anda supaya tindakan susulan lebih jelas."
-          items={feedbackForMe.slice(0, 5).map((row) => renderFeedbackItem(row, branchStaffRows.rows, profileRows.rows as Profile[], { currentStaffId: staffId, currentProfileId: profileId }))}
+          items={feedbackForMe.slice(0, 5).map((row) => renderFeedbackItem(row, staffDirectoryRows.rows, profileRows.rows as Profile[], { currentStaffId: staffId, currentProfileId: profileId }))}
           emptyTitle="Tiada feedback untuk anda"
           emptyDescription="Belum ada feedback yang disasarkan terus kepada anda buat masa ini."
         />
@@ -714,7 +715,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
-  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, profileRows] = await Promise.all([
+  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, profileRows, staffDirectoryRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
@@ -726,6 +727,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
     queryRows(() => supabase.from("profiles").select("*").limit(200)),
+    queryRows(() => supabase.from("staff").select("*").limit(400)),
   ]);
 
   const leaveBalance = buildLeaveBalanceSummary(entitlementRows.rows[0] ?? null, personalLeaveRows.rows);
@@ -740,7 +742,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error, profileRows.error]} />
+      <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error, profileRows.error, staffDirectoryRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}`}
         subtitle="Hari ini anda nampak dua lapisan kerja sekali gus: keperluan peribadi sebagai staff dan operasi cawangan yang perlu dipantau sepanjang minggu."
@@ -793,14 +795,14 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
         <DashboardList
           title="Feedback Untuk Saya"
           description="Maklum balas yang disasarkan terus kepada staff account anda atau telah diassign kepada anda."
-          items={feedbackForMe.slice(0, 5).map((row) => renderFeedbackItem(row, branchStaffRows.rows, profileRows.rows as Profile[], { currentStaffId: staffId, currentProfileId: profileId }))}
+          items={feedbackForMe.slice(0, 5).map((row) => renderFeedbackItem(row, staffDirectoryRows.rows, profileRows.rows as Profile[], { currentStaffId: staffId, currentProfileId: profileId }))}
           emptyTitle="Tiada feedback untuk anda"
           emptyDescription="Belum ada feedback yang ditujukan terus kepada anda buat masa ini."
         />
         <DashboardList
           title="Branch Operational Issues"
           description="Hanya isu operasi, facility, roster, equipment, atau tugasan cawangan dari branch anda dipaparkan di sini."
-          items={branchOperationalIssues.slice(0, 5).map((row) => renderFeedbackItem(row, branchStaffRows.rows, profileRows.rows as Profile[]))}
+          items={branchOperationalIssues.slice(0, 5).map((row) => renderFeedbackItem(row, staffDirectoryRows.rows, profileRows.rows as Profile[]))}
           emptyTitle="Tiada isu operasi cawangan"
           emptyDescription="Tiada isu operasi cawangan yang relevan untuk dipantau sekarang."
         />
