@@ -232,6 +232,11 @@ export function AttendancePage({
   const canManageSettings = role === "super_admin" || role === "hr";
   const canViewAllBranches = role === "super_admin" || role === "hr" || role === "operation";
   const canUsePersonalPunch = Boolean(currentStaff?.id && profile?.id);
+  const showPersonalAttendanceSection =
+    role === "staff" ||
+    role === "branch_pic" ||
+    (role === "operation" && canUsePersonalPunch);
+  const showManagementOverview = role === "hr" || role === "super_admin";
   const attendance = useMemo(() => mapRowsWithId(attendanceRows), [attendanceRows]);
   const adjustments = useMemo(() => mapRowsWithId(adjustmentRows), [adjustmentRows]);
   const rosters = useMemo(() => mapRowsWithId(rosterRows), [rosterRows]);
@@ -802,7 +807,7 @@ export function AttendancePage({
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load attendance data" description={error} /> : null}
 
-      {canUsePersonalPunch ? (
+      {showPersonalAttendanceSection ? (
         <FormSection
           title="Today attendance"
           description="Punch in, punch out, and review your scheduled shift linked to today's roster."
@@ -890,11 +895,36 @@ export function AttendancePage({
             </FormSection>
           </div>
         </FormSection>
-      ) : (
+      ) : showManagementOverview || role === "operation" ? (
+        <FormSection
+          title={role === "operation" ? "Attendance Snapshot" : "Attendance Management Overview"}
+          description={role === "operation" ? "Lihat snapshot attendance dan board kehadiran staff secara read-only." : "Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance."}
+        >
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{boardCounts.present}</p>
+            </div>
+            <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{boardCounts.late}</p>
+            </div>
+            <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{boardCounts.absent}</p>
+            </div>
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
+            </div>
+          </div>
+        </FormSection>
+      ) : canUsePersonalPunch ? null : (
         <EmptyState title="Complete your staff profile first" description="Attendance punch controls need a linked staff record before they can be used." />
       )}
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        {showPersonalAttendanceSection ? (
         <FormSection title="Attendance history" description="Your last 14 days of attendance, shift schedule, and any correction requests.">
           {personalHistory.length ? (
             <div className="space-y-3">
@@ -934,6 +964,26 @@ export function AttendancePage({
             <EmptyState title="Belum ada rekod attendance" description="Attendance history will appear after your first punch in and punch out." />
           )}
         </FormSection>
+        ) : (
+          <FormSection title="Attendance Management Overview" description="Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance.">
+            <div className="space-y-3">
+              <div className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-sm font-semibold text-[var(--foreground)]">Today attendance scope</p>
+                <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+                  {role === "hr"
+                    ? "HR boleh memantau semua cawangan, semak pembetulan, dan kemas kini rekod attendance bila perlu."
+                    : role === "operation"
+                      ? "Operation melihat attendance snapshot dan board secara read-only, dengan punch peribadi hanya jika akaun mempunyai linked staff row."
+                      : "Super admin boleh melihat gambaran global attendance, kelewatan, punch tidak lengkap, dan risiko absent."}
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-sm font-semibold text-[var(--foreground)]">Pending corrections</p>
+                <p className="mt-2 text-sm text-[var(--muted-foreground)]">{pendingAdjustments.length} request sedang menunggu semakan.</p>
+              </div>
+            </div>
+          </FormSection>
+        )}
 
         <FormSection title={role === "branch_pic" ? "Today attendance board" : role === "super_admin" || role === "hr" ? "Today attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -964,7 +1014,7 @@ export function AttendancePage({
             </div>
           </div>
 
-          {(role === "branch_pic" || role === "hr" || role === "super_admin") ? (
+          {(role === "branch_pic" || role === "hr" || role === "super_admin" || role === "operation") ? (
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>

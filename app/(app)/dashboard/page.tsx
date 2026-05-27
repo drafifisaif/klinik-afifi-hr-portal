@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CalendarDays,
   CheckCircle2,
+  Clock3,
   ChevronRight,
   ClipboardList,
   FileBadge,
@@ -65,6 +66,15 @@ interface DashboardAction {
   href: string;
   label: string;
   helper: string;
+}
+
+interface AttendanceSnapshotRow {
+  id: string;
+  staffName: string;
+  branchId: string;
+  branchName: string;
+  status: string;
+  lateMinutes: number;
 }
 
 function greetingByTime() {
@@ -274,6 +284,163 @@ function dedupeRowsById(rows: TableRow[]) {
   });
 }
 
+function combineDateAndTime(date: string, timeValue?: string | null) {
+  const time = String(timeValue ?? "").trim().slice(0, 5);
+  if (!date || !time) {
+    return null;
+  }
+
+  return `${date}T${time}:00`;
+}
+
+function parseIso(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function computeAttendanceLateMinutes(checkInAt: unknown, scheduledStart: unknown, graceMinutes: number) {
+  const checkIn = parseIso(checkInAt);
+  const scheduled = parseIso(scheduledStart);
+
+  if (!checkIn || !scheduled) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((checkIn.getTime() - scheduled.getTime()) / 60000) - graceMinutes);
+}
+
+function computeAttendanceStatus(row: TableRow | null, graceMinutes: number) {
+  if (!row) {
+    return "not_punched_in";
+  }
+
+  const lateMinutes = Number(row.late_minutes ?? computeAttendanceLateMinutes(row.check_in_at, row.scheduled_start, graceMinutes));
+  if (row.check_in_at && row.check_out_at) {
+    return lateMinutes > 0 ? "late" : "present";
+  }
+
+  if (row.check_in_at) {
+    return lateMinutes > 0 ? "late" : "incomplete";
+  }
+
+  return "not_punched_in";
+}
+
+function isApprovedLeaveForDate(row: TableRow, date: string) {
+  if (normalizeString(row.status) !== "approved") {
+    return false;
+  }
+
+  const start = String(row.start_date ?? "").slice(0, 10);
+  const end = String(row.end_date ?? "").slice(0, 10);
+  return Boolean(start && end && start <= date && end >= date);
+}
+
+function buildAttendanceSnapshotRows({
+  rosterRows,
+  attendanceRows,
+  settingRows,
+  staffRows,
+  leaveRows,
+  branches,
+  date,
+  branchScope = "all",
+}: {
+  rosterRows: TableRow[];
+  attendanceRows: TableRow[];
+  settingRows: TableRow[];
+  staffRows: TableRow[];
+  leaveRows: TableRow[];
+  branches: BranchOption[];
+  date: string;
+  branchScope?: string;
+}) {
+  return rosterRows
+    .filter((row) => {
+      const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
+      if (rosterDate !== date) {
+        return false;
+      }
+
+      return branchScope === "all" ? true : String(row.branch_id ?? "") === branchScope;
+    })
+    .map<AttendanceSnapshotRow>((rosterRow) => {
+      const staffRow = staffRows.find((item) => String(item.id ?? "") === String(rosterRow.staff_id ?? ""));
+      const attendanceRow = attendanceRows.find(
+        (item) =>
+          String(item.staff_id ?? "") === String(rosterRow.staff_id ?? "") &&
+          String(item.attendance_date ?? item.created_at ?? "").slice(0, 10) === date,
+      ) ?? null;
+      const branchId = String(rosterRow.branch_id ?? staffRow?.branch_id ?? "");
+      const branchName = getBranchName(branches, branchId);
+      const branchSetting = settingRows.find((item) => String(item.branch_id ?? "") === branchId)
+        ?? settingRows.find((item) => !String(item.branch_id ?? "").trim())
+        ?? null;
+      const graceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+      const autoAbsentAfterMinutes = Number(branchSetting?.auto_absent_after_minutes ?? 60) || 60;
+      const scheduledStart = attendanceRow?.scheduled_start
+        ?? combineDateAndTime(
+          String(rosterRow.roster_date ?? rosterRow.date ?? ""),
+          String(rosterRow.custom_start_time ?? ""),
+        );
+      const leaveRow = leaveRows.find(
+        (item) => String(item.staff_id ?? "") === String(rosterRow.staff_id ?? "") && isApprovedLeaveForDate(item, date),
+      ) ?? null;
+      const lateMinutes = Number(attendanceRow?.late_minutes ?? computeAttendanceLateMinutes(attendanceRow?.check_in_at, scheduledStart, graceMinutes));
+
+      let status = leaveRow
+        ? normalizeString(leaveRow.leave_type) === "medical_leave"
+          ? "mc"
+          : "on_leave"
+        : computeAttendanceStatus(attendanceRow, graceMinutes);
+
+      const scheduledStartDate = parseIso(scheduledStart);
+      const isToday = date === new Date().toISOString().slice(0, 10);
+      const now = new Date();
+
+      if (!leaveRow && !attendanceRow && scheduledStartDate) {
+        if (date < new Date().toISOString().slice(0, 10)) {
+          status = "absent";
+        } else if (isToday && now.getTime() > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
+          status = "absent";
+        }
+      }
+
+      return {
+        id: String(rosterRow.id ?? `${rosterRow.staff_id}-${date}`),
+        staffName: String(staffRow?.full_name ?? rosterRow.staff_id ?? "Unknown User"),
+        branchId,
+        branchName,
+        status,
+        lateMinutes,
+      };
+    });
+}
+
+function getAttendanceStatusTone(status: string) {
+  const normalized = normalizeString(status);
+  if (normalized === "present") {
+    return "border-emerald-200 bg-emerald-50/70";
+  }
+  if (normalized === "late") {
+    return "border-orange-200 bg-orange-50/80";
+  }
+  if (normalized === "absent") {
+    return "border-rose-200 bg-rose-50/80";
+  }
+  if (normalized === "incomplete") {
+    return "border-amber-200 bg-amber-50/80";
+  }
+  if (normalized === "not_punched_in") {
+    return "border-slate-200 bg-slate-50/85";
+  }
+  return "border-sky-200 bg-sky-50/80";
+}
+
 async function queryRows(executor: () => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<RowQueryResult> {
   try {
     const { data, error } = await executor();
@@ -424,6 +591,97 @@ function DashboardList({ title, description, items, emptyTitle, emptyDescription
   return (
     <FormSection title={title} description={description}>
       {items.length ? <div className="space-y-4">{items}</div> : <EmptyState title={emptyTitle} description={emptyDescription} />}
+    </FormSection>
+  );
+}
+
+function TodayAttendanceSnapshot({
+  title,
+  description,
+  rows,
+}: {
+  title: string;
+  description: string;
+  rows: AttendanceSnapshotRow[];
+}) {
+  const counters = {
+    present: rows.filter((row) => row.status === "present").length,
+    late: rows.filter((row) => row.status === "late").length,
+    absent: rows.filter((row) => row.status === "absent").length,
+    incomplete: rows.filter((row) => row.status === "incomplete").length,
+    notPunchedIn: rows.filter((row) => row.status === "not_punched_in").length,
+  };
+
+  const urgentRows = rows
+    .filter((row) => ["late", "absent", "incomplete"].includes(normalizeString(row.status)))
+    .sort((left, right) => {
+      const rank = { absent: 0, incomplete: 1, late: 2 } as Record<string, number>;
+      return (rank[normalizeString(left.status)] ?? 9) - (rank[normalizeString(right.status)] ?? 9);
+    })
+    .slice(0, 5);
+
+  return (
+    <FormSection
+      title={title}
+      description={description}
+      className="overflow-visible"
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{counters.present}</p>
+        </div>
+        <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.late}</p>
+        </div>
+        <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{counters.absent}</p>
+        </div>
+        <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{counters.incomplete}</p>
+        </div>
+        <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Not Punched In</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{counters.notPunchedIn}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/45 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--foreground)]">Urgent alerts</p>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">Lewat, absent, dan punch tidak lengkap untuk tindakan cepat hari ini.</p>
+          </div>
+          <Link href="/attendance" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white sm:w-auto">
+            <Clock3 className="h-4 w-4" />
+            Open Attendance Board
+          </Link>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {urgentRows.length ? (
+            urgentRows.map((row) => (
+              <div key={row.id} className={cn("flex flex-col gap-3 rounded-[22px] border px-4 py-4 sm:flex-row sm:items-center sm:justify-between", getAttendanceStatusTone(row.status))}>
+                <div>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">{row.staffName}</p>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">{row.branchName}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge value={row.status} />
+                  {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-[22px] border border-dashed border-[var(--border)] bg-white/80 px-4 py-5 text-sm text-[var(--muted-foreground)]">
+              Tiada alert attendance yang mendesak untuk hari ini.
+            </div>
+          )}
+        </div>
+      </div>
     </FormSection>
   );
 }
@@ -778,7 +1036,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
-  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, staffDirectoryRows] = await Promise.all([
+  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, staffDirectoryRows, attendanceRows, attendanceSettingsRows, branchLeaveScopeRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
@@ -790,6 +1048,9 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
     queryRows(() => supabase.from("staff").select("*").limit(400)),
+    queryRows(() => supabase.from("attendance_records").select("*").eq("branch_id", branchId).gte("attendance_date", today).limit(200)),
+    queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
+    queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).limit(200)),
   ]);
 
   const leaveBalance = buildLeaveBalanceSummary(entitlementRows.rows[0] ?? null, personalLeaveRows.rows);
@@ -797,6 +1058,16 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const nextHoliday = getNextHoliday(holidays.rows, branchId);
   const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
   const todayBranchRows = branchRosterRows.rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today);
+  const attendanceSnapshotRows = buildAttendanceSnapshotRows({
+    rosterRows: branchRosterRows.rows,
+    attendanceRows: attendanceRows.rows,
+    settingRows: attendanceSettingsRows.rows,
+    staffRows: branchStaffRows.rows,
+    leaveRows: branchLeaveScopeRows.rows,
+    branches,
+    date: today,
+    branchScope: branchId,
+  });
   const todayDoctors = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "doctor").length;
   const todaySupport = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "staff").length;
   const incompleteProfiles = branchStaffRows.rows.filter(isStaffRecordIncomplete);
@@ -809,7 +1080,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error, profileRows.error, staffDirectoryRows.error]} />
+      <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error, profileRows.error, staffDirectoryRows.error, attendanceRows.error, attendanceSettingsRows.error, branchLeaveScopeRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}`}
         name={String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}
@@ -847,6 +1118,12 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
         <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff cawangan yang masih perlukan kemaskini penting." icon={UserRound} tone={countValue(incompleteProfiles.length) > 0 ? "alert" : "neutral"} />
       </section>
 
+      <TodayAttendanceSnapshot
+        title="Today Attendance Snapshot"
+        description="Ringkasan kehadiran staff cawangan anda hari ini, termasuk lewat, absent, dan punch tidak lengkap."
+        rows={attendanceSnapshotRows}
+      />
+
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <RosterPreview title="Upcoming Branch Roster" description="Jadual 7 hari terdekat untuk cawangan anda, termasuk shift sendiri jika sudah diset." rows={branchRosterRows.rows} staffRows={branchStaffRows.rows} shiftTemplates={shiftTemplates.rows} focusStaffId={staffId} branches={branches} />
         <HolidayWidget holiday={nextHoliday} />
@@ -881,12 +1158,15 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
 
 async function loadHrDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
-  const [notifications, leaveRows, staffDocs, feedbackRows, staffRows] = await Promise.all([
+  const [notifications, leaveRows, staffDocs, feedbackRows, staffRows, attendanceRows, rosterRows, attendanceSettingsRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
     queryRows(() => supabase.from("feedbacks").select("*").limit(250)),
     queryRows(() => supabase.from("staff").select("*").limit(300)),
+    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", new Date().toISOString().slice(0, 10)).limit(300)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", new Date().toISOString().slice(0, 10)).limit(300)),
+    queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
   ]);
 
   const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus);
@@ -905,10 +1185,20 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
     return docText.includes("juruxray") || docText.includes("cme") || docText.includes("medical checkup");
   });
   const completedProfiles = staffRows.rows.filter((row) => !isStaffRecordIncomplete(row)).slice(0, 5);
+  const attendanceSnapshotRows = buildAttendanceSnapshotRows({
+    rosterRows: rosterRows.rows,
+    attendanceRows: attendanceRows.rows,
+    settingRows: attendanceSettingsRows.rows,
+    staffRows: staffRows.rows,
+    leaveRows: leaveRows.rows,
+    branches,
+    date: new Date().toISOString().slice(0, 10),
+    branchScope: "all",
+  });
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, leaveRows.error, staffDocs.error, feedbackRows.error, staffRows.error]} />
+      <PartialDataNotice errors={[notifications.error, leaveRows.error, staffDocs.error, feedbackRows.error, staffRows.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error]} />
       <PageHeader title="HR Dashboard" description="Action queue yang jelas untuk approval, compliance, dan staff profile supaya pasukan HR boleh bergerak ikut keutamaan harian." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -931,10 +1221,17 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
         actions={[
           { href: "/leave", label: "Review Leave", helper: "Semak queue cuti dan MC" },
           { href: "/mc", label: "Review MC", helper: "Lihat MC yang baru dihantar" },
+          { href: "/attendance", label: "Open Attendance Board", helper: "Pantau hadir, lewat, dan absent hari ini" },
           { href: "/staff-compliance", label: "Staff Compliance", helper: "Review dokumen staff" },
           { href: "/clinic-compliance", label: "Clinic Compliance", helper: "Semak dokumen klinik" },
           { href: "/feedback/manage", label: "Feedback Manage", helper: "Tangani isu yang masuk ke HR" },
         ]}
+      />
+
+      <TodayAttendanceSnapshot
+        title="Today Attendance Snapshot"
+        description="Paparan cepat kehadiran semua cawangan hari ini untuk kenal pasti kelewatan, absent, dan punch tidak lengkap."
+        rows={attendanceSnapshotRows}
       />
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -949,13 +1246,19 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
   );
 }
 
-async function loadOperationDashboard(supabase: SupabaseClient, context: DashboardContextLike) {
+async function loadOperationDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
+  const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const startOfWeek = getStartOfWeek().toISOString();
-  const [notifications, feedbackRows, commentRows] = await Promise.all([
+  const [notifications, feedbackRows, commentRows, attendanceRows, rosterRows, attendanceSettingsRows, staffRows, leaveRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("feedbacks").select("*").limit(280)),
     queryRows(() => supabase.from("feedback_comments").select("*").order("created_at", { ascending: false }).limit(120)),
+    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", new Date().toISOString().slice(0, 10)).limit(300)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", new Date().toISOString().slice(0, 10)).limit(300)),
+    queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
+    queryRows(() => supabase.from("staff").select("*").limit(300)),
+    queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
   ]);
 
   const assignedIssues = feedbackRows.rows.filter((row) => String(row.assigned_to ?? "") === profileId || normalizeString(row.target_type) === "operation" || normalizeString(row.assigned_department) === "operation");
@@ -964,10 +1267,20 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
   const resolvedThisWeek = countResolvedThisWeek(assignedIssues);
   const portalIssues = assignedIssues.filter((row) => normalizeString(row.target_type) === "portal_system");
   const recentReplies = commentRows.rows.filter((row) => String(row.created_at ?? "") >= startOfWeek);
+  const attendanceSnapshotRows = buildAttendanceSnapshotRows({
+    rosterRows: rosterRows.rows,
+    attendanceRows: attendanceRows.rows,
+    settingRows: attendanceSettingsRows.rows,
+    staffRows: staffRows.rows,
+    leaveRows: leaveRows.rows,
+    branches,
+    date: new Date().toISOString().slice(0, 10),
+    branchScope: branchId || "all",
+  });
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, feedbackRows.error, commentRows.error]} />
+      <PartialDataNotice errors={[notifications.error, feedbackRows.error, commentRows.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error, staffRows.error, leaveRows.error]} />
       <PageHeader title="Operation Dashboard" description="Dashboard operasi yang fokus pada isu, reply queue, dan perkara urgent tanpa mengganggu anda dengan metrik HR yang tidak berkaitan." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -983,9 +1296,16 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
         actions={[
           { href: "/feedback/manage", label: "View Assigned Feedback", helper: "Semak isu yang perlu diurus sekarang" },
           { href: "/feedback/manage", label: "Reply Feedback", helper: "Balas dan kemas kini status isu" },
+          { href: "/attendance", label: "Open Attendance Board", helper: "Lihat snapshot kehadiran secara read-only" },
           { href: "/roster", label: "View Roster", helper: "Semak roster secara read-only" },
           { href: "/clinic-compliance", label: "Clinic Compliance", helper: "Lihat dokumen klinik jika dibenarkan" },
         ]}
+      />
+
+      <TodayAttendanceSnapshot
+        title="Today Attendance Snapshot"
+        description="Ringkasan kehadiran yang boleh dilihat operation untuk memantau staff lewat, absent, atau punch tidak lengkap."
+        rows={attendanceSnapshotRows}
       />
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -1012,7 +1332,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
 
 async function loadSuperAdminDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
-  const [notifications, staffCount, branchCount, staffRows, leaveRows, feedbackRows, staffDocs, clinicDocs, holidays] = await Promise.all([
+  const [notifications, staffCount, branchCount, staffRows, leaveRows, feedbackRows, staffDocs, clinicDocs, holidays, attendanceRows, rosterRows, attendanceSettingsRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryCount(() => supabase.from("staff").select("id", { count: "exact", head: true }).eq("status", "active")),
     queryCount(() => supabase.from("branches").select("id", { count: "exact", head: true })),
@@ -1022,6 +1342,9 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
     queryRows(() => supabase.from("clinic_compliance_documents").select("*").limit(240)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
+    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", new Date().toISOString().slice(0, 10)).limit(400)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", new Date().toISOString().slice(0, 10)).limit(400)),
+    queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
   ]);
 
   const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus).length;
@@ -1029,6 +1352,16 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
   const complianceSoon = countExpiringRows(staffDocs.rows) + countExpiringRows(clinicDocs.rows);
   const nextHoliday = getNextHoliday(holidays.rows, null);
   const incompleteProfiles = staffRows.rows.filter(isStaffRecordIncomplete).length;
+  const attendanceSnapshotRows = buildAttendanceSnapshotRows({
+    rosterRows: rosterRows.rows,
+    attendanceRows: attendanceRows.rows,
+    settingRows: attendanceSettingsRows.rows,
+    staffRows: staffRows.rows,
+    leaveRows: leaveRows.rows,
+    branches,
+    date: new Date().toISOString().slice(0, 10),
+    branchScope: "all",
+  });
   const branchIssueSummary = branches.map((branch) => ({
     branch,
     openIssues: feedbackRows.rows.filter((row) => String(row.branch_id ?? "") === branch.id && !["resolved", "closed"].includes(normalizeString(row.status))).length,
@@ -1038,7 +1371,7 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, staffCount.error, branchCount.error, staffRows.error, leaveRows.error, feedbackRows.error, staffDocs.error, clinicDocs.error, holidays.error]} />
+      <PartialDataNotice errors={[notifications.error, staffCount.error, branchCount.error, staffRows.error, leaveRows.error, feedbackRows.error, staffDocs.error, clinicDocs.error, holidays.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error]} />
       <PageHeader title="Super Admin Dashboard" description="Gambaran keseluruhan rentas cawangan yang ringkas tetapi bermakna, supaya anda boleh nampak risiko, isu terbuka, dan tumpuan pasukan tanpa tenggelam dalam terlalu banyak detail harian." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1055,12 +1388,19 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
         actions={[
           { href: "/staff", label: "Staff", helper: "Semak direktori dan status staff" },
           { href: "/leave", label: "Leave", helper: "Pantau approval queue" },
+          { href: "/attendance", label: "Open Attendance Board", helper: "Pantau kehadiran semua cawangan hari ini" },
           { href: "/feedback/manage", label: "Feedback", helper: "Lihat isu rentas pasukan" },
           { href: "/roster", label: "Roster", helper: "Semak jadual cawangan" },
           { href: "/staff-compliance", label: "Staff Compliance", helper: "Pantau dokumen staff" },
           { href: "/clinic-compliance", label: "Clinic Compliance", helper: "Pantau risiko dokumen klinik" },
           { href: "/holidays", label: "Holidays", helper: "Urus cuti klinik dan awam" },
         ]}
+      />
+
+      <TodayAttendanceSnapshot
+        title="Today Attendance Snapshot"
+        description="Gambaran global attendance hari ini untuk kenal pasti absent, punch tidak lengkap, dan staff yang lewat."
+        rows={attendanceSnapshotRows}
       />
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -1142,7 +1482,7 @@ export default async function DashboardPage() {
   } else if (context.role === "hr") {
     content = await loadHrDashboard(context.supabase, context, branches);
   } else if (context.role === "operation") {
-    content = await loadOperationDashboard(context.supabase, context);
+    content = await loadOperationDashboard(context.supabase, context, branches);
   } else {
     content = await loadSuperAdminDashboard(context.supabase, context, branches);
   }
