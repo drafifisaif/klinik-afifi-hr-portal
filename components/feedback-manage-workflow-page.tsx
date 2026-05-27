@@ -10,13 +10,14 @@ import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { filterFeedbackForManageView } from "@/lib/data";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
-import type { Profile, TableRow, UserRole } from "@/lib/types";
+import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { formatDateTime, mapRowsWithId } from "@/lib/utils";
 
 interface FeedbackManageWorkflowPageProps {
   feedbackRows: TableRow[];
   commentRows: TableRow[];
   staffRows: TableRow[];
+  branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
   currentStaff: TableRow | null;
@@ -28,7 +29,7 @@ const inputClass =
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 
-export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
+export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -50,6 +51,26 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
 
   function getComments(feedbackId: string) {
     return commentRows.filter((row) => String(row.feedback_id ?? "") === feedbackId);
+  }
+
+  function getSubmitter(feedback: TableRow) {
+    return staffRows.find((row) => String(row.id ?? "") === String(feedback.staff_id ?? ""));
+  }
+
+  function canShowSubmitterIdentity(feedback: TableRow) {
+    if (feedback.is_anonymous !== true) {
+      return true;
+    }
+
+    if (role === "branch_pic") {
+      return false;
+    }
+
+    return role === "hr" || role === "super_admin";
+  }
+
+  function getBranchName(branchId: unknown) {
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "Unknown Branch";
   }
 
   async function saveAssignment(feedback: TableRow) {
@@ -177,6 +198,8 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
           <div className="space-y-5">
             {scopedFeedback.map((feedback) => {
               const comments = getComments(String(feedback.id));
+              const submitter = getSubmitter(feedback);
+              const showIdentity = canShowSubmitterIdentity(feedback);
               const draft = assignmentDrafts[String(feedback.id)] ?? {
                 assigned_department: String(feedback.assigned_department ?? ""),
                 assigned_to: String(feedback.assigned_to ?? ""),
@@ -190,9 +213,34 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(feedback.title ?? feedback.subject ?? "Untitled feedback")}</h3>
                         <StatusBadge value={String(feedback.status ?? "new")} />
+                        {feedback.is_anonymous === true ? <StatusBadge value="Anonymous" /> : null}
                       </div>
-                      <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-                        {String(feedback.category ?? "general")} · target {String(feedback.target_type ?? "-").replaceAll("_", " ")} · {formatDateTime(feedback.created_at)}
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Submitted By</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">
+                            {showIdentity ? String(submitter?.full_name ?? "Unknown Staff") : "Anonymous"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">
+                            {showIdentity ? getBranchName(submitter?.branch_id ?? feedback.branch_id) : "Hidden"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Role / Position</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">
+                            {showIdentity ? String(submitter?.position ?? submitter?.department ?? "Unknown Role") : "Hidden"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Submitted At</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">{formatDateTime(feedback.created_at)}</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+                        {String(feedback.category ?? "general")} · target {String(feedback.target_type ?? "-").replaceAll("_", " ")}
                       </p>
                       <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
                     </div>
@@ -225,7 +273,9 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
 
                   <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
                     <div className="space-y-3">
-                      <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Comments</h4>
+                      <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                        Comments {showIdentity ? `· ${String(submitter?.full_name ?? "Unknown Staff")}` : "· Anonymous"}
+                      </h4>
                       {comments.length ? (
                         comments.map((comment) => (
                           <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className="rounded-2xl bg-[var(--card-muted)] px-4 py-4">
