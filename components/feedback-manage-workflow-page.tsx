@@ -48,6 +48,24 @@ function getStatusPanelClass(status: string) {
   return "border-[var(--border)] bg-white";
 }
 
+function getCommentRoleTone(role: string) {
+  const normalized = normalizeString(role);
+
+  if (normalized === "hr" || normalized === "super_admin") {
+    return "border-sky-200 bg-sky-50/80";
+  }
+
+  if (normalized === "operation") {
+    return "border-amber-200 bg-amber-50/80";
+  }
+
+  if (normalized === "branch_pic") {
+    return "border-teal-200 bg-teal-50/80";
+  }
+
+  return "border-slate-200 bg-slate-50/90";
+}
+
 export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -329,7 +347,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                       </h4>
                       {comments.length ? (
                         comments.map((comment) => (
-                          <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className="rounded-2xl bg-[var(--card-muted)] px-4 py-4">
+                          <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className={cn("rounded-2xl border px-4 py-4", getCommentRoleTone(getCommenter(comment).role))}>
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="text-sm font-semibold text-[var(--foreground)]">
                                 {(() => {
@@ -337,6 +355,10 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                                   return commenter.role ? `${commenter.name} · ${commenter.role}` : commenter.name;
                                 })()}
                               </p>
+                              {(() => {
+                                const commenter = getCommenter(comment);
+                                return commenter.role ? <StatusBadge value={commenter.role.replaceAll("_", " ")} /> : null;
+                              })()}
                               {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
                             </div>
                             <p className="mt-2 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>

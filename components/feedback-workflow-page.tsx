@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { formatDateTime, mapRowsWithId } from "@/lib/utils";
+import { cn, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface FeedbackWorkflowPageProps {
   assignedRows: TableRow[];
@@ -40,6 +40,43 @@ function getTargetOptions(role: UserRole) {
   }
 
   return ["hr", "operation", "portal_system"];
+}
+
+function getCommentRoleTone(role: string) {
+  const normalized = normalizeString(role);
+
+  if (normalized === "hr" || normalized === "super_admin") {
+    return "border-sky-200 bg-sky-50/80";
+  }
+
+  if (normalized === "operation") {
+    return "border-amber-200 bg-amber-50/80";
+  }
+
+  if (normalized === "branch_pic") {
+    return "border-teal-200 bg-teal-50/80";
+  }
+
+  return "border-slate-200 bg-slate-50/90";
+}
+
+function getFeedbackCardTone(status: string, priority: string) {
+  const normalizedStatus = normalizeString(status);
+  const normalizedPriority = normalizeString(priority);
+
+  if (normalizedPriority === "urgent") {
+    return "border-rose-200 bg-rose-50/75";
+  }
+
+  if (["resolved", "closed"].includes(normalizedStatus)) {
+    return "border-emerald-200 bg-emerald-50/75";
+  }
+
+  if (["new", "pending", "assigned", "in_progress"].includes(normalizedStatus)) {
+    return "border-amber-200 bg-amber-50/75";
+  }
+
+  return "border-[var(--border)] bg-white";
 }
 
 export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
@@ -195,12 +232,13 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
             comments.map((comment) => {
               const commenter = getCommenterMeta(comment);
               return (
-                <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className="rounded-2xl bg-[var(--card-muted)] px-4 py-4">
+                <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className={cn("rounded-2xl border px-4 py-4", getCommentRoleTone(commenter.role))}>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold text-[var(--foreground)]">
                       {commenter.name}
                       {commenter.role ? ` · ${commenter.role}` : ""}
                     </p>
+                    {commenter.role ? <StatusBadge value={commenter.role.replaceAll("_", " ")} /> : null}
                     {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
                   </div>
                   <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
@@ -390,7 +428,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
             {feedbackForMe.length ? (
               <div className="space-y-4">
                 {feedbackForMe.map((row) => (
-                  <article key={String(row.id)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
+                  <article key={String(row.id)} className={cn("rounded-3xl border px-5 py-5", getFeedbackCardTone(String(row.status ?? "new"), String(row.priority ?? "normal")))}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <h3 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
@@ -424,7 +462,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
           {submittedFeedback.length ? (
             <div className="space-y-4">
               {submittedFeedback.map((row) => (
-                <article key={String(row.id)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
+                <article key={String(row.id)} className={cn("rounded-3xl border px-5 py-5", getFeedbackCardTone(String(row.status ?? "new"), String(row.priority ?? "normal")))}>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>

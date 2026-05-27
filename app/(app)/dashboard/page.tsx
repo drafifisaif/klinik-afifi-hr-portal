@@ -35,7 +35,7 @@ import {
   getExpiryStatus,
 } from "@/lib/data";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { daysUntil, formatCountdown, formatDate, formatDateTime, normalizeString } from "@/lib/utils";
+import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, normalizeString } from "@/lib/utils";
 
 interface RowQueryResult {
   rows: TableRow[];
@@ -585,12 +585,22 @@ function renderFeedbackItem(
       : options?.currentProfileId && String(row.assigned_to ?? "") === String(options.currentProfileId)
         ? "Assigned to you"
         : null;
+  const normalizedStatus = normalizeString(row.status);
+  const normalizedPriority = normalizeString(row.priority);
+  const panelClass =
+    normalizedPriority === "urgent"
+      ? "border-rose-200 bg-rose-50/75"
+      : ["resolved", "closed"].includes(normalizedStatus)
+        ? "border-emerald-200 bg-emerald-50/75"
+        : ["new", "pending", "assigned", "in_progress"].includes(normalizedStatus)
+          ? "border-amber-200 bg-amber-50/75"
+          : "border-[var(--border)] bg-[var(--card-muted)]/55";
 
   return (
-    <div key={String(row.id ?? `${row.title}-${row.created_at}`)} className="rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/55 px-5 py-4">
+    <div key={String(row.id ?? `${row.title}-${row.created_at}`)} className={cn("rounded-3xl border px-5 py-4", panelClass)}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Feedback")}</p>
+          <p className="text-base font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Feedback")}</p>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
             From: {submitterName}
             {submitterRole ? ` · ${submitterRole}` : ""}
@@ -598,9 +608,10 @@ function renderFeedbackItem(
             {formatDateTime(row.created_at)}
           </p>
           <p className="mt-3 text-sm text-[var(--foreground)]">{String(row.message ?? "-")}</p>
-          {label ? <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">{label}</p> : null}
+          {label ? <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]">{label}</p> : null}
         </div>
         <div className="flex flex-col items-end gap-2">
+          {label ? <StatusBadge value={label} /> : null}
           <StatusBadge value={String(row.status ?? "new")} />
           <StatusBadge value={String(row.priority ?? "normal")} />
         </div>
