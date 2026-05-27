@@ -5,9 +5,11 @@ import { Save, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
+import { FileUploadField } from "@/components/file-upload-field";
 import { FormSection } from "@/components/form-section";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
+import { sanitizeFilename } from "@/lib/utils";
 
 interface MyProfilePageProps {
   profile: Profile;
@@ -25,6 +27,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
     full_name: String(staff?.full_name ?? profile.full_name ?? ""),
@@ -42,6 +45,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
   });
 
   const canManageExtended = role === "hr" || role === "super_admin";
+  const hasAvatar = Boolean(String(profile.avatar_url ?? "").trim());
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,10 +58,28 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     setIsSubmitting(true);
     setMessage(null);
 
+    let avatarPath = String(profile.avatar_url ?? "") || null;
+
+    if (avatarFile) {
+      const safeName = sanitizeFilename(avatarFile.name);
+      avatarPath = `profiles/${profile.id}/${new Date().toISOString().slice(0, 10)}-${safeName}`;
+
+      const uploadResult = await supabase.storage.from("profile-pictures").upload(avatarPath, avatarFile, {
+        upsert: true,
+      });
+
+      if (uploadResult.error) {
+        setIsSubmitting(false);
+        setMessage(uploadResult.error.message);
+        return;
+      }
+    }
+
     const profilePayload = {
       full_name: form.full_name,
       email: form.email || null,
       role: canManageExtended ? form.role : profile.role,
+      avatar_url: avatarPath,
     };
 
     const staffPayload = {
@@ -99,7 +121,8 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       return;
     }
 
-    setMessage(staff?.id ? "My profile updated." : "Staff profile completed.");
+    setMessage(avatarPath ? (staff?.id ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
+    setAvatarFile(null);
     router.refresh();
   }
 
@@ -116,7 +139,21 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
         title={staff ? "My Profile" : "Complete Staff Profile"}
         description="You can update your personal staff information here. Branch, role, and organizational fields remain controlled by HR unless your role allows more access."
       >
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-5" onSubmit={handleSubmit}>
+          {!hasAvatar && !avatarFile ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+              Sila upload gambar profil untuk melengkapkan profil anda.
+            </div>
+          ) : null}
+
+          <FileUploadField
+            label="Profile Picture"
+            file={avatarFile}
+            storedPath={String(profile.avatar_url ?? "") || null}
+            helperText="Upload your latest profile photo to the private `profile-pictures` bucket."
+            onChange={setAvatarFile}
+          />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <input value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} placeholder="Full name" className={inputClass} required />
             <input value={form.ic_no} onChange={(event) => setForm((current) => ({ ...current, ic_no: event.target.value }))} placeholder="IC number" className={inputClass} />
@@ -143,7 +180,13 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
                 <option value="resigned">Resigned</option>
               </select>
               <select value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} className={inputClass}>
-                {["staff", "branch_pic", "operation", "hr", "super_admin"].map((roleName) => (
+                {[
+                  "staff",
+                  "branch_pic",
+                  "operation",
+                  "hr",
+                  "super_admin",
+                ].map((roleName) => (
                   <option key={roleName} value={roleName}>{roleName.replaceAll("_", " ")}</option>
                 ))}
               </select>

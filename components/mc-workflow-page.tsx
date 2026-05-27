@@ -56,6 +56,11 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
       return;
     }
 
+    if (!currentStaff.id || !currentStaff.branch_id || String(currentStaff.profile_id ?? "") !== String(profile.id)) {
+      setMessage("Staff profile is incomplete. Please complete your profile before uploading MC.");
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage(null);
 
@@ -76,7 +81,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
       leave_type: "medical_leave",
       profile_id: profile.id,
       staff_id: currentStaff.id,
-      branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
+      branch_id: currentStaff.branch_id,
       attachment_url: filePath,
       reason: reason || null,
       start_date: datePrefix,

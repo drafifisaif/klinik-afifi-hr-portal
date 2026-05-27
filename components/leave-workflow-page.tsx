@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { CalendarPlus, Save } from "lucide-react";
+import { CalendarPlus, Pencil, Save, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { buildLeaveBalanceSummary, filterLeaveRequestsForRole } from "@/lib/data";
 import type { BranchOption, LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
-import { calculateLeaveDays, cn, formatDate, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
+import { calculateLeaveDays, cn, formatDate, formatDateInput, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface LeaveWorkflowPageProps {
   leaveRequests: TableRow[];
@@ -28,6 +28,15 @@ const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
+
+const emptyLeaveForm = {
+  leave_type: "annual_leave",
+  start_date: "",
+  end_date: "",
+  half_day: false,
+  reason: "",
+  attachment_url: "",
+};
 
 function getEntitlementForStaff(rows: TableRow[], staffId?: string | null) {
   if (!staffId) {
@@ -55,13 +64,8 @@ export function LeaveWorkflowPage({
   const [entitlementMessage, setEntitlementMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEntitlementSaving, setIsEntitlementSaving] = useState(false);
-  const [form, setForm] = useState({
-    leave_type: "annual_leave",
-    start_date: "",
-    end_date: "",
-    half_day: false,
-    reason: "",
-  });
+  const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyLeaveForm);
   const [selectedStaffId, setSelectedStaffId] = useState(String(currentStaff?.id ?? staffRows[0]?.id ?? ""));
   const [entitlementForm, setEntitlementForm] = useState(() => {
     const currentEntitlement = getEntitlementForStaff(entitlements, String(currentStaff?.id ?? staffRows[0]?.id ?? ""));
@@ -115,6 +119,32 @@ export function LeaveWorkflowPage({
     const staffEntitlement = getEntitlementForStaff(entitlements, String(staffId ?? ""));
     const staffLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === String(staffId ?? ""));
     return buildLeaveBalanceSummary(staffEntitlement, staffLeaveRows);
+  }
+
+  function resetLeaveForm() {
+    setEditingLeaveId(null);
+    setForm(emptyLeaveForm);
+  }
+
+  function canEditOwnLeave(row: TableRow) {
+    return String(row.staff_id ?? "") === String(currentStaff?.id ?? "") && normalizeString(row.status) === "pending";
+  }
+
+  function startEditLeave(row: TableRow) {
+    if (!canEditOwnLeave(row)) {
+      return;
+    }
+
+    setEditingLeaveId(String(row.id ?? ""));
+    setForm({
+      leave_type: String(row.leave_type ?? "annual_leave"),
+      start_date: formatDateInput(row.start_date),
+      end_date: formatDateInput(row.end_date),
+      half_day: row.half_day === true,
+      reason: String(row.reason ?? ""),
+      attachment_url: String(row.attachment_url ?? ""),
+    });
+    setMessage(null);
   }
 
   function renderInlineBalance(summary: LeaveBalanceSummary) {
@@ -193,6 +223,11 @@ export function LeaveWorkflowPage({
                     <span className="font-semibold text-slate-800">Review note:</span> {String(row.review_note)}
                   </p>
                 ) : null}
+                {row.attachment_url ? (
+                  <p className="mt-1">
+                    <span className="font-semibold text-slate-800">Attachment path:</span> {String(row.attachment_url)}
+                  </p>
+                ) : null}
               </div>
 
               <div className="mt-4 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-5 py-5">
@@ -200,20 +235,32 @@ export function LeaveWorkflowPage({
                 {renderInlineBalance(summary)}
               </div>
 
-              {canReview ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {["pending", "approved", "rejected", "cancelled"].map((status) => (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => updateLeaveStatus(String(row.id), status)}
-                      className="rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
-                    >
-                      {status.replaceAll("_", " ")}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {canEditOwnLeave(row) ? (
+                  <button
+                    type="button"
+                    onClick={() => startEditLeave(row)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit leave
+                  </button>
+                ) : null}
+                {canReview ? (
+                  <>
+                    {["pending", "approved", "rejected", "cancelled"].map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => updateLeaveStatus(String(row.id), status)}
+                        className="rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
+                      >
+                        {status.replaceAll("_", " ")}
+                      </button>
+                    ))}
+                  </>
+                ) : null}
+              </div>
             </article>
           );
         })}
@@ -232,28 +279,40 @@ export function LeaveWorkflowPage({
     setIsSubmitting(true);
     setMessage(null);
 
-    const { error: insertError } = await supabase.from("leave_requests").insert({
+    const payload = {
       leave_type: form.leave_type,
       start_date: form.start_date,
       end_date: form.end_date,
       total_days: totalDays,
       half_day: form.half_day,
       reason: form.reason || null,
+      attachment_url: form.attachment_url || null,
       profile_id: profile.id,
       staff_id: currentStaff.id,
       branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
       status: "pending",
-    });
+    };
+
+    const query = editingLeaveId
+      ? supabase
+          .from("leave_requests")
+          .update(payload)
+          .eq("id", editingLeaveId)
+          .eq("staff_id", currentStaff.id)
+          .eq("status", "pending")
+      : supabase.from("leave_requests").insert(payload);
+
+    const { error: saveError } = await query;
 
     setIsSubmitting(false);
 
-    if (insertError) {
-      setMessage(insertError.message);
+    if (saveError) {
+      setMessage(saveError.message);
       return;
     }
 
-    setMessage("Leave request submitted.");
-    setForm({ leave_type: "annual_leave", start_date: "", end_date: "", half_day: false, reason: "" });
+    setMessage(editingLeaveId ? "Leave request updated." : "Leave request submitted.");
+    resetLeaveForm();
     router.refresh();
   }
 
@@ -361,7 +420,10 @@ export function LeaveWorkflowPage({
         </div>
 
         <div className="space-y-6">
-          <FormSection title="Create leave request" description="Submit real leave requests with linked profile, staff, and branch information.">
+          <FormSection
+            title={editingLeaveId ? "Edit leave request" : "Create leave request"}
+            description={editingLeaveId ? "You can update your own pending leave request before it is reviewed." : "Submit real leave requests with linked profile, staff, and branch information."}
+          >
             {currentStaff ? (
               <form className="space-y-4" onSubmit={handleLeaveSubmit}>
                 <select value={form.leave_type} onChange={(event) => setForm((current) => ({ ...current, leave_type: event.target.value }))} className={inputClass}>
@@ -378,12 +440,21 @@ export function LeaveWorkflowPage({
                   Half day request
                 </label>
                 <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">Total days: {totalDays}</div>
+                <input value={form.attachment_url} onChange={(event) => setForm((current) => ({ ...current, attachment_url: event.target.value }))} placeholder="Optional attachment path" className={inputClass} />
                 <textarea value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} rows={4} placeholder="Reason for leave" className={textareaClass} required />
                 {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-                <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
-                  <CalendarPlus className="h-4 w-4" />
-                  {isSubmitting ? "Submitting..." : "Submit leave request"}
-                </button>
+                <div className="flex flex-wrap gap-3">
+                  <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
+                    {editingLeaveId ? <Save className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />}
+                    {isSubmitting ? "Saving..." : editingLeaveId ? "Update leave request" : "Submit leave request"}
+                  </button>
+                  {editingLeaveId ? (
+                    <button type="button" onClick={resetLeaveForm} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]">
+                      <X className="h-4 w-4" />
+                      Cancel edit
+                    </button>
+                  ) : null}
+                </div>
               </form>
             ) : (
               <EmptyState title="Complete your staff profile first" description="Your staff row is required before leave requests can be submitted." />
@@ -416,11 +487,11 @@ export function LeaveWorkflowPage({
                       <input value={entitlementForm.medical_leave_total} onChange={(event) => setEntitlementForm((current) => ({ ...current, medical_leave_total: event.target.value }))} placeholder="8" className={inputClass} />
                     </label>
                     <label className="space-y-2">
-                      <span className="text-sm font-semibold text-[var(--foreground)]">Annual Leave Used Before Portal</span>
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Carry Forward Days</span>
                       <input value={entitlementForm.annual_leave_opening_used} onChange={(event) => setEntitlementForm((current) => ({ ...current, annual_leave_opening_used: event.target.value }))} placeholder="2" className={inputClass} />
                     </label>
                     <label className="space-y-2">
-                      <span className="text-sm font-semibold text-[var(--foreground)]">Medical Leave Used Before Portal</span>
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Replacement Leave Days</span>
                       <input value={entitlementForm.medical_leave_opening_used} onChange={(event) => setEntitlementForm((current) => ({ ...current, medical_leave_opening_used: event.target.value }))} placeholder="0" className={inputClass} />
                     </label>
                   </div>
@@ -441,7 +512,7 @@ export function LeaveWorkflowPage({
 
                   <label className="mt-5 block space-y-2">
                     <span className="text-sm font-semibold text-[var(--foreground)]">Opening Balance Note</span>
-                    <textarea value={entitlementForm.opening_balance_note} onChange={(event) => setEntitlementForm((current) => ({ ...current, opening_balance_note: event.target.value }))} rows={3} placeholder="Add context for carry-forward or opening balance adjustments" className={textareaClass} />
+                    <textarea value={entitlementForm.opening_balance_note} onChange={(event) => setEntitlementForm((current) => ({ ...current, opening_balance_note: event.target.value }))} rows={3} placeholder="Add context for yearly balance setup" className={textareaClass} />
                   </label>
                 </div>
                 {entitlementMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{entitlementMessage}</p> : null}

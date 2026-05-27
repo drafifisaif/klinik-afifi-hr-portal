@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { Pencil, Plus, RefreshCw, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -46,11 +46,9 @@ function getEntitlementForStaff(rows: TableRow[], staffId?: string | null) {
     return null;
   }
 
-  return (
-    rows
-      .filter((row) => String(row.staff_id ?? "") === String(staffId))
-      .sort((left, right) => Number(right.entitlement_year ?? 0) - Number(left.entitlement_year ?? 0))[0] ?? null
-  );
+  return rows
+    .filter((row) => String(row.staff_id ?? "") === String(staffId))
+    .sort((left, right) => Number(right.entitlement_year ?? 0) - Number(left.entitlement_year ?? 0))[0] ?? null;
 }
 
 export function StaffManagementPage({
@@ -65,6 +63,7 @@ export function StaffManagementPage({
 }: StaffManagementPageProps) {
   const router = useRouter();
   const supabase = createClient();
+  const formRef = useRef<HTMLDivElement | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -90,6 +89,12 @@ export function StaffManagementPage({
   const selectedLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === String(selectedStaff?.id ?? ""));
   const balanceSummary = buildLeaveBalanceSummary(selectedEntitlement, selectedLeaveRows);
 
+  function scrollToForm() {
+    requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   function resetForm() {
     setEditingId(null);
     setForm(emptyStaffForm);
@@ -111,6 +116,7 @@ export function StaffManagementPage({
       role: String(row.role ?? profile?.role ?? "staff"),
     });
     setMessage(null);
+    scrollToForm();
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -150,10 +156,7 @@ export function StaffManagementPage({
     }
 
     if (canManageExtended && form.profile_id) {
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ role: form.role })
-        .eq("id", form.profile_id);
+      const { error: profileError } = await supabase.from("profiles").update({ role: form.role }).eq("id", form.profile_id);
 
       if (profileError) {
         setIsSubmitting(false);
@@ -173,55 +176,55 @@ export function StaffManagementPage({
       {error ? <EmptyState title="Unable to load staff data" description={error} /> : null}
       {selectedStaff ? <LeaveBalancePanel summary={balanceSummary} title={`${String(selectedStaff.full_name ?? "Staff")} Leave Balance`} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <FormSection
-          title="Staff directory"
-          description="Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."
-        >
-          {scopedRows.length ? (
-            <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-[var(--border)] text-left">
-                  <thead className="bg-[var(--card-muted)]/70">
-                    <tr>
-                      {["Staff", "IC No", "Position", "Branch", "Joined", "Status", "Action"].map((label) => (
-                        <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)] bg-white">
-                    {scopedRows.map((row) => (
-                      <tr key={String(row.id)}>
-                        <td className="px-4 py-4 text-sm">
-                          <p className="font-semibold text-[var(--foreground)]">{String(row.full_name ?? "-")}</p>
-                          <p className="text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.ic_no ?? "-")}</td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.position ?? row.department ?? "-")}</td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-")}</td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.date_joined)}</td>
-                        <td className="px-4 py-4 text-sm"><StatusBadge value={String(row.status ?? "active")} /></td>
-                        <td className="px-4 py-4 text-sm">
-                          <button type="button" onClick={() => startEdit(row)} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)]">
-                            <Pencil className="h-3.5 w-3.5" />
-                            {canManageExtended ? "Edit" : "View"}
-                          </button>
-                        </td>
-                      </tr>
+      <FormSection
+        title="Staff directory"
+        description="Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."
+      >
+        {scopedRows.length ? (
+          <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-[var(--border)] text-left">
+                <thead className="bg-[var(--card-muted)]/70">
+                  <tr>
+                    {["Staff", "IC No", "Position", "Branch", "Joined", "Status", "Action"].map((label) => (
+                      <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)] bg-white">
+                  {scopedRows.map((row) => (
+                    <tr key={String(row.id)}>
+                      <td className="px-4 py-4 text-sm">
+                        <p className="font-semibold text-[var(--foreground)]">{String(row.full_name ?? "-")}</p>
+                        <p className="text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.ic_no ?? "-")}</td>
+                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.position ?? row.department ?? "-")}</td>
+                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-")}</td>
+                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.date_joined)}</td>
+                      <td className="px-4 py-4 text-sm"><StatusBadge value={String(row.status ?? "active")} /></td>
+                      <td className="px-4 py-4 text-sm">
+                        <button type="button" onClick={() => startEdit(row)} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)]">
+                          <Pencil className="h-3.5 w-3.5" />
+                          {canManageExtended ? "Edit" : "View"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ) : (
-            <EmptyState title="No staff records available" description="Staff records will appear here once the linked staff rows exist in Supabase." />
-          )}
-        </FormSection>
+          </div>
+        ) : (
+          <EmptyState title="No staff records available" description="Staff records will appear here once the linked staff rows exist in Supabase." />
+        )}
+      </FormSection>
 
-        <FormSection title={editingId ? "Edit staff record" : "Add staff record"} description={canManageExtended ? "HR and super admin can edit organization fields and linked profile roles." : "This form is view-only for your allowed staff scope."}>
+      <div ref={formRef}>
+        <FormSection title={editingId ? "Edit staff record" : "Add staff record"} description={canManageExtended ? "HR and super admin can edit organization fields and linked profile roles. The form is shown full width below for easier editing." : "This form is view-only for your allowed staff scope."}>
           {canManageExtended ? (
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="grid gap-4 sm:grid-cols-2">
+            <form className="space-y-5" onSubmit={handleSubmit}>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <input value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} placeholder="Full name" className={inputClass} required />
                 <input value={form.ic_no} onChange={(event) => setForm((current) => ({ ...current, ic_no: event.target.value }))} placeholder="IC number" className={inputClass} />
                 <input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email" className={inputClass} />

@@ -17,6 +17,7 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 
 import { EmptyState } from "@/components/empty-state";
@@ -105,7 +106,7 @@ function isProfileIncomplete(profile: Profile | null, staff: TableRow | null) {
     staff.emergency_contact_phone,
   ];
 
-  return personalFields.some((value) => !String(value ?? "").trim());
+  return personalFields.some((value) => !String(value ?? "").trim()) || !String(profile.avatar_url ?? "").trim();
 }
 
 function isStaffRecordIncomplete(row: TableRow) {
@@ -313,6 +314,17 @@ async function queryProfilesByIds(supabase: SupabaseClient, ids: string[]): Prom
   return queryRows(() => supabase.from("profiles").select("*").in("id", uniqueIds));
 }
 
+async function getSignedAvatarUrl(supabase: SupabaseClient, path?: string | null) {
+  const storagePath = String(path ?? "").trim();
+
+  if (!storagePath) {
+    return null;
+  }
+
+  const { data } = await supabase.storage.from("profile-pictures").createSignedUrl(storagePath, 3600);
+  return data?.signedUrl ?? null;
+}
+
 function PartialDataNotice({ errors }: { errors: Array<string | null | undefined> }) {
   const message = errors.find(Boolean);
 
@@ -329,24 +341,45 @@ function PartialDataNotice({ errors }: { errors: Array<string | null | undefined
 
 function HeroCard({
   title,
-  subtitle,
+  name,
   branch,
   position,
   nextShift,
+  avatarUrl,
 }: {
   title: string;
-  subtitle: string;
+  name: string;
   branch: string;
   position: string;
   nextShift?: React.ReactNode;
+  avatarUrl?: string | null;
 }) {
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "KA";
+
   return (
     <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-7 shadow-[0_20px_55px_rgba(18,42,44,0.08)]">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">{greetingByTime()}</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--foreground)]">{title}</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted-foreground)]">{subtitle}</p>
+          <div className="mt-5 flex items-center gap-4">
+            {avatarUrl ? (
+              <Image src={avatarUrl} alt={name} width={64} height={64} className="h-16 w-16 rounded-3xl object-cover shadow-sm" unoptimized />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/90 text-lg font-semibold text-[var(--accent)] shadow-sm">
+                {initials}
+              </div>
+            )}
+            <div>
+              <p className="text-base font-semibold text-[var(--foreground)]">{name}</p>
+              <p className="text-sm text-[var(--muted-foreground)]">{branch}</p>
+            </div>
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-3xl bg-white/80 px-5 py-5">
@@ -674,22 +707,24 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const nextShift = getNextPersonalShift(rosters.rows, staffId);
   const latestEntitlement = entitlementRows.rows[0] ?? null;
   const leaveBalance = buildLeaveBalanceSummary(latestEntitlement, leaveRows.rows);
+  const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
 
   return (
     <div className="space-y-8">
       <PartialDataNotice errors={[notifications.error, holidays.error, rosters.error, shiftTemplates.error, leaveRows.error, entitlementRows.error, branchStaffRows.error, feedbackRows.error, profileRows.error, staffDirectoryRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Warga Klinik Afifi")}`}
-        subtitle="Ruang kerja peribadi anda memudahkan semakan roster, cuti, MC, dan notifikasi penting tanpa gangguan metrik global yang tidak berkaitan."
+        name={String(context.staff?.full_name ?? context.profile?.full_name ?? "Warga Klinik Afifi")}
         branch={getBranchName(branches, branchId)}
         position={String(context.staff?.position ?? "Jawatan belum ditetapkan")}
         nextShift={nextShift ? `${formatDate(nextShift.roster_date)} · ${getShiftName(nextShift, shiftTemplates.rows)} · ${getTimeRange(nextShift, shiftTemplates.rows)}` : undefined}
+        avatarUrl={avatarUrl}
       />
 
       {isProfileIncomplete(context.profile, context.staff) ? (
         <FormSection title="Profil Belum Lengkap" description="Lengkapkan maklumat peribadi supaya urusan cuti, MC, dan komunikasi HR berjalan lebih lancar.">
           <div className="flex flex-col gap-4 rounded-3xl bg-[var(--card-muted)] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-[var(--foreground)]">Beberapa maklumat wajib masih belum diisi. Kemaskini profil anda sekarang.</p>
+            <p className="text-sm text-[var(--foreground)]">Beberapa maklumat wajib masih belum diisi. Sila upload gambar profil untuk melengkapkan profil anda jika belum dibuat.</p>
             <Link href="/settings" className="inline-flex items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[var(--accent-foreground)]">
               Buka My Profile
               <ChevronRight className="h-4 w-4" />
@@ -760,6 +795,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const leaveBalance = buildLeaveBalanceSummary(entitlementRows.rows[0] ?? null, personalLeaveRows.rows);
   const nextShift = getNextPersonalShift(ownRosterRows.rows, staffId);
   const nextHoliday = getNextHoliday(holidays.rows, branchId);
+  const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
   const todayBranchRows = branchRosterRows.rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today);
   const todayDoctors = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "doctor").length;
   const todaySupport = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "staff").length;
@@ -776,10 +812,11 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
       <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error, profileRows.error, staffDirectoryRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}`}
-        subtitle="Hari ini anda nampak dua lapisan kerja sekali gus: keperluan peribadi sebagai staff dan operasi cawangan yang perlu dipantau sepanjang minggu."
+        name={String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}
         branch={getBranchName(branches, branchId)}
         position={String(context.staff?.position ?? "Branch PIC")}
         nextShift={nextShift ? `${formatDate(nextShift.roster_date)} · ${getShiftName(nextShift, shiftTemplates.rows)} · ${getTimeRange(nextShift, shiftTemplates.rows)}` : undefined}
+        avatarUrl={avatarUrl}
       />
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
