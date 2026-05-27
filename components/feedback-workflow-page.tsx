@@ -13,7 +13,8 @@ import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { formatDateTime, mapRowsWithId } from "@/lib/utils";
 
 interface FeedbackWorkflowPageProps {
-  rows: TableRow[];
+  assignedRows: TableRow[];
+  submittedRows: TableRow[];
   staffRows: TableRow[];
   branches: BranchOption[];
   role: UserRole;
@@ -39,7 +40,7 @@ function getTargetOptions(role: UserRole) {
   return ["hr", "operation", "portal_system"];
 }
 
-export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
+export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -56,7 +57,8 @@ export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile,
     is_anonymous: false,
   });
 
-  const feedbackRows = useMemo(() => mapRowsWithId(rows), [rows]);
+  const feedbackForMe = useMemo(() => mapRowsWithId(assignedRows), [assignedRows]);
+  const submittedFeedback = useMemo(() => mapRowsWithId(submittedRows), [submittedRows]);
   const targetOptions = getTargetOptions(role);
 
   function getStaffName(staffId: unknown) {
@@ -66,6 +68,27 @@ export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile,
   function getStaffBranchName(staffId: unknown) {
     const targetStaff = staffRows.find((row) => String(row.id ?? "") === String(staffId ?? ""));
     return branches.find((branch) => branch.id === String(targetStaff?.branch_id ?? ""))?.name;
+  }
+
+  function getBranchName(branchId: unknown) {
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "Unknown Branch";
+  }
+
+  function getSubmitterLabel(row: TableRow) {
+    const submitter = staffRows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""));
+    return String(submitter?.full_name ?? "Unknown Staff");
+  }
+
+  function getAssignedFeedbackBadge(row: TableRow) {
+    if (String(row.assigned_to ?? "") === String(profile?.id ?? "")) {
+      return "Assigned to you";
+    }
+
+    if (String(row.target_type ?? "") === "staff" && String(row.target_staff_id ?? "") === String(currentStaff?.id ?? "")) {
+      return "Targeted to you";
+    }
+
+    return "For your attention";
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -207,17 +230,56 @@ export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile,
           )}
         </FormSection>
 
-        <FormSection title="My submitted feedback" description="Track what you submitted, where it was routed, and the current workflow status.">
-          {feedbackRows.length ? (
+        <div className="space-y-6">
+          <FormSection title="Feedback Untuk Saya" description="Maklum balas yang ditujukan terus kepada anda atau telah diassign kepada akaun anda.">
+            {feedbackForMe.length ? (
+              <div className="space-y-4">
+                {feedbackForMe.map((row) => (
+                  <article key={String(row.id)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
+                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">From: {getSubmitterLabel(row)} · {formatDateTime(row.created_at)}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge value={String(row.status ?? "new")} />
+                        <StatusBadge value={String(row.priority ?? "normal")} />
+                      </div>
+                    </div>
+                    <p className="mt-4 text-sm leading-6 text-[var(--foreground)]">{String(row.message ?? "-")}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                        {getAssignedFeedbackBadge(row)}
+                      </div>
+                      <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                        Expected action: {String(row.expected_action ?? "-")}
+                      </div>
+                      <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                        Target branch: {getBranchName(row.branch_id)}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Tiada feedback untuk anda" description="Belum ada feedback yang ditujukan terus kepada anda buat masa ini." />
+            )}
+          </FormSection>
+
+          <FormSection title="My submitted feedback" description="Track what you submitted, where it was routed, and the current workflow status.">
+          {submittedFeedback.length ? (
             <div className="space-y-4">
-              {feedbackRows.map((row) => (
+              {submittedFeedback.map((row) => (
                 <article key={String(row.id)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
                       <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(row.category ?? "general")} · {String(row.target_type ?? "-").replaceAll("_", " ")} · {formatDateTime(row.created_at)}</p>
                     </div>
-                    <StatusBadge value={String(row.status ?? "new")} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge value="submitted" />
+                      <StatusBadge value={String(row.status ?? "new")} />
+                    </div>
                   </div>
                   <p className="mt-4 text-sm leading-6 text-[var(--foreground)]">{String(row.message ?? "-")}</p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -227,11 +289,7 @@ export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile,
                       Target: {String(row.target_type ?? "-").replaceAll("_", " ")}
                     </div>
                     <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                      {String(row.target_type ?? "") === "staff"
-                        ? String(row.target_staff_id ?? "") === String(currentStaff?.id ?? "")
-                          ? "Targeted to you"
-                          : getStaffName(row.target_staff_id) ?? "Target staff not selected"
-                        : String(row.portal_area ?? "-")}
+                      {String(row.target_type ?? "") === "staff" ? getStaffName(row.target_staff_id) ?? "Target staff not selected" : String(row.portal_area ?? "-")}
                     </div>
                   </div>
                   {String(row.target_type ?? "") === "staff" ? (
@@ -246,6 +304,7 @@ export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile,
             <EmptyState title="No feedback history yet" description="Submitted feedback will appear here after your first workflow submission." />
           )}
         </FormSection>
+        </div>
       </div>
     </div>
   );

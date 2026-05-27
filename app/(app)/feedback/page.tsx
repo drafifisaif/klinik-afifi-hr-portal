@@ -3,6 +3,7 @@ import { FeedbackWorkflowPage } from "@/components/feedback-workflow-page";
 import { PageHeader } from "@/components/page-header";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows, filterRowsByKnownOwner } from "@/lib/data";
+import { normalizeString } from "@/lib/utils";
 
 export default async function FeedbackPage() {
   const context = await requireRouteAccess("feedback");
@@ -23,10 +24,15 @@ export default async function FeedbackPage() {
   ]);
 
   const ownRows = filterRowsByKnownOwner(feedbackRows.rows, context.user.id, context.profile?.id);
-  const targetedRows = context.staff
-    ? feedbackRows.rows.filter((row) => String(row.target_staff_id ?? "") === String(context.staff?.id ?? ""))
-    : [];
-  const visibleRows = [...new Map([...ownRows, ...targetedRows].map((row) => [String(row.id ?? `${row.created_at}-${row.title}`), row])).values()];
+  const feedbackForMe = feedbackRows.rows.filter((row) => {
+    const targetedToCurrentStaff =
+      context.staff &&
+      normalizeString(row.target_type) === "staff" &&
+      String(row.target_staff_id ?? "") === String(context.staff.id ?? "");
+    const assignedToCurrentProfile = String(row.assigned_to ?? "") === String(context.profile?.id ?? context.user.id);
+
+    return Boolean(targetedToCurrentStaff || assignedToCurrentProfile);
+  });
 
   return (
     <div className="space-y-6">
@@ -35,7 +41,8 @@ export default async function FeedbackPage() {
         description="Submit real feedback, route it to the right team, and keep your own submission history visible."
       />
       <FeedbackWorkflowPage
-        rows={visibleRows}
+        assignedRows={feedbackForMe}
+        submittedRows={ownRows}
         staffRows={staffRows.rows}
         branches={branchRows.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id)}
         role={context.role}
