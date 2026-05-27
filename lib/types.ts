@@ -32,6 +32,7 @@ export type AppRouteKey =
   | "staff"
   | "leave"
   | "mc"
+  | "attendance"
   | "feedback"
   | "feedbackManage"
   | "notifications"

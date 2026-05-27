@@ -1,0 +1,1089 @@
+"use client";
+
+import { FormEvent, useMemo, useState } from "react";
+import { CheckCircle2, Edit3, LogIn, LogOut, Save, TriangleAlert, XCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+import { EmptyState } from "@/components/empty-state";
+import { FormSection } from "@/components/form-section";
+import { StatusBadge } from "@/components/status-badge";
+import { createClient } from "@/lib/supabase/client";
+import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
+import { formatDate, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
+
+interface AttendancePageProps {
+  attendanceRows: TableRow[];
+  adjustmentRows: TableRow[];
+  settingRows: TableRow[];
+  staffRows: TableRow[];
+  branchRows: BranchOption[];
+  rosterRows: TableRow[];
+  shiftTemplateRows: TableRow[];
+  leaveRows: TableRow[];
+  profile: Profile | null;
+  currentStaff: TableRow | null;
+  role: UserRole;
+  error?: string | null;
+}
+
+const inputClass =
+  "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
+const textareaClass =
+  "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
+
+const emptyAdjustmentForm = {
+  request_type: "forgot_punch_in",
+  requested_check_in_at: "",
+  requested_check_out_at: "",
+  reason: "",
+};
+
+const emptyManualAttendanceForm = {
+  check_in_at: "",
+  check_out_at: "",
+};
+
+function toDateInput(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+function combineDateAndTime(date: string, timeValue?: string | null) {
+  const time = String(timeValue ?? "").trim().slice(0, 5);
+  if (!date || !time) {
+    return null;
+  }
+
+  return `${date}T${time}:00`;
+}
+
+function formatShortTime(value: unknown) {
+  if (!value) {
+    return "-";
+  }
+
+  const text = String(value);
+  if (/^\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 5);
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return new Intl.DateTimeFormat("en-MY", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatShortDateTime(value: unknown) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+function parseIso(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function buildScheduledDateTime(rosterRow: TableRow | null, shiftTemplate: TableRow | null, field: "start" | "end") {
+  const rosterDate = String(rosterRow?.roster_date ?? rosterRow?.date ?? "");
+  const customValue = field === "start" ? rosterRow?.custom_start_time : rosterRow?.custom_end_time;
+  const templateValue = field === "start" ? shiftTemplate?.start_time : shiftTemplate?.end_time;
+  return combineDateAndTime(rosterDate, String(customValue ?? templateValue ?? ""));
+}
+
+function getShiftName(rosterRow: TableRow | null, shiftTemplate: TableRow | null) {
+  return String(shiftTemplate?.name ?? rosterRow?.shift_name ?? "Shift belum diset");
+}
+
+function computeLateMinutes(checkInAt: unknown, scheduledStart: unknown, graceMinutes: number) {
+  const checkIn = parseIso(checkInAt);
+  const scheduled = parseIso(scheduledStart);
+  if (!checkIn || !scheduled) {
+    return 0;
+  }
+
+  const diffMinutes = Math.max(0, Math.round((checkIn.getTime() - scheduled.getTime()) / 60000) - graceMinutes);
+  return diffMinutes;
+}
+
+function computeAttendanceStatus(row: TableRow | null, graceMinutes: number) {
+  if (!row) {
+    return "not_punched_in";
+  }
+
+  const checkIn = row.check_in_at;
+  const checkOut = row.check_out_at;
+  const lateMinutes = Number(row.late_minutes ?? computeLateMinutes(checkIn, row.scheduled_start, graceMinutes) ?? 0);
+
+  if (checkIn && checkOut) {
+    return lateMinutes > 0 ? "late" : "present";
+  }
+
+  if (checkIn) {
+    return lateMinutes > 0 ? "late" : "incomplete";
+  }
+
+  return "not_punched_in";
+}
+
+function isLeaveForDate(row: TableRow, date: string) {
+  const status = normalizeString(row.status);
+  if (status !== "approved") {
+    return false;
+  }
+
+  const start = String(row.start_date ?? "").slice(0, 10);
+  const end = String(row.end_date ?? "").slice(0, 10);
+  return Boolean(start && end && start <= date && end >= date);
+}
+
+function buildHistoryDates(days = 14) {
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - index);
+    return toDateInput(date);
+  });
+}
+
+export function AttendancePage({
+  attendanceRows,
+  adjustmentRows,
+  settingRows,
+  staffRows,
+  branchRows,
+  rosterRows,
+  shiftTemplateRows,
+  leaveRows,
+  profile,
+  currentStaff,
+  role,
+  error,
+}: AttendancePageProps) {
+  const router = useRouter();
+  const supabase = createClient();
+  const today = toDateInput();
+  const [selectedBoardDate, setSelectedBoardDate] = useState(today);
+  const [selectedBranchId, setSelectedBranchId] = useState(
+    role === "branch_pic" || role === "staff" ? String(profile?.branch_id ?? currentStaff?.branch_id ?? "") : String(profile?.branch_id ?? "all") || "all",
+  );
+  const [message, setMessage] = useState<string | null>(null);
+  const [adjustmentMessage, setAdjustmentMessage] = useState<string | null>(null);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [manualMessage, setManualMessage] = useState<string | null>(null);
+  const [isPunching, setIsPunching] = useState(false);
+  const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [activeManualRecordId, setActiveManualRecordId] = useState<string | null>(null);
+  const [manualAttendanceForm, setManualAttendanceForm] = useState(emptyManualAttendanceForm);
+  const [adjustmentForm, setAdjustmentForm] = useState(emptyAdjustmentForm);
+  const [settingsForm, setSettingsForm] = useState({
+    id: "",
+    branch_id: String(profile?.branch_id ?? currentStaff?.branch_id ?? ""),
+    grace_minutes: "10",
+    allow_early_check_in_minutes: "0",
+    auto_absent_after_minutes: "60",
+    require_note_for_late: false,
+    require_note_for_adjustment: false,
+  });
+
+  const canReviewAdjustments = role === "super_admin" || role === "hr" || role === "branch_pic";
+  const canManageSettings = role === "super_admin" || role === "hr";
+  const canViewAllBranches = role === "super_admin" || role === "hr" || role === "operation";
+  const canUsePersonalPunch = Boolean(currentStaff?.id && profile?.id);
+  const attendance = useMemo(() => mapRowsWithId(attendanceRows), [attendanceRows]);
+  const adjustments = useMemo(() => mapRowsWithId(adjustmentRows), [adjustmentRows]);
+  const rosters = useMemo(() => mapRowsWithId(rosterRows), [rosterRows]);
+  const staffDirectory = useMemo(() => mapRowsWithId(staffRows), [staffRows]);
+  const settingsRows = useMemo(() => mapRowsWithId(settingRows), [settingRows]);
+  const selectedBranchOptions = useMemo(() => {
+    if (role === "staff" || role === "branch_pic") {
+      const lockedId = String(profile?.branch_id ?? currentStaff?.branch_id ?? "");
+      return branchRows.filter((branch) => branch.id === lockedId);
+    }
+
+    return branchRows;
+  }, [branchRows, currentStaff?.branch_id, profile?.branch_id, role]);
+
+  const historyDates = useMemo(() => buildHistoryDates(14), []);
+  const todayRoster = rosters.find(
+    (row) =>
+      String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
+      String(row.roster_date ?? row.date ?? "").slice(0, 10) === today,
+  ) ?? null;
+  const nextRoster = rosters
+    .filter(
+      (row) =>
+        String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
+        String(row.roster_date ?? row.date ?? "").slice(0, 10) >= today,
+    )
+    .sort((left, right) => String(left.roster_date ?? left.date ?? "").localeCompare(String(right.roster_date ?? right.date ?? "")))[0] ?? null;
+  const activeRoster = todayRoster ?? nextRoster;
+  const activeShiftTemplate = shiftTemplateRows.find((row) => String(row.id ?? "") === String(activeRoster?.shift_template_id ?? "")) ?? null;
+  const activeBranchName = branchRows.find((branch) => branch.id === String(currentStaff?.branch_id ?? profile?.branch_id ?? ""))?.name ?? "No branch";
+
+  const scopedTodaySetting = settingsRows.find((row) => String(row.branch_id ?? "") === String(currentStaff?.branch_id ?? profile?.branch_id ?? ""))
+    ?? settingsRows.find((row) => !String(row.branch_id ?? "").trim())
+    ?? null;
+  const graceMinutes = Number(scopedTodaySetting?.grace_minutes ?? 10) || 10;
+  const todayAttendance = attendance.find(
+    (row) =>
+      String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
+      String(row.attendance_date ?? row.created_at ?? "").slice(0, 10) === today,
+  ) ?? null;
+
+  const todayScheduledStart = buildScheduledDateTime(todayRoster, activeShiftTemplate, "start");
+  const todayScheduledEnd = buildScheduledDateTime(todayRoster, activeShiftTemplate, "end");
+  const todayStatus = computeAttendanceStatus(todayAttendance, graceMinutes);
+  const todayLateMinutes = Number(todayAttendance?.late_minutes ?? computeLateMinutes(todayAttendance?.check_in_at, todayAttendance?.scheduled_start ?? todayScheduledStart, graceMinutes));
+
+  const personalHistory = historyDates
+    .map((date) => {
+      const attendanceRow = attendance.find(
+        (row) =>
+          String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
+          String(row.attendance_date ?? row.created_at ?? "").slice(0, 10) === date,
+      ) ?? null;
+      const rosterRow = rosters.find(
+        (row) =>
+          String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
+          String(row.roster_date ?? row.date ?? "").slice(0, 10) === date,
+      ) ?? null;
+      const template = shiftTemplateRows.find((row) => String(row.id ?? "") === String(rosterRow?.shift_template_id ?? "")) ?? null;
+      const correction = adjustments.find(
+        (row) =>
+          String(row.attendance_record_id ?? "") === String(attendanceRow?.id ?? "") ||
+          (String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
+            String(row.created_at ?? "").slice(0, 10) === date),
+      ) ?? null;
+
+      return {
+        date,
+        attendanceRow,
+        rosterRow,
+        template,
+        correction,
+      };
+    })
+    .filter((row) => row.attendanceRow || row.rosterRow || row.correction);
+
+  const boardBranchId =
+    role === "staff" || role === "branch_pic"
+      ? String(profile?.branch_id ?? currentStaff?.branch_id ?? "")
+      : selectedBranchId || "all";
+
+  const visibleRosterRows = rosters.filter((row) => {
+    const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
+    if (rosterDate !== selectedBoardDate) {
+      return false;
+    }
+
+    if (!canViewAllBranches || boardBranchId === "all") {
+      return boardBranchId === "all" ? true : String(row.branch_id ?? "") === boardBranchId;
+    }
+
+    return String(row.branch_id ?? "") === boardBranchId;
+  });
+
+  const visibleBranchStaff = staffDirectory.filter((row) => {
+    if (role === "branch_pic") {
+      return String(row.branch_id ?? "") === String(profile?.branch_id ?? "");
+    }
+
+    if (role === "staff") {
+      return String(row.id ?? "") === String(currentStaff?.id ?? "");
+    }
+
+    if (boardBranchId === "all") {
+      return true;
+    }
+
+    return String(row.branch_id ?? "") === boardBranchId;
+  });
+
+  const boardRows = visibleRosterRows.map((rosterRow) => {
+    const member = visibleBranchStaff.find((row) => String(row.id ?? "") === String(rosterRow.staff_id ?? ""))
+      ?? staffDirectory.find((row) => String(row.id ?? "") === String(rosterRow.staff_id ?? ""));
+    const template = shiftTemplateRows.find((row) => String(row.id ?? "") === String(rosterRow.shift_template_id ?? "")) ?? null;
+    const record = attendance.find(
+      (row) =>
+        String(row.staff_id ?? "") === String(rosterRow.staff_id ?? "") &&
+        String(row.attendance_date ?? row.created_at ?? "").slice(0, 10) === selectedBoardDate,
+    ) ?? null;
+    const branchId = String(rosterRow.branch_id ?? member?.branch_id ?? "");
+    const branchSetting = settingsRows.find((row) => String(row.branch_id ?? "") === branchId)
+      ?? settingsRows.find((row) => !String(row.branch_id ?? "").trim())
+      ?? null;
+    const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+    const approvedLeave = leaveRows.find(
+      (row) => String(row.staff_id ?? "") === String(rosterRow.staff_id ?? "") && isLeaveForDate(row, selectedBoardDate),
+    ) ?? null;
+    const leaveType = normalizeString(approvedLeave?.leave_type);
+    const derivedStatus = approvedLeave
+      ? leaveType === "medical_leave"
+        ? "mc"
+        : "on_leave"
+      : computeAttendanceStatus(record, rowGraceMinutes);
+    const scheduledStart = record?.scheduled_start ?? buildScheduledDateTime(rosterRow, template, "start");
+    const scheduledEnd = record?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end");
+    const lateMinutes = Number(record?.late_minutes ?? computeLateMinutes(record?.check_in_at, scheduledStart, rowGraceMinutes));
+    const autoAbsentAfterMinutes = Number(branchSetting?.auto_absent_after_minutes ?? 60) || 60;
+
+    let finalStatus = derivedStatus;
+    const scheduledStartDate = parseIso(scheduledStart);
+    const selectedIsToday = selectedBoardDate === today;
+    const now = new Date();
+
+    if (!approvedLeave && !record && scheduledStartDate) {
+      if (selectedBoardDate < today) {
+        finalStatus = "absent";
+      } else if (selectedIsToday && now.getTime() > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
+        finalStatus = "absent";
+      }
+    }
+
+    return {
+      rosterRow,
+      member,
+      template,
+      record,
+      status: finalStatus,
+      lateMinutes,
+      scheduledStart,
+      scheduledEnd,
+    };
+  });
+
+  const pendingAdjustments = adjustments.filter((row) => {
+    if (normalizeString(row.status) !== "pending") {
+      return false;
+    }
+
+    if (role === "super_admin" || role === "hr") {
+      return true;
+    }
+
+    if (role === "branch_pic") {
+      return String(row.branch_id ?? "") === String(profile?.branch_id ?? "");
+    }
+
+    return String(row.profile_id ?? "") === String(profile?.id ?? "");
+  });
+
+  const branchSettingsSelection = settingsRows.find((row) => String(row.branch_id ?? "") === String(settingsForm.branch_id ?? ""))
+    ?? null;
+
+  function getStaffName(staffId: unknown) {
+    const row = staffDirectory.find((item) => String(item.id ?? "") === String(staffId ?? ""));
+    return String(row?.full_name ?? row?.email ?? "Unknown User");
+  }
+
+  function getBranchName(branchId: unknown) {
+    return branchRows.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
+  }
+
+  function loadSettings(branchId: string) {
+    const row = settingsRows.find((item) => String(item.branch_id ?? "") === branchId) ?? null;
+    setSettingsForm({
+      id: String(row?.id ?? ""),
+      branch_id: branchId,
+      grace_minutes: String(row?.grace_minutes ?? 10),
+      allow_early_check_in_minutes: String(row?.allow_early_check_in_minutes ?? 0),
+      auto_absent_after_minutes: String(row?.auto_absent_after_minutes ?? 60),
+      require_note_for_late: row?.require_note_for_late === true,
+      require_note_for_adjustment: row?.require_note_for_adjustment === true,
+    });
+    setSettingsMessage(null);
+  }
+
+  async function handlePunch(action: "in" | "out") {
+    if (!supabase || !profile?.id || !currentStaff?.id) {
+      setMessage("Complete your linked staff profile before using attendance.");
+      return;
+    }
+
+    setIsPunching(true);
+    setMessage(null);
+    const timestamp = new Date().toISOString();
+    const scheduledStart = buildScheduledDateTime(todayRoster, activeShiftTemplate, "start");
+    const scheduledEnd = buildScheduledDateTime(todayRoster, activeShiftTemplate, "end");
+    const lateMinutes = action === "in" ? computeLateMinutes(timestamp, scheduledStart, graceMinutes) : todayLateMinutes;
+
+    if (action === "in") {
+      if (todayAttendance?.id) {
+        const { error: updateError } = await supabase
+          .from("attendance_records")
+          .update({
+            check_in_at: todayAttendance.check_in_at ?? timestamp,
+            roster_id: todayRoster?.id ?? null,
+            scheduled_start: todayAttendance.scheduled_start ?? scheduledStart,
+            scheduled_end: todayAttendance.scheduled_end ?? scheduledEnd,
+            late_minutes: Number(todayAttendance.late_minutes ?? lateMinutes),
+            status: computeAttendanceStatus(
+              {
+                ...todayAttendance,
+                check_in_at: todayAttendance.check_in_at ?? timestamp,
+                scheduled_start: todayAttendance.scheduled_start ?? scheduledStart,
+                late_minutes: Number(todayAttendance.late_minutes ?? lateMinutes),
+              },
+              graceMinutes,
+            ),
+          })
+          .eq("id", todayAttendance.id);
+
+        setIsPunching(false);
+        if (updateError) {
+          setMessage(updateError.message);
+          return;
+        }
+
+        setMessage(todayRoster ? "Punch in updated." : "Punch in saved. Roster belum diset untuk hari ini.");
+        router.refresh();
+        return;
+      }
+
+      const { error: insertError } = await supabase.from("attendance_records").insert({
+        profile_id: profile.id,
+        staff_id: currentStaff.id,
+        branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
+        attendance_date: today,
+        roster_id: todayRoster?.id ?? null,
+        scheduled_start: scheduledStart,
+        scheduled_end: scheduledEnd,
+        check_in_at: timestamp,
+        late_minutes: lateMinutes,
+        status: lateMinutes > 0 ? "late" : "incomplete",
+      });
+
+      setIsPunching(false);
+      if (insertError) {
+        setMessage(insertError.message);
+        return;
+      }
+
+      setMessage(todayRoster ? "Punch in recorded." : "Punch in recorded. Roster belum diset untuk hari ini.");
+      router.refresh();
+      return;
+    }
+
+    if (!todayAttendance?.id) {
+      setIsPunching(false);
+      setMessage("Punch in is required before punching out.");
+      return;
+    }
+
+    const nextStatus = computeAttendanceStatus(
+      {
+        ...todayAttendance,
+        check_out_at: timestamp,
+      },
+      graceMinutes,
+    );
+
+    const { error: punchOutError } = await supabase
+      .from("attendance_records")
+      .update({
+        check_out_at: timestamp,
+        scheduled_start: todayAttendance.scheduled_start ?? scheduledStart,
+        scheduled_end: todayAttendance.scheduled_end ?? scheduledEnd,
+        late_minutes: Number(todayAttendance.late_minutes ?? lateMinutes),
+        status: nextStatus === "incomplete" ? "present" : nextStatus,
+      })
+      .eq("id", todayAttendance.id);
+
+    setIsPunching(false);
+
+    if (punchOutError) {
+      setMessage(punchOutError.message);
+      return;
+    }
+
+    setMessage(todayRoster ? "Punch out recorded." : "Punch out recorded. Roster belum diset untuk hari ini.");
+    router.refresh();
+  }
+
+  async function handleSubmitAdjustment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase || !profile?.id || !currentStaff?.id) {
+      setAdjustmentMessage("Complete your linked staff profile before requesting a correction.");
+      return;
+    }
+
+    setIsSavingAdjustment(true);
+    setAdjustmentMessage(null);
+
+    const payload = {
+      request_type: adjustmentForm.request_type,
+      requested_check_in_at: adjustmentForm.requested_check_in_at || null,
+      requested_check_out_at: adjustmentForm.requested_check_out_at || null,
+      reason: adjustmentForm.reason || null,
+      staff_id: currentStaff.id,
+      profile_id: profile.id,
+      branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
+      attendance_record_id: todayAttendance?.id ?? null,
+      status: "pending",
+    };
+
+    const { error: insertError } = await supabase.from("attendance_adjustments").insert(payload);
+
+    setIsSavingAdjustment(false);
+
+    if (insertError) {
+      setAdjustmentMessage(insertError.message);
+      return;
+    }
+
+    setAdjustmentForm(emptyAdjustmentForm);
+    setAdjustmentMessage("Correction request submitted.");
+    router.refresh();
+  }
+
+  async function handleAdjustmentDecision(row: TableRow, status: "approved" | "rejected") {
+    if (!supabase || !profile?.id) {
+      setAdjustmentMessage("Unable to review this adjustment right now.");
+      return;
+    }
+
+    if (status === "approved") {
+      const requestedCheckIn = row.requested_check_in_at;
+      const requestedCheckOut = row.requested_check_out_at;
+      const sourceAttendanceId = String(row.attendance_record_id ?? "");
+      const branchId = String(row.branch_id ?? "");
+      const matchingRecord =
+        attendance.find((item) => String(item.id ?? "") === sourceAttendanceId)
+        ?? attendance.find(
+          (item) =>
+            String(item.staff_id ?? "") === String(row.staff_id ?? "") &&
+            String(item.attendance_date ?? item.created_at ?? "").slice(0, 10) === String(requestedCheckIn ?? requestedCheckOut ?? "").slice(0, 10),
+        )
+        ?? null;
+      const matchingRoster = rosters.find(
+        (item) =>
+          String(item.staff_id ?? "") === String(row.staff_id ?? "") &&
+          String(item.roster_date ?? item.date ?? "").slice(0, 10) === String(requestedCheckIn ?? requestedCheckOut ?? "").slice(0, 10),
+      ) ?? null;
+      const matchingTemplate = shiftTemplateRows.find((item) => String(item.id ?? "") === String(matchingRoster?.shift_template_id ?? "")) ?? null;
+      const branchSetting = settingsRows.find((item) => String(item.branch_id ?? "") === branchId)
+        ?? settingsRows.find((item) => !String(item.branch_id ?? "").trim())
+        ?? null;
+      const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+      const scheduledStart = matchingRecord?.scheduled_start ?? buildScheduledDateTime(matchingRoster, matchingTemplate, "start");
+      const scheduledEnd = matchingRecord?.scheduled_end ?? buildScheduledDateTime(matchingRoster, matchingTemplate, "end");
+      const lateMinutes = computeLateMinutes(requestedCheckIn, scheduledStart, rowGraceMinutes);
+      const nextStatus = computeAttendanceStatus(
+        {
+          ...matchingRecord,
+          check_in_at: requestedCheckIn ?? matchingRecord?.check_in_at ?? null,
+          check_out_at: requestedCheckOut ?? matchingRecord?.check_out_at ?? null,
+          scheduled_start: scheduledStart,
+          late_minutes: lateMinutes,
+        },
+        rowGraceMinutes,
+      );
+
+      if (matchingRecord?.id) {
+        const { error: attendanceError } = await supabase
+          .from("attendance_records")
+          .update({
+            check_in_at: requestedCheckIn ?? matchingRecord.check_in_at ?? null,
+            check_out_at: requestedCheckOut ?? matchingRecord.check_out_at ?? null,
+            scheduled_start: scheduledStart,
+            scheduled_end: scheduledEnd,
+            roster_id: matchingRoster?.id ?? matchingRecord.roster_id ?? null,
+            late_minutes: lateMinutes,
+            status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
+          })
+          .eq("id", matchingRecord.id);
+
+        if (attendanceError) {
+          setAdjustmentMessage(attendanceError.message);
+          return;
+        }
+      } else {
+        const requestedDate = String(requestedCheckIn ?? requestedCheckOut ?? "").slice(0, 10) || today;
+        const { error: insertAttendanceError } = await supabase.from("attendance_records").insert({
+          profile_id: row.profile_id ?? null,
+          staff_id: row.staff_id,
+          branch_id: row.branch_id ?? null,
+          attendance_date: requestedDate,
+          roster_id: matchingRoster?.id ?? null,
+          scheduled_start: scheduledStart,
+          scheduled_end: scheduledEnd,
+          check_in_at: requestedCheckIn ?? null,
+          check_out_at: requestedCheckOut ?? null,
+          late_minutes: lateMinutes,
+          status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
+        });
+
+        if (insertAttendanceError) {
+          setAdjustmentMessage(insertAttendanceError.message);
+          return;
+        }
+      }
+    }
+
+    const { error: reviewError } = await supabase
+      .from("attendance_adjustments")
+      .update({ status })
+      .eq("id", row.id);
+
+    if (reviewError) {
+      setAdjustmentMessage(reviewError.message);
+      return;
+    }
+
+    setAdjustmentMessage(`Adjustment ${status}.`);
+    router.refresh();
+  }
+
+  function startManualUpdate(row: (typeof boardRows)[number]) {
+    setActiveManualRecordId(String(row.record?.id ?? row.rosterRow.id ?? row.member?.id ?? ""));
+    setManualAttendanceForm({
+      check_in_at: formatShortDateTime(row.record?.check_in_at),
+      check_out_at: formatShortDateTime(row.record?.check_out_at),
+    });
+    setManualMessage(null);
+  }
+
+  async function saveManualAttendance(row: (typeof boardRows)[number]) {
+    if (!supabase || !profile?.id || role !== "super_admin" && role !== "hr") {
+      setManualMessage("Manual updates are only available to HR and super admin.");
+      return;
+    }
+
+    const scheduledStart = row.scheduledStart;
+    const scheduledEnd = row.scheduledEnd;
+    const branchSetting = settingsRows.find((item) => String(item.branch_id ?? "") === String(row.rosterRow.branch_id ?? row.member?.branch_id ?? ""))
+      ?? settingsRows.find((item) => !String(item.branch_id ?? "").trim())
+      ?? null;
+    const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+    const lateMinutes = computeLateMinutes(manualAttendanceForm.check_in_at, scheduledStart, rowGraceMinutes);
+    const nextStatus = computeAttendanceStatus(
+      {
+        ...row.record,
+        check_in_at: manualAttendanceForm.check_in_at || null,
+        check_out_at: manualAttendanceForm.check_out_at || null,
+        scheduled_start: scheduledStart,
+        late_minutes: lateMinutes,
+      },
+      rowGraceMinutes,
+    );
+
+    if (row.record?.id) {
+      const { error: updateError } = await supabase
+        .from("attendance_records")
+        .update({
+          check_in_at: manualAttendanceForm.check_in_at || null,
+          check_out_at: manualAttendanceForm.check_out_at || null,
+          scheduled_start: scheduledStart,
+          scheduled_end: scheduledEnd,
+          late_minutes: lateMinutes,
+          status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
+        })
+        .eq("id", row.record.id);
+
+      if (updateError) {
+        setManualMessage(updateError.message);
+        return;
+      }
+    } else {
+      const { error: insertError } = await supabase.from("attendance_records").insert({
+        profile_id: row.member?.profile_id ?? null,
+        staff_id: row.member?.id ?? row.rosterRow.staff_id ?? null,
+        branch_id: row.rosterRow.branch_id ?? row.member?.branch_id ?? null,
+        attendance_date: selectedBoardDate,
+        roster_id: row.rosterRow.id ?? null,
+        scheduled_start: scheduledStart,
+        scheduled_end: scheduledEnd,
+        check_in_at: manualAttendanceForm.check_in_at || null,
+        check_out_at: manualAttendanceForm.check_out_at || null,
+        late_minutes: lateMinutes,
+        status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
+      });
+
+      if (insertError) {
+        setManualMessage(insertError.message);
+        return;
+      }
+    }
+
+    setManualMessage("Attendance record updated.");
+    setActiveManualRecordId(null);
+    setManualAttendanceForm(emptyManualAttendanceForm);
+    router.refresh();
+  }
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase || !canManageSettings) {
+      setSettingsMessage("Attendance settings are restricted to HR and super admin.");
+      return;
+    }
+
+    setIsSavingSettings(true);
+    setSettingsMessage(null);
+
+    const payload = {
+      branch_id: settingsForm.branch_id || null,
+      grace_minutes: Number(settingsForm.grace_minutes || 10),
+      allow_early_check_in_minutes: Number(settingsForm.allow_early_check_in_minutes || 0),
+      auto_absent_after_minutes: Number(settingsForm.auto_absent_after_minutes || 60),
+      require_note_for_late: settingsForm.require_note_for_late,
+      require_note_for_adjustment: settingsForm.require_note_for_adjustment,
+    };
+
+    const query = settingsForm.id
+      ? supabase.from("attendance_settings").update(payload).eq("id", settingsForm.id)
+      : supabase.from("attendance_settings").insert(payload);
+
+    const { error: saveError } = await query;
+    setIsSavingSettings(false);
+
+    if (saveError) {
+      setSettingsMessage(saveError.message);
+      return;
+    }
+
+    setSettingsMessage("Attendance settings saved.");
+    router.refresh();
+  }
+
+  return (
+    <div className="space-y-6">
+      {error ? <EmptyState title="Unable to load attendance data" description={error} /> : null}
+
+      {canUsePersonalPunch ? (
+        <FormSection
+          title="Today attendance"
+          description="Punch in, punch out, and review your scheduled shift linked to today's roster."
+        >
+          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-[28px] border border-[var(--border)] bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-[var(--foreground)]">{String(currentStaff?.full_name ?? profile?.full_name ?? "Staff attendance")}</h3>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">{activeBranchName} · {formatDate(today)}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge value={todayStatus} />
+                  {todayLateMinutes > 0 ? <StatusBadge value={`${todayLateMinutes} min late`} /> : null}
+                </div>
+              </div>
+
+              {!todayRoster ? (
+                <div className="mt-4 flex items-start gap-3 rounded-3xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  Roster belum diset untuk hari ini.
+                </div>
+              ) : null}
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="rounded-3xl bg-white/85 px-5 py-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Current or next shift</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{getShiftName(activeRoster, activeShiftTemplate)}</p>
+                </div>
+                <div className="rounded-3xl bg-white/85 px-5 py-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Scheduled hours</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">
+                    {formatShortTime(todayAttendance?.scheduled_start ?? todayScheduledStart)} - {formatShortTime(todayAttendance?.scheduled_end ?? todayScheduledEnd)}
+                  </p>
+                </div>
+                <div className="rounded-3xl bg-white/85 px-5 py-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Check in</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{formatShortTime(todayAttendance?.check_in_at)}</p>
+                </div>
+                <div className="rounded-3xl bg-white/85 px-5 py-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Check out</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{formatShortTime(todayAttendance?.check_out_at)}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handlePunch("in")}
+                  disabled={isPunching}
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto"
+                >
+                  <LogIn className="h-4 w-4" />
+                  {isPunching ? "Saving..." : "Punch In"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePunch("out")}
+                  disabled={isPunching || !todayAttendance?.check_in_at}
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--foreground)] disabled:opacity-60 sm:w-auto"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Punch Out
+                </button>
+              </div>
+              {message ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
+            </div>
+
+            <FormSection title="Request correction" description="Use this if you forgot to punch, punched the wrong time, or need HR/manager review.">
+              <form className="space-y-4" onSubmit={handleSubmitAdjustment}>
+                <select value={adjustmentForm.request_type} onChange={(event) => setAdjustmentForm((current) => ({ ...current, request_type: event.target.value }))} className={inputClass}>
+                  <option value="forgot_punch_in">Forgot punch in</option>
+                  <option value="forgot_punch_out">Forgot punch out</option>
+                  <option value="wrong_punch_time">Wrong punch time</option>
+                </select>
+                <input type="datetime-local" value={adjustmentForm.requested_check_in_at} onChange={(event) => setAdjustmentForm((current) => ({ ...current, requested_check_in_at: event.target.value }))} className={inputClass} />
+                <input type="datetime-local" value={adjustmentForm.requested_check_out_at} onChange={(event) => setAdjustmentForm((current) => ({ ...current, requested_check_out_at: event.target.value }))} className={inputClass} />
+                <textarea value={adjustmentForm.reason} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason: event.target.value }))} rows={4} placeholder="Explain what needs to be corrected" className={textareaClass} required />
+                {adjustmentMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
+                <button type="submit" disabled={isSavingAdjustment} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70">
+                  <Edit3 className="h-4 w-4" />
+                  {isSavingAdjustment ? "Saving..." : "Request Correction"}
+                </button>
+              </form>
+            </FormSection>
+          </div>
+        </FormSection>
+      ) : (
+        <EmptyState title="Complete your staff profile first" description="Attendance punch controls need a linked staff record before they can be used." />
+      )}
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <FormSection title="Attendance history" description="Your last 14 days of attendance, shift schedule, and any correction requests.">
+          {personalHistory.length ? (
+            <div className="space-y-3">
+              {personalHistory.map((entry) => {
+                const status = entry.attendanceRow
+                  ? computeAttendanceStatus(entry.attendanceRow, graceMinutes)
+                  : entry.correction
+                    ? normalizeString(entry.correction.status) === "pending"
+                      ? "pending_review"
+                      : String(entry.correction.status ?? "pending_review")
+                    : "not_punched_in";
+                return (
+                  <article key={entry.date} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-base font-semibold text-[var(--foreground)]">{formatDate(entry.date)}</p>
+                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                          {getShiftName(entry.rosterRow, entry.template)} · {formatShortTime(entry.attendanceRow?.scheduled_start ?? buildScheduledDateTime(entry.rosterRow, entry.template, "start"))} - {formatShortTime(entry.attendanceRow?.scheduled_end ?? buildScheduledDateTime(entry.rosterRow, entry.template, "end"))}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge value={status} />
+                        {entry.correction ? <StatusBadge value={String(entry.correction.status ?? "pending")} /> : null}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                      <p><span className="font-semibold">Check in:</span> {formatShortTime(entry.attendanceRow?.check_in_at)}</p>
+                      <p><span className="font-semibold">Check out:</span> {formatShortTime(entry.attendanceRow?.check_out_at)}</p>
+                      <p><span className="font-semibold">Late minutes:</span> {String(entry.attendanceRow?.late_minutes ?? computeLateMinutes(entry.attendanceRow?.check_in_at, entry.attendanceRow?.scheduled_start, graceMinutes))}</p>
+                      <p><span className="font-semibold">Correction status:</span> {String(entry.correction?.status ?? "-")}</p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState title="Belum ada rekod attendance" description="Attendance history will appear after your first punch in and punch out." />
+          )}
+        </FormSection>
+
+        <FormSection title={role === "branch_pic" ? "Branch attendance board" : role === "super_admin" || role === "hr" ? "Attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
+              <select
+                value={boardBranchId}
+                onChange={(event) => setSelectedBranchId(event.target.value)}
+                className={inputClass}
+                disabled={role === "staff" || role === "branch_pic"}
+              >
+                {canViewAllBranches ? <option value="all">All visible branches</option> : null}
+                {selectedBranchOptions.map((branch) => (
+                  <option key={branch.id} value={branch.id}>{branch.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Date</label>
+              <input type="date" value={selectedBoardDate} onChange={(event) => setSelectedBoardDate(event.target.value)} className={inputClass} />
+            </div>
+            <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Summary</p>
+              <p className="mt-2 font-semibold">{boardRows.length} rostered staff</p>
+              <p className="mt-1 text-[var(--muted-foreground)]">
+                {boardRows.filter((row) => row.status === "late").length} late · {boardRows.filter((row) => row.status === "incomplete").length} incomplete · {boardRows.filter((row) => row.status === "absent" || row.status === "not_punched_in").length} not punched in
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {boardRows.length ? (
+              boardRows.map((row) => (
+                <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-base font-semibold text-[var(--foreground)]">{String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getShiftName(row.rosterRow, row.template)} · {formatShortTime(row.scheduledStart)} - {formatShortTime(row.scheduledEnd)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge value={row.status} />
+                      {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                    <p><span className="font-semibold">Check in:</span> {formatShortTime(row.record?.check_in_at)}</p>
+                    <p><span className="font-semibold">Check out:</span> {formatShortTime(row.record?.check_out_at)}</p>
+                    <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
+                    <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes}</p>
+                  </div>
+
+                  {role === "super_admin" || role === "hr" ? (
+                    <div className="mt-4 space-y-3 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-4 py-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">Manual attendance update</p>
+                        <button type="button" onClick={() => startManualUpdate(row)} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                          <Edit3 className="h-4 w-4" />
+                          Edit record
+                        </button>
+                      </div>
+                      {activeManualRecordId === String(row.record?.id ?? row.rosterRow.id ?? row.member?.id ?? "") ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <input type="datetime-local" value={manualAttendanceForm.check_in_at} onChange={(event) => setManualAttendanceForm((current) => ({ ...current, check_in_at: event.target.value }))} className={inputClass} />
+                          <input type="datetime-local" value={manualAttendanceForm.check_out_at} onChange={(event) => setManualAttendanceForm((current) => ({ ...current, check_out_at: event.target.value }))} className={inputClass} />
+                          {manualMessage ? <p className="rounded-2xl bg-white px-4 py-3 text-sm text-[var(--foreground)] md:col-span-2">{manualMessage}</p> : null}
+                          <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                            <button type="button" onClick={() => saveManualAttendance(row)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white sm:w-auto">
+                              <Save className="h-4 w-4" />
+                              Save attendance
+                            </button>
+                            <button type="button" onClick={() => { setActiveManualRecordId(null); setManualAttendanceForm(emptyManualAttendanceForm); }} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            ) : (
+              <EmptyState title="Roster belum diset" description="Tiada staff roster untuk tarikh dan cawangan yang dipilih." />
+            )}
+          </div>
+        </FormSection>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <FormSection title="Pending adjustment requests" description="Review correction requests for missed or incorrect punches.">
+          {pendingAdjustments.length ? (
+            <div className="space-y-3">
+              {pendingAdjustments.map((row) => (
+                <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-base font-semibold text-[var(--foreground)]">{getStaffName(row.staff_id)}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(row.request_type ?? "correction").replaceAll("_", " ")} · {getBranchName(row.branch_id)}</p>
+                    </div>
+                    <StatusBadge value={String(row.status ?? "pending")} />
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
+                    <p><span className="font-semibold">Requested check in:</span> {formatDateTime(row.requested_check_in_at)}</p>
+                    <p><span className="font-semibold">Requested check out:</span> {formatDateTime(row.requested_check_out_at)}</p>
+                    <p><span className="font-semibold">Reason:</span> {String(row.reason ?? "-")}</p>
+                  </div>
+                  {canReviewAdjustments ? (
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                      <button type="button" onClick={() => handleAdjustmentDecision(row, "approved")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 sm:w-auto">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Approve
+                      </button>
+                      <button type="button" onClick={() => handleAdjustmentDecision(row, "rejected")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                        <XCircle className="h-4 w-4" />
+                        Reject
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Tiada pembetulan pending" description="Attendance correction requests that need review will appear here." />
+          )}
+          {adjustmentMessage ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
+        </FormSection>
+
+        {canManageSettings ? (
+          <FormSection title="Attendance Settings" description="Set branch grace periods and simple attendance guardrails.">
+            <form className="space-y-4" onSubmit={saveSettings}>
+              <select
+                value={settingsForm.branch_id}
+                onChange={(event) => {
+                  setSettingsForm((current) => ({ ...current, branch_id: event.target.value }));
+                  loadSettings(event.target.value);
+                }}
+                className={inputClass}
+              >
+                <option value="">Global default</option>
+                {branchRows.map((branch) => (
+                  <option key={branch.id} value={branch.id}>{branch.name}</option>
+                ))}
+              </select>
+              <div className="grid gap-4 md:grid-cols-2">
+                <input value={settingsForm.grace_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, grace_minutes: event.target.value }))} placeholder="Grace Minutes" className={inputClass} />
+                <input value={settingsForm.allow_early_check_in_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, allow_early_check_in_minutes: event.target.value }))} placeholder="Allow Early Check In Minutes" className={inputClass} />
+                <input value={settingsForm.auto_absent_after_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, auto_absent_after_minutes: event.target.value }))} placeholder="Auto Absent After Minutes" className={inputClass} />
+              </div>
+              <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
+                <input type="checkbox" checked={settingsForm.require_note_for_late} onChange={(event) => setSettingsForm((current) => ({ ...current, require_note_for_late: event.target.checked }))} />
+                Require note for late
+              </label>
+              <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
+                <input type="checkbox" checked={settingsForm.require_note_for_adjustment} onChange={(event) => setSettingsForm((current) => ({ ...current, require_note_for_adjustment: event.target.checked }))} />
+                Require note for adjustment
+              </label>
+              {branchSettingsSelection ? (
+                <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                  Editing existing settings for {getBranchName(branchSettingsSelection.branch_id)}.
+                </div>
+              ) : null}
+              {settingsMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{settingsMessage}</p> : null}
+              <button type="submit" disabled={isSavingSettings} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                <Save className="h-4 w-4" />
+                {isSavingSettings ? "Saving..." : "Save settings"}
+              </button>
+            </form>
+          </FormSection>
+        ) : (
+          <FormSection title="Attendance Settings" description="Branch-level attendance rules are maintained by HR and super admin.">
+            <div className="space-y-3">
+              <div className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-sm font-semibold text-[var(--foreground)]">Current branch grace</p>
+                <p className="mt-2 text-sm text-[var(--muted-foreground)]">{graceMinutes} minutes grace for late calculation.</p>
+              </div>
+              <EmptyState title="Settings read only" description="This role can review attendance settings but cannot edit them." />
+            </div>
+          </FormSection>
+        )}
+      </div>
+    </div>
+  );
+}

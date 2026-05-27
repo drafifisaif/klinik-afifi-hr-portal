@@ -1,4 +1,5 @@
 import {
+  Clock3,
   Bell,
   BriefcaseMedical,
   CalendarClock,
@@ -49,6 +50,14 @@ const NAVIGATION: NavItem[] = [
     shortLabel: "MC",
     icon: FileCheck,
     routeKey: "mc",
+    group: "core_hr",
+  },
+  {
+    href: "/attendance",
+    label: "Attendance",
+    shortLabel: "Attend",
+    icon: Clock3,
+    routeKey: "attendance",
     group: "core_hr",
   },
   {
@@ -158,12 +167,13 @@ const NAVIGATION: NavItem[] = [
 ];
 
 const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
-  staff: ["dashboard", "leave", "mc", "feedback", "roster", "circulars", "settings"],
+  staff: ["dashboard", "leave", "mc", "attendance", "feedback", "roster", "circulars", "settings"],
   branch_pic: [
     "dashboard",
     "staff",
     "leave",
     "mc",
+    "attendance",
     "feedback",
     "roster",
     "holidays",
@@ -172,6 +182,7 @@ const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
   ],
   operation: [
     "dashboard",
+    "attendance",
     "feedbackManage",
     "notifications",
     "roster",
@@ -187,6 +198,7 @@ const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
     "staff",
     "leave",
     "mc",
+    "attendance",
     "feedback",
     "feedbackManage",
     "notifications",
