@@ -72,19 +72,19 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
   }
 
   function getBranchName(branchId: unknown) {
-    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "Unknown Branch";
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
   }
 
   function getSubmitterMeta(row: TableRow) {
-    const submitterStaffByStaffId = staffRows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""));
-    const submitterStaffByProfileId = staffRows.find((staff) => String(staff.profile_id ?? "") === String(row.submitted_by ?? ""));
-    const submitterStaff = submitterStaffByStaffId ?? submitterStaffByProfileId ?? null;
     const submitterProfile = profileRows.find((item) => String(item.id ?? "") === String(row.submitted_by ?? ""));
+    const submitterStaffByProfileId = staffRows.find((staff) => String(staff.profile_id ?? "") === String(row.submitted_by ?? ""));
+    const submitterStaffByStaffId = staffRows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""));
+    const submitterStaff = submitterStaffByProfileId ?? submitterStaffByStaffId ?? null;
 
     return {
-      name: String(submitterStaff?.full_name ?? submitterProfile?.full_name ?? submitterProfile?.email ?? "Unknown Staff"),
-      position: String(submitterStaff?.position ?? submitterStaff?.department ?? submitterProfile?.role ?? "Unknown Role"),
-      branchName: getBranchName(submitterStaff?.branch_id ?? submitterProfile?.branch_id ?? row.branch_id),
+      name: String(submitterProfile?.full_name ?? submitterProfile?.email ?? submitterStaff?.full_name ?? "Unknown User"),
+      position: String(submitterProfile?.role ?? submitterStaff?.position ?? "").trim(),
+      branchName: getBranchName(submitterProfile?.branch_id ?? submitterStaff?.branch_id ?? null),
     };
   }
 

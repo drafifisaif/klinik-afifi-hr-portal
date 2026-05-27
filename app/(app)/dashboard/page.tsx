@@ -559,12 +559,12 @@ function renderFeedbackItem(
   profileRows: Profile[] = [],
   options?: { currentStaffId?: string | null; currentProfileId?: string | null },
 ) {
-  const submitterStaffByStaffId = staffRows.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
-  const submitterStaffByProfileId = staffRows.find((item) => String(item.profile_id ?? "") === String(row.submitted_by ?? ""));
-  const submitterStaff = submitterStaffByStaffId ?? submitterStaffByProfileId ?? null;
   const submitterProfile = profileRows.find((item) => String(item.id ?? "") === String(row.submitted_by ?? ""));
-  const submitterName = String(submitterStaff?.full_name ?? submitterProfile?.full_name ?? submitterProfile?.email ?? "Unknown Staff");
-  const submitterRole = String(submitterStaff?.position ?? submitterStaff?.department ?? submitterProfile?.role ?? "").trim();
+  const submitterStaffByProfileId = staffRows.find((item) => String(item.profile_id ?? "") === String(row.submitted_by ?? ""));
+  const submitterStaffByStaffId = staffRows.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
+  const submitterStaff = submitterStaffByProfileId ?? submitterStaffByStaffId ?? null;
+  const submitterName = String(submitterProfile?.full_name ?? submitterProfile?.email ?? submitterStaff?.full_name ?? "Unknown User");
+  const submitterRole = String(submitterProfile?.role ?? submitterStaff?.position ?? "").trim();
   const label =
     options?.currentStaffId && String(row.target_staff_id ?? "") === String(options.currentStaffId) && normalizeString(row.target_type) === "staff"
       ? "Targeted to you"

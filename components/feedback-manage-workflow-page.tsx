@@ -17,6 +17,7 @@ interface FeedbackManageWorkflowPageProps {
   feedbackRows: TableRow[];
   commentRows: TableRow[];
   staffRows: TableRow[];
+  profileRows: Profile[];
   branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
@@ -47,7 +48,7 @@ function getStatusPanelClass(status: string) {
   return "border-[var(--border)] bg-white";
 }
 
-export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
+export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -72,7 +73,16 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
   }
 
   function getSubmitter(feedback: TableRow) {
-    return staffRows.find((row) => String(row.id ?? "") === String(feedback.staff_id ?? ""));
+    const submitterProfile = profileRows.find((item) => String(item.id ?? "") === String(feedback.submitted_by ?? ""));
+    const submitterStaffByProfileId = staffRows.find((row) => String(row.profile_id ?? "") === String(feedback.submitted_by ?? ""));
+    const submitterStaffByStaffId = staffRows.find((row) => String(row.id ?? "") === String(feedback.staff_id ?? ""));
+    const submitterStaff = submitterStaffByProfileId ?? submitterStaffByStaffId ?? null;
+
+    return {
+      name: String(submitterProfile?.full_name ?? submitterProfile?.email ?? submitterStaff?.full_name ?? "Unknown User"),
+      role: String(submitterProfile?.role ?? submitterStaff?.position ?? "").trim(),
+      branchId: submitterProfile?.branch_id ?? submitterStaff?.branch_id ?? null,
+    };
   }
 
   function getTargetStaff(feedback: TableRow) {
@@ -92,7 +102,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
   }
 
   function getBranchName(branchId: unknown) {
-    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "Unknown Branch";
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
   }
 
   async function saveAssignment(feedback: TableRow) {
@@ -224,11 +234,11 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
               const targetStaff = getTargetStaff(feedback);
               const showIdentity = canShowSubmitterIdentity(feedback);
               const submitterSummary = showIdentity
-                ? `${String(submitter?.full_name ?? "Unknown Staff")} · ${String(submitter?.position ?? submitter?.department ?? "Unknown Role")} · ${getBranchName(submitter?.branch_id ?? feedback.branch_id)}`
+                ? `${submitter.name}${submitter.role ? ` · ${submitter.role}` : ""} · ${getBranchName(submitter.branchId)}`
                 : "Anonymous · Hidden · Hidden";
               const targetSummary = String(feedback.target_type ?? "") === "staff"
                 ? String(feedback.target_staff_id ?? "").trim()
-                  ? `${String(targetStaff?.full_name ?? "Unknown Staff")} · ${getBranchName(targetStaff?.branch_id ?? feedback.branch_id)}`
+                  ? `${String(targetStaff?.full_name ?? "Unknown User")} · ${getBranchName(targetStaff?.branch_id ?? feedback.branch_id)}`
                   : "Target staff not selected"
                 : String(feedback.target_type ?? "-").replaceAll("_", " ");
               const draft = assignmentDrafts[String(feedback.id)] ?? {
@@ -297,7 +307,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                   <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
                     <div className="space-y-3">
                       <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                        Comments {showIdentity ? `· ${String(submitter?.full_name ?? "Unknown Staff")}` : "· Anonymous"}
+                        Comments {showIdentity ? `· ${submitter.name}` : "· Anonymous"}
                       </h4>
                       {comments.length ? (
                         comments.map((comment) => (
