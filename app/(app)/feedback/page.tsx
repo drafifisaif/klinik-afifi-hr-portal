@@ -3,6 +3,7 @@ import { FeedbackWorkflowPage } from "@/components/feedback-workflow-page";
 import { PageHeader } from "@/components/page-header";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows, filterRowsByKnownOwner } from "@/lib/data";
+import type { Profile } from "@/lib/types";
 import { normalizeString } from "@/lib/utils";
 
 export default async function FeedbackPage() {
@@ -17,10 +18,11 @@ export default async function FeedbackPage() {
     );
   }
 
-  const [feedbackRows, staffRows, branchRows] = await Promise.all([
+  const [feedbackRows, staffRows, branchRows, profileRows] = await Promise.all([
     fetchRows(context.supabase, "feedbacks", 200),
     fetchRows(context.supabase, "staff", 200),
     fetchRows(context.supabase, "branches", 100),
+    fetchRows(context.supabase, "profiles", 200),
   ]);
 
   const ownRows = filterRowsByKnownOwner(feedbackRows.rows, context.user.id, context.profile?.id);
@@ -44,11 +46,12 @@ export default async function FeedbackPage() {
         assignedRows={feedbackForMe}
         submittedRows={ownRows}
         staffRows={staffRows.rows}
+        profileRows={profileRows.rows as Profile[]}
         branches={branchRows.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id)}
         role={context.role}
         profile={context.profile}
         currentStaff={context.staff}
-        error={feedbackRows.error ?? staffRows.error ?? branchRows.error}
+        error={feedbackRows.error ?? staffRows.error ?? branchRows.error ?? profileRows.error}
       />
     </div>
   );

@@ -702,7 +702,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
-  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, branchFeedbackRows, branchStaffRows, shiftTemplates] = await Promise.all([
+  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
@@ -710,7 +710,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("rosters").select("*").eq("staff_id", staffId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(20)),
     queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(200)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).eq("status", "pending").limit(80)),
-    queryRows(() => supabase.from("feedbacks").select("*").eq("branch_id", branchId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(120)),
+    queryRows(() => supabase.from("feedbacks").select("*").in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(200)),
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
   ]);
@@ -722,12 +722,12 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const todayDoctors = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "doctor").length;
   const todaySupport = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "staff").length;
   const incompleteProfiles = branchStaffRows.rows.filter(isStaffRecordIncomplete);
-  const branchOperationalIssues = dedupeRowsById(branchFeedbackRows.rows.filter((row) => isBranchOperationalIssue(row, branchId)));
-  const feedbackForMe = dedupeRowsById(branchFeedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
+  const branchOperationalIssues = dedupeRowsById(feedbackRows.rows.filter((row) => isBranchOperationalIssue(row, branchId)));
+  const feedbackForMe = dedupeRowsById(feedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, branchFeedbackRows.error, branchStaffRows.error, shiftTemplates.error]} />
+      <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}`}
         subtitle="Hari ini anda nampak dua lapisan kerja sekali gus: keperluan peribadi sebagai staff dan operasi cawangan yang perlu dipantau sepanjang minggu."

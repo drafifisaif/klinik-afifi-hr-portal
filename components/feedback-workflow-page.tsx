@@ -16,6 +16,7 @@ interface FeedbackWorkflowPageProps {
   assignedRows: TableRow[];
   submittedRows: TableRow[];
   staffRows: TableRow[];
+  profileRows: Profile[];
   branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
@@ -40,7 +41,7 @@ function getTargetOptions(role: UserRole) {
   return ["hr", "operation", "portal_system"];
 }
 
-export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
+export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -74,9 +75,17 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, b
     return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "Unknown Branch";
   }
 
-  function getSubmitterLabel(row: TableRow) {
-    const submitter = staffRows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""));
-    return String(submitter?.full_name ?? "Unknown Staff");
+  function getSubmitterMeta(row: TableRow) {
+    const submitterStaffByStaffId = staffRows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""));
+    const submitterStaffByProfileId = staffRows.find((staff) => String(staff.profile_id ?? "") === String(row.submitted_by ?? ""));
+    const submitterStaff = submitterStaffByStaffId ?? submitterStaffByProfileId ?? null;
+    const submitterProfile = profileRows.find((item) => String(item.id ?? "") === String(row.submitted_by ?? ""));
+
+    return {
+      name: String(submitterStaff?.full_name ?? submitterProfile?.full_name ?? submitterProfile?.email ?? "Unknown Staff"),
+      position: String(submitterStaff?.position ?? submitterStaff?.department ?? submitterProfile?.role ?? "Unknown Role"),
+      branchName: getBranchName(submitterStaff?.branch_id ?? submitterProfile?.branch_id ?? row.branch_id),
+    };
   }
 
   function getAssignedFeedbackBadge(row: TableRow) {
@@ -239,9 +248,15 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, b
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">From: {getSubmitterLabel(row)} · {formatDateTime(row.created_at)}</p>
+                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                          {(() => {
+                            const submitter = getSubmitterMeta(row);
+                            return `From: ${submitter.name} · ${submitter.position} · ${submitter.branchName} · ${formatDateTime(row.created_at)}`;
+                          })()}
+                        </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge value={getAssignedFeedbackBadge(row)} />
                         <StatusBadge value={String(row.status ?? "new")} />
                         <StatusBadge value={String(row.priority ?? "normal")} />
                       </div>
