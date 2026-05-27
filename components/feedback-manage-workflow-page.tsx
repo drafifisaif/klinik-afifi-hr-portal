@@ -57,6 +57,10 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
     return staffRows.find((row) => String(row.id ?? "") === String(feedback.staff_id ?? ""));
   }
 
+  function getTargetStaff(feedback: TableRow) {
+    return staffRows.find((row) => String(row.id ?? "") === String(feedback.target_staff_id ?? ""));
+  }
+
   function canShowSubmitterIdentity(feedback: TableRow) {
     if (feedback.is_anonymous !== true) {
       return true;
@@ -199,6 +203,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
             {scopedFeedback.map((feedback) => {
               const comments = getComments(String(feedback.id));
               const submitter = getSubmitter(feedback);
+              const targetStaff = getTargetStaff(feedback);
               const showIdentity = canShowSubmitterIdentity(feedback);
               const draft = assignmentDrafts[String(feedback.id)] ?? {
                 assigned_department: String(feedback.assigned_department ?? ""),
@@ -242,6 +247,32 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                       <p className="mt-3 text-sm text-[var(--muted-foreground)]">
                         {String(feedback.category ?? "general")} · target {String(feedback.target_type ?? "-").replaceAll("_", " ")}
                       </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Target</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">{String(feedback.target_type ?? "-").replaceAll("_", " ")}</p>
+                        </div>
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Target Staff</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">
+                            {String(feedback.target_type ?? "") === "staff"
+                              ? String(feedback.target_staff_id ?? "").trim()
+                                ? String(targetStaff?.full_name ?? "Unknown Staff")
+                                : "Target staff not selected"
+                              : "-"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Target Branch</p>
+                          <p className="mt-2 font-semibold text-[var(--foreground)]">
+                            {String(feedback.target_type ?? "") === "staff"
+                              ? String(feedback.target_staff_id ?? "").trim()
+                                ? getBranchName(targetStaff?.branch_id ?? feedback.branch_id)
+                                : "Target staff not selected"
+                              : "-"}
+                          </p>
+                        </div>
+                      </div>
                       <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
                     </div>
                     <div className="grid gap-3 lg:min-w-[280px]">

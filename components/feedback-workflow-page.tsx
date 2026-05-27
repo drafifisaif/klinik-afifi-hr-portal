@@ -9,12 +9,13 @@ import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
-import type { Profile, TableRow, UserRole } from "@/lib/types";
+import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { formatDateTime, mapRowsWithId } from "@/lib/utils";
 
 interface FeedbackWorkflowPageProps {
   rows: TableRow[];
   staffRows: TableRow[];
+  branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
   currentStaff: TableRow | null;
@@ -38,7 +39,7 @@ function getTargetOptions(role: UserRole) {
   return ["hr", "operation", "portal_system"];
 }
 
-export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
+export function FeedbackWorkflowPage({ rows, staffRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -58,11 +59,25 @@ export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentSt
   const feedbackRows = useMemo(() => mapRowsWithId(rows), [rows]);
   const targetOptions = getTargetOptions(role);
 
+  function getStaffName(staffId: unknown) {
+    return staffRows.find((row) => String(row.id ?? "") === String(staffId ?? ""))?.full_name as string | undefined;
+  }
+
+  function getStaffBranchName(staffId: unknown) {
+    const targetStaff = staffRows.find((row) => String(row.id ?? "") === String(staffId ?? ""));
+    return branches.find((branch) => branch.id === String(targetStaff?.branch_id ?? ""))?.name;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!supabase || !profile?.id || !currentStaff) {
       setMessage("A linked staff profile is required before feedback can be submitted.");
+      return;
+    }
+
+    if (form.target_type === "staff" && !form.target_staff_id) {
+      setMessage("Target staff not selected.");
       return;
     }
 
@@ -205,10 +220,25 @@ export function FeedbackWorkflowPage({ rows, staffRows, role, profile, currentSt
                     <StatusBadge value={String(row.status ?? "new")} />
                   </div>
                   <p className="mt-4 text-sm leading-6 text-[var(--foreground)]">{String(row.message ?? "-")}</p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Priority: {String(row.priority ?? "normal").replaceAll("_", " ")}</div>
                     <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Expected action: {String(row.expected_action ?? "-")}</div>
+                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                      Target: {String(row.target_type ?? "-").replaceAll("_", " ")}
+                    </div>
+                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                      {String(row.target_type ?? "") === "staff"
+                        ? String(row.target_staff_id ?? "") === String(currentStaff?.id ?? "")
+                          ? "Targeted to you"
+                          : getStaffName(row.target_staff_id) ?? "Target staff not selected"
+                        : String(row.portal_area ?? "-")}
+                    </div>
                   </div>
+                  {String(row.target_type ?? "") === "staff" ? (
+                    <div className="mt-3 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                      Target Branch: {getStaffBranchName(row.target_staff_id) ?? "Unknown Branch"}
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </div>
