@@ -9,7 +9,7 @@ import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { formatDate, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface AttendancePageProps {
   attendanceRows: TableRow[];
@@ -163,6 +163,28 @@ function buildHistoryDates(days = 14) {
     date.setDate(date.getDate() - index);
     return toDateInput(date);
   });
+}
+
+function getBoardStatusTone(status: string) {
+  const normalized = normalizeString(status);
+
+  if (normalized === "absent") {
+    return "border-rose-200 bg-rose-50/75";
+  }
+
+  if (normalized === "incomplete") {
+    return "border-amber-200 bg-amber-50/75";
+  }
+
+  if (normalized === "late") {
+    return "border-orange-200 bg-orange-50/80";
+  }
+
+  if (normalized === "present") {
+    return "border-emerald-200 bg-emerald-50/60";
+  }
+
+  return "border-[var(--border)] bg-white";
 }
 
 export function AttendancePage({
@@ -391,6 +413,13 @@ export function AttendancePage({
 
   const branchSettingsSelection = settingsRows.find((row) => String(row.branch_id ?? "") === String(settingsForm.branch_id ?? ""))
     ?? null;
+  const boardCounts = {
+    present: boardRows.filter((row) => row.status === "present").length,
+    late: boardRows.filter((row) => row.status === "late").length,
+    absent: boardRows.filter((row) => row.status === "absent").length,
+    incomplete: boardRows.filter((row) => row.status === "incomplete").length,
+    notPunchedIn: boardRows.filter((row) => row.status === "not_punched_in").length,
+  };
 
   function getStaffName(staffId: unknown) {
     const row = staffDirectory.find((item) => String(item.id ?? "") === String(staffId ?? ""));
@@ -906,7 +935,7 @@ export function AttendancePage({
           )}
         </FormSection>
 
-        <FormSection title={role === "branch_pic" ? "Branch attendance board" : role === "super_admin" || role === "hr" ? "Attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
+        <FormSection title={role === "branch_pic" ? "Today attendance board" : role === "super_admin" || role === "hr" ? "Today attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
@@ -930,19 +959,40 @@ export function AttendancePage({
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Summary</p>
               <p className="mt-2 font-semibold">{boardRows.length} rostered staff</p>
               <p className="mt-1 text-[var(--muted-foreground)]">
-                {boardRows.filter((row) => row.status === "late").length} late · {boardRows.filter((row) => row.status === "incomplete").length} incomplete · {boardRows.filter((row) => row.status === "absent" || row.status === "not_punched_in").length} not punched in
+                {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in
               </p>
             </div>
           </div>
 
+          {(role === "branch_pic" || role === "hr" || role === "super_admin") ? (
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{boardCounts.present}</p>
+              </div>
+              <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{boardCounts.late}</p>
+              </div>
+              <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{boardCounts.absent}</p>
+              </div>
+              <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-5 space-y-3">
             {boardRows.length ? (
               boardRows.map((row) => (
-                <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className={cn("rounded-[24px] border px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getBoardStatusTone(row.status))}>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-base font-semibold text-[var(--foreground)]">{String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
-                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getShiftName(row.rosterRow, row.template)} · {formatShortTime(row.scheduledStart)} - {formatShortTime(row.scheduledEnd)}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)} · {getShiftName(row.rosterRow, row.template)} · {formatShortTime(row.scheduledStart)} - {formatShortTime(row.scheduledEnd)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge value={row.status} />
@@ -1034,23 +1084,38 @@ export function AttendancePage({
         {canManageSettings ? (
           <FormSection title="Attendance Settings" description="Set branch grace periods and simple attendance guardrails.">
             <form className="space-y-4" onSubmit={saveSettings}>
-              <select
-                value={settingsForm.branch_id}
-                onChange={(event) => {
-                  setSettingsForm((current) => ({ ...current, branch_id: event.target.value }));
-                  loadSettings(event.target.value);
-                }}
-                className={inputClass}
-              >
-                <option value="">Global default</option>
-                {branchRows.map((branch) => (
-                  <option key={branch.id} value={branch.id}>{branch.name}</option>
-                ))}
-              </select>
+              <label className="block space-y-2">
+                <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                <select
+                  value={settingsForm.branch_id}
+                  onChange={(event) => {
+                    setSettingsForm((current) => ({ ...current, branch_id: event.target.value }));
+                    loadSettings(event.target.value);
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">Global default</option>
+                  {branchRows.map((branch) => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+              </label>
               <div className="grid gap-4 md:grid-cols-2">
-                <input value={settingsForm.grace_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, grace_minutes: event.target.value }))} placeholder="Grace Minutes" className={inputClass} />
-                <input value={settingsForm.allow_early_check_in_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, allow_early_check_in_minutes: event.target.value }))} placeholder="Allow Early Check In Minutes" className={inputClass} />
-                <input value={settingsForm.auto_absent_after_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, auto_absent_after_minutes: event.target.value }))} placeholder="Auto Absent After Minutes" className={inputClass} />
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Grace Minutes</span>
+                  <input value={settingsForm.grace_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, grace_minutes: event.target.value }))} placeholder="10" className={inputClass} />
+                  <p className="text-xs text-[var(--muted-foreground)]">Late status starts after scheduled check-in plus this grace period.</p>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Allow Early Check-In Minutes</span>
+                  <input value={settingsForm.allow_early_check_in_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, allow_early_check_in_minutes: event.target.value }))} placeholder="0" className={inputClass} />
+                  <p className="text-xs text-[var(--muted-foreground)]">How many minutes before shift start staff may punch in early.</p>
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Auto Absent After Minutes</span>
+                  <input value={settingsForm.auto_absent_after_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, auto_absent_after_minutes: event.target.value }))} placeholder="60" className={inputClass} />
+                  <p className="text-xs text-[var(--muted-foreground)]">If roster exists and there is still no punch after this threshold, status becomes absent.</p>
+                </label>
               </div>
               <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
                 <input type="checkbox" checked={settingsForm.require_note_for_late} onChange={(event) => setSettingsForm((current) => ({ ...current, require_note_for_late: event.target.checked }))} />
