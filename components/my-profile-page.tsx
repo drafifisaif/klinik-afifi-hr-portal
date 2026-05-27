@@ -105,8 +105,9 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       return;
     }
 
-    const staffQuery = staff?.id
-      ? supabase.from("staff").update(staffPayload).eq("id", staff.id)
+    const hasLinkedStaff = Boolean(String(staff?.profile_id ?? "").trim() || String(staff?.id ?? "").trim());
+    const staffQuery = hasLinkedStaff
+      ? supabase.from("staff").update(staffPayload).eq("profile_id", profile.id)
       : supabase.from("staff").insert({
           ...staffPayload,
           date_joined: new Date().toISOString().slice(0, 10),
@@ -121,7 +122,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       return;
     }
 
-    setMessage(avatarPath ? (staff?.id ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
+    setMessage(avatarPath ? (hasLinkedStaff ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
     setAvatarFile(null);
     router.refresh();
   }
