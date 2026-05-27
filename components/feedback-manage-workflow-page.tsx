@@ -247,18 +247,18 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                         {feedback.is_anonymous === true ? <StatusBadge value="Anonymous" /> : null}
                         {normalizeString(feedback.priority) === "urgent" ? <StatusBadge value="Urgent" /> : null}
                       </div>
-                      <div className="mt-4 rounded-3xl border border-white/70 bg-white/80 px-5 py-4 text-sm leading-6 text-[var(--muted-foreground)]">
+                      <div className="mt-4 rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-600">
                         <p>
-                          <span className="font-semibold text-[var(--foreground)]">Submitted by:</span>{" "}
+                          <span className="font-semibold text-slate-800">Submitted by:</span>{" "}
                           {submitterSummary}
                         </p>
                         <p className="mt-1">
-                          <span className="font-semibold text-[var(--foreground)]">Target:</span>{" "}
+                          <span className="font-semibold text-slate-800">Target:</span>{" "}
                           {String(feedback.target_type ?? "-").replaceAll("_", " ")}
                           {String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ""}
                         </p>
                         <p className="mt-1">
-                          <span className="font-semibold text-[var(--foreground)]">Submitted:</span>{" "}
+                          <span className="font-semibold text-slate-800">Submitted:</span>{" "}
                           {formatDateTime(feedback.created_at)}
                         </p>
                       </div>
