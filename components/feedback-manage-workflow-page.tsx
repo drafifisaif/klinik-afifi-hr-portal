@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { filterFeedbackForManageView } from "@/lib/data";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { formatDateTime, mapRowsWithId } from "@/lib/utils";
+import { cn, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface FeedbackManageWorkflowPageProps {
   feedbackRows: TableRow[];
@@ -28,6 +28,24 @@ const inputClass =
   "h-11 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
+
+function getStatusPanelClass(status: string) {
+  const normalized = normalizeString(status);
+
+  if (["resolved", "closed"].includes(normalized)) {
+    return "border-emerald-200 bg-emerald-50/60";
+  }
+
+  if (normalized === "need_more_info") {
+    return "border-sky-200 bg-sky-50/60";
+  }
+
+  if (["new", "pending", "assigned", "in_progress"].includes(normalized)) {
+    return "border-amber-200 bg-amber-50/60";
+  }
+
+  return "border-[var(--border)] bg-white";
+}
 
 export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
@@ -205,6 +223,14 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
               const submitter = getSubmitter(feedback);
               const targetStaff = getTargetStaff(feedback);
               const showIdentity = canShowSubmitterIdentity(feedback);
+              const submitterSummary = showIdentity
+                ? `${String(submitter?.full_name ?? "Unknown Staff")} · ${String(submitter?.position ?? submitter?.department ?? "Unknown Role")} · ${getBranchName(submitter?.branch_id ?? feedback.branch_id)}`
+                : "Anonymous · Hidden · Hidden";
+              const targetSummary = String(feedback.target_type ?? "") === "staff"
+                ? String(feedback.target_staff_id ?? "").trim()
+                  ? `${String(targetStaff?.full_name ?? "Unknown Staff")} · ${getBranchName(targetStaff?.branch_id ?? feedback.branch_id)}`
+                  : "Target staff not selected"
+                : String(feedback.target_type ?? "-").replaceAll("_", " ");
               const draft = assignmentDrafts[String(feedback.id)] ?? {
                 assigned_department: String(feedback.assigned_department ?? ""),
                 assigned_to: String(feedback.assigned_to ?? ""),
@@ -212,70 +238,36 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
               };
 
               return (
-                <article key={String(feedback.id)} className="rounded-[28px] border border-[var(--border)] bg-white p-6">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
+                <article key={String(feedback.id)} className={cn("rounded-[28px] border p-6 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getStatusPanelClass(String(feedback.status ?? "new")))}>
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(feedback.title ?? feedback.subject ?? "Untitled feedback")}</h3>
                         <StatusBadge value={String(feedback.status ?? "new")} />
                         {feedback.is_anonymous === true ? <StatusBadge value="Anonymous" /> : null}
+                        {normalizeString(feedback.priority) === "urgent" ? <StatusBadge value="Urgent" /> : null}
                       </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Submitted By</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">
-                            {showIdentity ? String(submitter?.full_name ?? "Unknown Staff") : "Anonymous"}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">
-                            {showIdentity ? getBranchName(submitter?.branch_id ?? feedback.branch_id) : "Hidden"}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Role / Position</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">
-                            {showIdentity ? String(submitter?.position ?? submitter?.department ?? "Unknown Role") : "Hidden"}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Submitted At</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">{formatDateTime(feedback.created_at)}</p>
-                        </div>
+                      <div className="mt-4 rounded-3xl border border-white/70 bg-white/80 px-5 py-4 text-sm leading-6 text-[var(--muted-foreground)]">
+                        <p>
+                          <span className="font-semibold text-[var(--foreground)]">Submitted by:</span>{" "}
+                          {submitterSummary}
+                        </p>
+                        <p className="mt-1">
+                          <span className="font-semibold text-[var(--foreground)]">Target:</span>{" "}
+                          {String(feedback.target_type ?? "-").replaceAll("_", " ")}
+                          {String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ""}
+                        </p>
+                        <p className="mt-1">
+                          <span className="font-semibold text-[var(--foreground)]">Submitted:</span>{" "}
+                          {formatDateTime(feedback.created_at)}
+                        </p>
                       </div>
-                      <p className="mt-3 text-sm text-[var(--muted-foreground)]">
-                        {String(feedback.category ?? "general")} · target {String(feedback.target_type ?? "-").replaceAll("_", " ")}
-                      </p>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Target</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">{String(feedback.target_type ?? "-").replaceAll("_", " ")}</p>
-                        </div>
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Target Staff</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">
-                            {String(feedback.target_type ?? "") === "staff"
-                              ? String(feedback.target_staff_id ?? "").trim()
-                                ? String(targetStaff?.full_name ?? "Unknown Staff")
-                                : "Target staff not selected"
-                              : "-"}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Target Branch</p>
-                          <p className="mt-2 font-semibold text-[var(--foreground)]">
-                            {String(feedback.target_type ?? "") === "staff"
-                              ? String(feedback.target_staff_id ?? "").trim()
-                                ? getBranchName(targetStaff?.branch_id ?? feedback.branch_id)
-                                : "Target staff not selected"
-                              : "-"}
-                          </p>
-                        </div>
+                      <div className="mt-4 rounded-3xl border border-white/80 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(18,42,44,0.04)]">
+                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Feedback Message</p>
+                        <p className="mt-3 text-base leading-7 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
                       </div>
-                      <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
                     </div>
-                    <div className="grid gap-3 lg:min-w-[280px]">
+                    <div className="grid gap-3 lg:min-w-[280px] lg:max-w-[300px]">
                       <input value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [String(feedback.id)]: { ...draft, assigned_department: event.target.value } }))} placeholder="Assigned department" className={inputClass} />
                       <select value={draft.assigned_to} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [String(feedback.id)]: { ...draft, assigned_to: event.target.value } }))} className={inputClass}>
                         <option value="">Assign to user (optional)</option>
