@@ -17,13 +17,24 @@ export default async function FeedbackManagePage() {
     );
   }
 
-  const [feedbackRows, commentRows, staffRows, branchRows, profileRows] = await Promise.all([
+  const [feedbackRows, commentRows, staffRows, branchRows] = await Promise.all([
     fetchRows(context.supabase, "feedbacks", 200),
     fetchRows(context.supabase, "feedback_comments", 200),
     fetchRows(context.supabase, "staff", 200),
     fetchRows(context.supabase, "branches", 100),
-    fetchRows(context.supabase, "profiles", 200),
   ]);
+
+  const submittedByIds = Array.from(
+    new Set(
+      feedbackRows.rows
+        .map((row) => String(row.submitted_by ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const profileRows = submittedByIds.length
+    ? await context.supabase.from("profiles").select("*").in("id", submittedByIds)
+    : { data: [], error: null };
 
   return (
     <div className="space-y-6">
@@ -35,12 +46,12 @@ export default async function FeedbackManagePage() {
         feedbackRows={feedbackRows.rows}
         commentRows={commentRows.rows}
         staffRows={staffRows.rows}
-        profileRows={profileRows.rows as Profile[]}
+        profileRows={(profileRows.data ?? []) as Profile[]}
         branches={branchRows.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id)}
         role={context.role}
         profile={context.profile}
         currentStaff={context.staff}
-        error={feedbackRows.error ?? commentRows.error ?? staffRows.error ?? branchRows.error ?? profileRows.error}
+        error={feedbackRows.error ?? commentRows.error ?? staffRows.error ?? branchRows.error ?? profileRows.error?.message ?? null}
       />
     </div>
   );

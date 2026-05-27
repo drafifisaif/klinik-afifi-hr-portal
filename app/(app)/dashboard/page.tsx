@@ -299,6 +299,16 @@ async function queryCount(executor: () => PromiseLike<{ count: number | null; er
   }
 }
 
+async function queryProfilesByIds(supabase: SupabaseClient, ids: string[]): Promise<RowQueryResult> {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+
+  if (!uniqueIds.length) {
+    return { rows: [], error: null };
+  }
+
+  return queryRows(() => supabase.from("profiles").select("*").in("id", uniqueIds));
+}
+
 function PartialDataNotice({ errors }: { errors: Array<string | null | undefined> }) {
   const message = errors.find(Boolean);
 
@@ -628,7 +638,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
-  const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, branchStaffRows, feedbackRows, profileRows, staffDirectoryRows] = await Promise.all([
+  const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, branchStaffRows, feedbackRows, staffDirectoryRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(120)),
@@ -637,15 +647,18 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
     queryRows(() => supabase.from("leave_entitlements").select("*").eq("staff_id", staffId).order("entitlement_year", { ascending: false }).limit(5)),
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("feedbacks").select("*").eq("target_staff_id", staffId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(40)),
-    queryRows(() => supabase.from("profiles").select("*").limit(200)),
     queryRows(() => supabase.from("staff").select("*").limit(400)),
   ]);
+  const feedbackForMe = dedupeRowsById(feedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
+  const profileRows = await queryProfilesByIds(
+    supabase,
+    feedbackForMe.map((row) => String(row.submitted_by ?? "")),
+  );
 
   const nextHoliday = getNextHoliday(holidays.rows, branchId);
   const nextShift = getNextPersonalShift(rosters.rows, staffId);
   const latestEntitlement = entitlementRows.rows[0] ?? null;
   const leaveBalance = buildLeaveBalanceSummary(latestEntitlement, leaveRows.rows);
-  const feedbackForMe = dedupeRowsById(feedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
 
   return (
     <div className="space-y-8">
@@ -715,7 +728,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
-  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, profileRows, staffDirectoryRows] = await Promise.all([
+  const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, staffDirectoryRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
@@ -726,7 +739,6 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("feedbacks").select("*").in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(200)),
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
-    queryRows(() => supabase.from("profiles").select("*").limit(200)),
     queryRows(() => supabase.from("staff").select("*").limit(400)),
   ]);
 
@@ -739,6 +751,10 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const incompleteProfiles = branchStaffRows.rows.filter(isStaffRecordIncomplete);
   const branchOperationalIssues = dedupeRowsById(feedbackRows.rows.filter((row) => isBranchOperationalIssue(row, branchId)));
   const feedbackForMe = dedupeRowsById(feedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
+  const profileRows = await queryProfilesByIds(
+    supabase,
+    [...branchOperationalIssues, ...feedbackForMe].map((row) => String(row.submitted_by ?? "")),
+  );
 
   return (
     <div className="space-y-8">
