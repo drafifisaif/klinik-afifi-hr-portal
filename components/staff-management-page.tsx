@@ -181,8 +181,32 @@ export function StaffManagementPage({
         description="Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."
       >
         {scopedRows.length ? (
-          <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
-            <div className="overflow-x-auto">
+          <>
+            <div className="space-y-3 md:hidden">
+              {scopedRows.map((row) => (
+                <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-[var(--foreground)]">{String(row.full_name ?? row.email ?? "-")}</p>
+                      <p className="mt-1 text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
+                    </div>
+                    <StatusBadge value={String(row.status ?? "active")} />
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
+                    <p><span className="font-semibold">IC No:</span> {String(row.ic_no ?? "-")}</p>
+                    <p><span className="font-semibold">Position:</span> {String(row.position ?? row.department ?? "-")}</p>
+                    <p><span className="font-semibold">Branch:</span> {branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-")}</p>
+                    <p><span className="font-semibold">Joined:</span> {formatDate(row.date_joined)}</p>
+                  </div>
+                  <button type="button" onClick={() => startEdit(row)} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm font-semibold text-[var(--foreground)]">
+                    <Pencil className="h-3.5 w-3.5" />
+                    {canManageExtended ? "Edit" : "View"}
+                  </button>
+                </article>
+              ))}
+            </div>
+            <div className="hidden overflow-hidden rounded-[24px] border border-[var(--border)] md:block">
+              <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-[var(--border)] text-left">
                 <thead className="bg-[var(--card-muted)]/70">
                   <tr>
@@ -214,7 +238,8 @@ export function StaffManagementPage({
                 </tbody>
               </table>
             </div>
-          </div>
+            </div>
+          </>
         ) : (
           <EmptyState title="No staff records available" description="Staff records will appear here once the linked staff rows exist in Supabase." />
         )}
@@ -250,13 +275,13 @@ export function StaffManagementPage({
                 </select>
               </div>
               {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-              <div className="flex flex-wrap gap-3">
-                <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                <button type="submit" disabled={isSubmitting} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
                   {editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                   {isSubmitting ? "Saving..." : editingId ? "Update staff" : "Create staff"}
                 </button>
                 {editingId ? (
-                  <button type="button" onClick={resetForm} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]">
+                  <button type="button" onClick={resetForm} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
                     <RefreshCw className="h-4 w-4" />
                     Cancel edit
                   </button>

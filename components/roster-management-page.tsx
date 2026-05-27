@@ -604,14 +604,14 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   function renderDraftRows(title: string, roleOnShift: "doctor" | "staff", rows: DraftRow[], staffOptions: TableRow[]) {
     return (
       <div className="space-y-4 rounded-[28px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <h3 className="text-lg font-semibold text-[var(--foreground)]">{title}</h3>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
               {roleOnShift === "doctor" ? "Doctor and locum assignments for the selected branch and date." : "Support staff assignments for the selected branch and date."}
             </p>
           </div>
-          <button type="button" onClick={() => addRow(roleOnShift)} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)]">
+          <button type="button" onClick={() => addRow(roleOnShift)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
             <Plus className="h-4 w-4" />
             {roleOnShift === "doctor" ? "Add Doctor" : "Add Staff"}
           </button>
@@ -692,14 +692,14 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button type="button" onClick={() => setQuickRange("previous_week")} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)]"><ChevronLeft className="h-4 w-4" />Previous Week</button>
-          <button type="button" onClick={() => setQuickRange("this_week")} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)]"><CalendarDays className="h-4 w-4" />This Week</button>
-          <button type="button" onClick={() => setQuickRange("next_week")} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)]"><ChevronRight className="h-4 w-4" />Next Week</button>
-          <button type="button" onClick={() => setQuickRange("next_14_days")} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)]"><CalendarDays className="h-4 w-4" />Next 14 Days</button>
+        <div className="mt-4 grid gap-3 sm:flex sm:flex-wrap">
+          <button type="button" onClick={() => setQuickRange("previous_week")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><ChevronLeft className="h-4 w-4" />Previous Week</button>
+          <button type="button" onClick={() => setQuickRange("this_week")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><CalendarDays className="h-4 w-4" />This Week</button>
+          <button type="button" onClick={() => setQuickRange("next_week")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><ChevronRight className="h-4 w-4" />Next Week</button>
+          <button type="button" onClick={() => setQuickRange("next_14_days")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><CalendarDays className="h-4 w-4" />Next 14 Days</button>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-6 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
           {viewerGroups.length ? viewerGroups.map((group) => {
             const branchLabel = viewerBranchId === "all" ? "All visible branches" : branches.find((branch) => branch.id === viewerBranchId)?.name ?? "Selected branch";
 
@@ -768,10 +768,10 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
           <form className="space-y-6" onSubmit={handleSaveDailyRoster}>
             {renderDraftRows("Doktor Bertugas", "doctor", doctorRows, doctorStaffOptions)}
             {renderDraftRows("Staff Bertugas", "staff", staffRows, nonDoctorStaffOptions)}
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={() => addRow("doctor")} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]"><Plus className="h-4 w-4" />Add Doctor</button>
-              <button type="button" onClick={() => addRow("staff")} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]"><Plus className="h-4 w-4" />Add Staff</button>
-              <button type="submit" disabled={isSaving || !builderBranchId || !selectedDate} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70"><Save className="h-4 w-4" />{isSaving ? "Saving..." : "Save Daily Roster"}</button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <button type="button" onClick={() => addRow("doctor")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><Plus className="h-4 w-4" />Add Doctor</button>
+              <button type="button" onClick={() => addRow("staff")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><Plus className="h-4 w-4" />Add Staff</button>
+              <button type="submit" disabled={isSaving || !builderBranchId || !selectedDate} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto"><Save className="h-4 w-4" />{isSaving ? "Saving..." : "Save Daily Roster"}</button>
             </div>
           </form>
 
@@ -805,7 +805,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
                 <textarea value={templateForm.description} onChange={(event) => setTemplateForm((current) => ({ ...current, description: event.target.value }))} rows={3} placeholder="Description" className={textareaClass} />
                 <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]"><input type="checkbox" checked={templateForm.is_active} onChange={(event) => setTemplateForm((current) => ({ ...current, is_active: event.target.checked }))} />Active template</label>
                 {templateMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{templateMessage}</p> : null}
-                <button type="submit" disabled={isTemplateSaving} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70"><Layers3 className="h-4 w-4" />{isTemplateSaving ? "Saving..." : "Create shift template"}</button>
+                <button type="submit" disabled={isTemplateSaving} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto"><Layers3 className="h-4 w-4" />{isTemplateSaving ? "Saving..." : "Create shift template"}</button>
               </form>
             </div>
           </FormSection>

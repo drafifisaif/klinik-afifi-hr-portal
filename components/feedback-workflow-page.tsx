@@ -258,7 +258,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
             placeholder="Write a reply"
             className={textareaClass}
           />
-          <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25">
+          <button type="submit" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 sm:w-auto">
             Reply
           </button>
         </form>
@@ -413,7 +413,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                 Submit anonymously to viewers where supported
               </label>
               {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-              <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
+              <button type="submit" disabled={isSubmitting} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
                 <MessageSquarePlus className="h-4 w-4" />
                 {isSubmitting ? "Submitting..." : "Submit feedback"}
               </button>

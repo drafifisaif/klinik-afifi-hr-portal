@@ -362,11 +362,11 @@ function HeroCard({
     .join("") || "KA";
 
   return (
-    <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-7 shadow-[0_20px_55px_rgba(18,42,44,0.08)]">
+    <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-5 shadow-[0_20px_55px_rgba(18,42,44,0.08)] sm:p-7">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">{greetingByTime()}</p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--foreground)]">{title}</h2>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">{title}</h2>
           <div className="mt-5 flex items-center gap-4">
             {avatarUrl ? (
               <Image src={avatarUrl} alt={name} width={64} height={64} className="h-16 w-16 rounded-3xl object-cover shadow-sm" unoptimized />
@@ -375,9 +375,9 @@ function HeroCard({
                 {initials}
               </div>
             )}
-            <div>
+            <div className="min-w-0">
               <p className="text-base font-semibold text-[var(--foreground)]">{name}</p>
-              <p className="text-sm text-[var(--muted-foreground)]">{branch}</p>
+              <p className="truncate text-sm text-[var(--muted-foreground)]">{branch}</p>
             </div>
           </div>
         </div>

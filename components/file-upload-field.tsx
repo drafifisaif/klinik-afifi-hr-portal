@@ -22,8 +22,8 @@ export function FileUploadField({
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">{label}</span>
-      <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card-muted)] p-4">
-        <div className="flex items-center gap-3">
+      <div className="overflow-hidden rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card-muted)] p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-[var(--accent)] shadow-sm">
             <Paperclip className="h-4 w-4" />
           </div>

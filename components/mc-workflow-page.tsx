@@ -136,8 +136,42 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
         <FormSection title="MC submissions" description="Medical certificate requests are tracked as `medical_leave` leave requests with a private attachment path.">
           {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
           {scopedRows.length ? (
-            <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
-              <div className="overflow-x-auto">
+            <>
+              <div className="space-y-3 md:hidden">
+                {scopedRows.map((row) => (
+                  <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-[var(--foreground)]">{staffRows.find((staffRow) => String(staffRow.id ?? "") === String(row.staff_id ?? ""))?.full_name as string ?? String(row.staff_id ?? "-")}</p>
+                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formatDate(row.start_date)}</p>
+                      </div>
+                      <StatusBadge value={String(row.status ?? "pending")} />
+                    </div>
+                    <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
+                      <p><span className="font-semibold">File:</span> {getFilename(row.attachment_url)}</p>
+                      <p className="whitespace-pre-line text-xs text-[var(--muted-foreground)]"><span className="font-semibold text-[var(--foreground)]">Reviewed:</span> {row.reviewed_at ? `${formatDateTime(row.reviewed_at)}${row.review_note ? `\n${String(row.review_note)}` : ""}` : "-"}</p>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-2">
+                      {canReview ? (
+                        <>
+                          <button type="button" onClick={() => handleReview(String(row.id), "approved")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Approve
+                          </button>
+                          <button type="button" onClick={() => handleReview(String(row.id), "rejected")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-700">
+                            <XCircle className="h-3.5 w-3.5" />
+                            Reject
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">View only</span>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="hidden overflow-hidden rounded-[24px] border border-[var(--border)] md:block">
+                <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-[var(--border)] text-left">
                   <thead className="bg-[var(--card-muted)]/70">
                     <tr>
@@ -182,7 +216,8 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                   </tbody>
                 </table>
               </div>
-            </div>
+              </div>
+            </>
           ) : (
             <EmptyState title="No MC submissions yet" description="Uploaded medical certificate requests will appear here once submitted." />
           )}
@@ -195,7 +230,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                 <FileUploadField label="MC file" file={file} onChange={setFile} helperText="The uploaded file remains private in the `mc-uploads` bucket." />
                 <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Optional note for the reviewer" className={textareaClass} />
                 {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-                <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
+                <button type="submit" disabled={isSubmitting} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
                   <FileUp className="h-4 w-4" />
                   {isSubmitting ? "Uploading..." : "Submit MC"}
                 </button>

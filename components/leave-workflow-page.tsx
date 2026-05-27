@@ -443,13 +443,13 @@ export function LeaveWorkflowPage({
                 <input value={form.attachment_url} onChange={(event) => setForm((current) => ({ ...current, attachment_url: event.target.value }))} placeholder="Optional attachment path" className={inputClass} />
                 <textarea value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} rows={4} placeholder="Reason for leave" className={textareaClass} required />
                 {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-                <div className="flex flex-wrap gap-3">
-                  <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <button type="submit" disabled={isSubmitting} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
                     {editingLeaveId ? <Save className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />}
                     {isSubmitting ? "Saving..." : editingLeaveId ? "Update leave request" : "Submit leave request"}
                   </button>
                   {editingLeaveId ? (
-                    <button type="button" onClick={resetLeaveForm} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]">
+                    <button type="button" onClick={resetLeaveForm} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
                       <X className="h-4 w-4" />
                       Cancel edit
                     </button>
@@ -516,7 +516,7 @@ export function LeaveWorkflowPage({
                   </label>
                 </div>
                 {entitlementMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{entitlementMessage}</p> : null}
-                <button type="submit" disabled={isEntitlementSaving} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70">
+                <button type="submit" disabled={isEntitlementSaving} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
                   <Save className="h-4 w-4" />
                   {isEntitlementSaving ? "Saving..." : "Save entitlement"}
                 </button>
