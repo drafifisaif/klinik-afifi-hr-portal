@@ -55,6 +55,8 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
   const [commentMessage, setCommentMessage] = useState<string | null>(null);
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, { assigned_department: string; assigned_to: string; status: string }>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [internalDrafts, setInternalDrafts] = useState<Record<string, boolean>>({});
+  const [localComments, setLocalComments] = useState<TableRow[]>(commentRows);
 
   const scopedFeedback = useMemo(
     () =>
@@ -69,7 +71,9 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
   );
 
   function getComments(feedbackId: string) {
-    return commentRows.filter((row) => String(row.feedback_id ?? "") === feedbackId);
+    return localComments
+      .filter((row) => String(row.feedback_id ?? "") === feedbackId)
+      .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")));
   }
 
   function getSubmitter(feedback: TableRow) {
@@ -87,6 +91,18 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
 
   function getTargetStaff(feedback: TableRow) {
     return staffRows.find((row) => String(row.id ?? "") === String(feedback.target_staff_id ?? ""));
+  }
+
+  function getCommenter(comment: TableRow) {
+    const commenterProfile = profileRows.find((item) => String(item.id ?? "") === String(comment.comment_by ?? ""));
+    const commenterStaffByProfileId = staffRows.find((row) => String(row.profile_id ?? "") === String(comment.comment_by ?? ""));
+    const commenterStaffByStaffId = staffRows.find((row) => String(row.id ?? "") === String(comment.staff_id ?? ""));
+    const commenterStaff = commenterStaffByProfileId ?? commenterStaffByStaffId ?? null;
+
+    return {
+      name: String(commenterProfile?.full_name ?? commenterProfile?.email ?? commenterStaff?.full_name ?? "Unknown User"),
+      role: String(commenterProfile?.role ?? commenterStaff?.position ?? "").trim(),
+    };
   }
 
   function canShowSubmitterIdentity(feedback: TableRow) {
@@ -179,12 +195,12 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
 
     const payload = {
       feedback_id: feedback.id,
-      profile_id: profile.id,
-      staff_id: currentStaff?.id ?? null,
-      message: value,
+      comment_by: profile.id,
+      comment: value,
+      is_internal: internalDrafts[String(feedback.id)] === true,
     };
 
-    const { error: insertError } = await supabase.from("feedback_comments").insert(payload);
+    const { data, error: insertError } = await supabase.from("feedback_comments").insert(payload).select("*").single();
 
     if (insertError) {
       setCommentMessage(insertError.message);
@@ -215,7 +231,9 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
     );
 
     setCommentMessage("Comment added.");
+    setLocalComments((current) => [...current, data as TableRow]);
     setCommentDrafts((current) => ({ ...current, [String(feedback.id)]: "" }));
+    setInternalDrafts((current) => ({ ...current, [String(feedback.id)]: false }));
     router.refresh();
   }
 
@@ -312,8 +330,17 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                       {comments.length ? (
                         comments.map((comment) => (
                           <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className="rounded-2xl bg-[var(--card-muted)] px-4 py-4">
-                            <p className="text-sm text-[var(--foreground)]">{String(comment.message ?? comment.comment ?? "-")}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold text-[var(--foreground)]">
+                                {(() => {
+                                  const commenter = getCommenter(comment);
+                                  return commenter.role ? `${commenter.name} · ${commenter.role}` : commenter.name;
+                                })()}
+                              </p>
+                              {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
+                            </div>
                             <p className="mt-2 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
+                            <p className="mt-3 text-sm text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
                           </div>
                         ))
                       ) : (
@@ -323,6 +350,16 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                     <form className="space-y-3" onSubmit={(event) => addComment(event, feedback)}>
                       <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Add reply</h4>
                       <textarea value={commentDrafts[String(feedback.id)] ?? ""} onChange={(event) => setCommentDrafts((current) => ({ ...current, [String(feedback.id)]: event.target.value }))} rows={4} placeholder="Write a feedback reply or internal comment" className={textareaClass} />
+                      {(role === "hr" || role === "operation" || role === "super_admin") ? (
+                        <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
+                          <input
+                            type="checkbox"
+                            checked={internalDrafts[String(feedback.id)] === true}
+                            onChange={(event) => setInternalDrafts((current) => ({ ...current, [String(feedback.id)]: event.target.checked }))}
+                          />
+                          Mark as internal comment
+                        </label>
+                      ) : null}
                       <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25">
                         <MessageSquareReply className="h-4 w-4" />
                         Add comment

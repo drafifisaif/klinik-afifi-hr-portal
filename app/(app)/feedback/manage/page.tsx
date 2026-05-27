@@ -24,16 +24,16 @@ export default async function FeedbackManagePage() {
     fetchRows(context.supabase, "branches", 100),
   ]);
 
-  const submittedByIds = Array.from(
+  const profileIds = Array.from(
     new Set(
-      feedbackRows.rows
-        .map((row) => String(row.submitted_by ?? "").trim())
+      [...feedbackRows.rows, ...commentRows.rows]
+        .map((row) => String(row.submitted_by ?? row.comment_by ?? "").trim())
         .filter(Boolean),
     ),
   );
 
-  const profileRows = submittedByIds.length
-    ? await context.supabase.from("profiles").select("*").in("id", submittedByIds)
+  const profileRows = profileIds.length
+    ? await context.supabase.from("profiles").select("*").in("id", profileIds)
     : { data: [], error: null };
 
   return (

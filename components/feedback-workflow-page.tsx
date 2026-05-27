@@ -15,6 +15,7 @@ import { formatDateTime, mapRowsWithId } from "@/lib/utils";
 interface FeedbackWorkflowPageProps {
   assignedRows: TableRow[];
   submittedRows: TableRow[];
+  commentRows: TableRow[];
   staffRows: TableRow[];
   profileRows: Profile[];
   branches: BranchOption[];
@@ -41,11 +42,14 @@ function getTargetOptions(role: UserRole) {
   return ["hr", "operation", "portal_system"];
 }
 
-export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
+export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [commentMessage, setCommentMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [localComments, setLocalComments] = useState<TableRow[]>(commentRows);
   const [form, setForm] = useState({
     title: "",
     category: "general",
@@ -61,6 +65,12 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
   const feedbackForMe = useMemo(() => mapRowsWithId(assignedRows), [assignedRows]);
   const submittedFeedback = useMemo(() => mapRowsWithId(submittedRows), [submittedRows]);
   const targetOptions = getTargetOptions(role);
+
+  function getComments(feedbackId: string) {
+    return localComments
+      .filter((row) => String(row.feedback_id ?? "") === feedbackId)
+      .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")));
+  }
 
   function getStaffName(staffId: unknown) {
     return staffRows.find((row) => String(row.id ?? "") === String(staffId ?? ""))?.full_name as string | undefined;
@@ -88,6 +98,18 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
     };
   }
 
+  function getCommenterMeta(row: TableRow) {
+    const commenterProfile = profileRows.find((item) => String(item.id ?? "") === String(row.comment_by ?? ""));
+    const commenterStaffByProfileId = staffRows.find((staff) => String(staff.profile_id ?? "") === String(row.comment_by ?? ""));
+    const commenterStaffByStaffId = staffRows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""));
+    const commenterStaff = commenterStaffByProfileId ?? commenterStaffByStaffId ?? null;
+
+    return {
+      name: String(commenterProfile?.full_name ?? commenterProfile?.email ?? commenterStaff?.full_name ?? "Unknown User"),
+      role: String(commenterProfile?.role ?? commenterStaff?.position ?? "").trim(),
+    };
+  }
+
   function getAssignedFeedbackBadge(row: TableRow) {
     if (String(row.assigned_to ?? "") === String(profile?.id ?? "")) {
       return "Assigned to you";
@@ -98,6 +120,112 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
     }
 
     return "For your attention";
+  }
+
+  async function addComment(event: FormEvent<HTMLFormElement>, feedback: TableRow) {
+    event.preventDefault();
+
+    if (!supabase || !profile?.id) {
+      setCommentMessage("Unable to add comment right now.");
+      return;
+    }
+
+    const value = commentDrafts[String(feedback.id)]?.trim();
+
+    if (!value) {
+      setCommentMessage("Write a comment before submitting.");
+      return;
+    }
+
+    const payload = {
+      feedback_id: feedback.id,
+      comment_by: profile.id,
+      comment: value,
+      is_internal: false,
+    };
+
+    const { data, error: insertError } = await supabase
+      .from("feedback_comments")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (insertError) {
+      setCommentMessage(insertError.message);
+      return;
+    }
+
+    const recipients = await resolveFeedbackNotificationRecipients(supabase, {
+      targetType: String(feedback.target_type ?? ""),
+      targetStaffId: String(feedback.target_staff_id ?? "") || null,
+      submitterProfileId: String(feedback.submitted_by ?? "") || null,
+      assignedTo: String(feedback.assigned_to ?? "") || null,
+      sourceProfile: profile,
+    });
+
+    await insertNotificationRows(
+      supabase,
+      recipients.map((recipient) => ({
+        recipient_profile_id: recipient.profile_id,
+        recipient_email: recipient.email,
+        title: `Feedback reply: ${String(feedback.title ?? "Feedback")}`,
+        message: value,
+        type: "feedback_reply",
+        related_table: "feedbacks",
+        related_id: feedback.id,
+        email_status: "pending",
+        is_read: false,
+      })),
+    );
+
+    setLocalComments((current) => [...current, data as TableRow]);
+    setCommentDrafts((current) => ({ ...current, [String(feedback.id)]: "" }));
+    setCommentMessage("Reply added.");
+    router.refresh();
+  }
+
+  function renderCommentThread(feedback: TableRow) {
+    const comments = getComments(String(feedback.id));
+
+    return (
+      <div className="mt-5 space-y-4">
+        <div className="space-y-3">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Conversation</p>
+          {comments.length ? (
+            comments.map((comment) => {
+              const commenter = getCommenterMeta(comment);
+              return (
+                <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className="rounded-2xl bg-[var(--card-muted)] px-4 py-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-[var(--foreground)]">
+                      {commenter.name}
+                      {commenter.role ? ` · ${commenter.role}` : ""}
+                    </p>
+                    {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
+                  <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-[var(--muted-foreground)]">No replies yet.</p>
+          )}
+        </div>
+        <form className="space-y-3" onSubmit={(event) => addComment(event, feedback)}>
+          <textarea
+            value={commentDrafts[String(feedback.id)] ?? ""}
+            onChange={(event) => setCommentDrafts((current) => ({ ...current, [String(feedback.id)]: event.target.value }))}
+            rows={3}
+            placeholder="Write a reply"
+            className={textareaClass}
+          />
+          <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25">
+            Reply
+          </button>
+        </form>
+      </div>
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -186,6 +314,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load feedback data" description={error} /> : null}
+      {commentMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{commentMessage}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <FormSection title="Submit feedback" description="Route feedback to HR, operations, a specific staff member, or the portal system queue.">
           {currentStaff ? (
@@ -273,6 +402,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
                         Target branch: {getBranchName(row.branch_id)}
                       </div>
                     </div>
+                    {renderCommentThread(row)}
                   </article>
                 ))}
               </div>
@@ -312,6 +442,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, staffRows, p
                       Target Branch: {getStaffBranchName(row.target_staff_id) ?? "Unknown Branch"}
                     </div>
                   ) : null}
+                  {renderCommentThread(row)}
                 </article>
               ))}
             </div>

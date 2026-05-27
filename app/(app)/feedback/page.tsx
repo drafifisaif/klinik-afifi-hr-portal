@@ -23,17 +23,18 @@ export default async function FeedbackPage() {
     fetchRows(context.supabase, "staff", 200),
     fetchRows(context.supabase, "branches", 100),
   ]);
+  const commentRows = await fetchRows(context.supabase, "feedback_comments", 300);
 
-  const submittedByIds = Array.from(
+  const profileIds = Array.from(
     new Set(
-      feedbackRows.rows
-        .map((row) => String(row.submitted_by ?? "").trim())
+      [...feedbackRows.rows, ...commentRows.rows]
+        .map((row) => String(row.submitted_by ?? row.comment_by ?? "").trim())
         .filter(Boolean),
     ),
   );
 
-  const profileRows = submittedByIds.length
-    ? await context.supabase.from("profiles").select("*").in("id", submittedByIds)
+  const profileRows = profileIds.length
+    ? await context.supabase.from("profiles").select("*").in("id", profileIds)
     : { data: [], error: null };
 
   const ownRows = filterRowsByKnownOwner(feedbackRows.rows, context.user.id, context.profile?.id);
@@ -56,13 +57,14 @@ export default async function FeedbackPage() {
       <FeedbackWorkflowPage
         assignedRows={feedbackForMe}
         submittedRows={ownRows}
+        commentRows={commentRows.rows}
         staffRows={staffRows.rows}
         profileRows={(profileRows.data ?? []) as Profile[]}
         branches={branchRows.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id)}
         role={context.role}
         profile={context.profile}
         currentStaff={context.staff}
-        error={feedbackRows.error ?? staffRows.error ?? branchRows.error ?? profileRows.error?.message ?? null}
+        error={feedbackRows.error ?? commentRows.error ?? staffRows.error ?? branchRows.error ?? profileRows.error?.message ?? null}
       />
     </div>
   );
