@@ -228,6 +228,23 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
     );
   }
 
+  function renderMessageCard(messageValue: unknown) {
+    return (
+      <div className="mt-4 rounded-3xl border border-teal-100/80 bg-[linear-gradient(135deg,#f2fbfa_0%,#ecf8f6_100%)] px-5 py-5">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Feedback Message</p>
+        <p className="mt-3 text-base leading-7 text-[var(--foreground)]">{String(messageValue ?? "-")}</p>
+      </div>
+    );
+  }
+
+  function renderMetadataSummary(content: string) {
+    return (
+      <div className="mt-4 rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
+        {content}
+      </div>
+    );
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -376,7 +393,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                   <article key={String(row.id)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
+                        <h3 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
                         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                           {(() => {
                             const submitter = getSubmitterMeta(row);
@@ -390,18 +407,10 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                         <StatusBadge value={String(row.priority ?? "normal")} />
                       </div>
                     </div>
-                    <p className="mt-4 text-sm leading-6 text-[var(--foreground)]">{String(row.message ?? "-")}</p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                        {getAssignedFeedbackBadge(row)}
-                      </div>
-                      <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                        Expected action: {String(row.expected_action ?? "-")}
-                      </div>
-                      <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                        Target branch: {getBranchName(row.branch_id)}
-                      </div>
-                    </div>
+                    {renderMessageCard(row.message)}
+                    {renderMetadataSummary(
+                      `${getAssignedFeedbackBadge(row)} · Priority: ${String(row.priority ?? "normal").replaceAll("_", " ")} · Expected action: ${String(row.expected_action ?? "-")} · Target branch: ${getBranchName(row.branch_id)} · Submitted: ${formatDateTime(row.created_at)}`,
+                    )}
                     {renderCommentThread(row)}
                   </article>
                 ))}
@@ -418,30 +427,24 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                 <article key={String(row.id)} className="rounded-3xl border border-[var(--border)] bg-white px-5 py-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
-                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(row.category ?? "general")} · {String(row.target_type ?? "-").replaceAll("_", " ")} · {formatDateTime(row.created_at)}</p>
+                      <h3 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(row.category ?? "general")}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge value="submitted" />
                       <StatusBadge value={String(row.status ?? "new")} />
                     </div>
                   </div>
-                  <p className="mt-4 text-sm leading-6 text-[var(--foreground)]">{String(row.message ?? "-")}</p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Priority: {String(row.priority ?? "normal").replaceAll("_", " ")}</div>
-                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Expected action: {String(row.expected_action ?? "-")}</div>
-                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                      Target: {String(row.target_type ?? "-").replaceAll("_", " ")}
-                    </div>
-                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                      {String(row.target_type ?? "") === "staff" ? getStaffName(row.target_staff_id) ?? "Target staff not selected" : String(row.portal_area ?? "-")}
-                    </div>
-                  </div>
-                  {String(row.target_type ?? "") === "staff" ? (
-                    <div className="mt-3 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                      Target Branch: {getStaffBranchName(row.target_staff_id) ?? "Unknown Branch"}
-                    </div>
-                  ) : null}
+                  {renderMessageCard(row.message)}
+                  {renderMetadataSummary(
+                    [
+                      `Priority: ${String(row.priority ?? "normal").replaceAll("_", " ")}`,
+                      `Target: ${String(row.target_type ?? "-").replaceAll("_", " ")}${String(row.target_type ?? "") === "staff" ? ` → ${getStaffName(row.target_staff_id) ?? "Target staff not selected"}` : ""}`,
+                      `Expected action: ${String(row.expected_action ?? "-")}`,
+                      `Target branch: ${String(row.target_type ?? "") === "staff" ? getStaffBranchName(row.target_staff_id) ?? "No branch" : getBranchName(row.branch_id)}`,
+                      `Submitted: ${formatDateTime(row.created_at)}`,
+                    ].join(" · "),
+                  )}
                   {renderCommentThread(row)}
                 </article>
               ))}
