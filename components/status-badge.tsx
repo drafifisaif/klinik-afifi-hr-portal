@@ -8,12 +8,15 @@ const styles: Record<string, string> = {
   approved: "bg-emerald-50 text-emerald-700",
   active: "bg-emerald-50 text-emerald-700",
   published: "bg-emerald-50 text-emerald-700",
-  pending: "bg-amber-50 text-amber-700",
-  submitted: "bg-amber-50 text-amber-700",
-  new: "bg-sky-50 text-sky-700",
+  pending: "bg-rose-100 text-rose-700",
+  submitted: "bg-rose-100 text-rose-700",
+  assigned: "bg-rose-100 text-rose-700",
+  in_progress: "bg-rose-100 text-rose-700",
+  new: "bg-amber-100 text-amber-700",
   unread: "bg-sky-50 text-sky-700",
   rejected: "bg-rose-50 text-rose-700",
   closed: "bg-slate-100 text-slate-700",
+  resolved: "bg-emerald-50 text-emerald-700",
 };
 
 export function StatusBadge({ value }: StatusBadgeProps) {

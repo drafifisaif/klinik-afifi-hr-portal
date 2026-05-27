@@ -3,6 +3,7 @@ import { LeaveWorkflowPage } from "@/components/leave-workflow-page";
 import { PageHeader } from "@/components/page-header";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
+import type { BranchOption } from "@/lib/types";
 
 export default async function LeavePage() {
   const context = await requireRouteAccess("leave");
@@ -16,10 +17,11 @@ export default async function LeavePage() {
     );
   }
 
-  const [leaveRows, entitlementRows, staffRows] = await Promise.all([
+  const [leaveRows, entitlementRows, staffRows, branchRows] = await Promise.all([
     fetchRows(context.supabase, "leave_requests", 200),
     fetchRows(context.supabase, "leave_entitlements", 200),
     fetchRows(context.supabase, "staff", 200),
+    fetchRows(context.supabase, "branches", 100),
   ]);
 
   return (
@@ -32,10 +34,11 @@ export default async function LeavePage() {
         leaveRequests={leaveRows.rows}
         entitlements={entitlementRows.rows}
         staffRows={staffRows.rows}
+        branches={branchRows.rows.map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) })).filter((row) => row.id) as BranchOption[]}
         role={context.role}
         profile={context.profile}
         currentStaff={context.staff}
-        error={leaveRows.error ?? entitlementRows.error ?? staffRows.error}
+        error={leaveRows.error ?? entitlementRows.error ?? staffRows.error ?? branchRows.error}
       />
     </div>
   );

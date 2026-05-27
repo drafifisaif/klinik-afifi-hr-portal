@@ -10,13 +10,14 @@ import { LeaveBalancePanel } from "@/components/leave-balance-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { buildLeaveBalanceSummary, filterLeaveRequestsForRole } from "@/lib/data";
-import type { LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
-import { calculateLeaveDays, formatDate, formatDateTime, mapRowsWithId } from "@/lib/utils";
+import type { BranchOption, LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
+import { calculateLeaveDays, cn, formatDate, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface LeaveWorkflowPageProps {
   leaveRequests: TableRow[];
   entitlements: TableRow[];
   staffRows: TableRow[];
+  branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
   currentStaff: TableRow | null;
@@ -33,19 +34,15 @@ function getEntitlementForStaff(rows: TableRow[], staffId?: string | null) {
     return null;
   }
 
-  const staffRows = rows.filter((row) => String(row.staff_id ?? "") === String(staffId));
-  return (
-    staffRows.sort(
-      (left, right) =>
-        Number(right.entitlement_year ?? 0) - Number(left.entitlement_year ?? 0),
-    )[0] ?? null
-  );
+  const matchedRows = rows.filter((row) => String(row.staff_id ?? "") === String(staffId));
+  return matchedRows.sort((left, right) => Number(right.entitlement_year ?? 0) - Number(left.entitlement_year ?? 0))[0] ?? null;
 }
 
 export function LeaveWorkflowPage({
   leaveRequests,
   entitlements,
   staffRows,
+  branches,
   role,
   profile,
   currentStaff,
@@ -82,6 +79,8 @@ export function LeaveWorkflowPage({
 
   const canReview = role === "super_admin" || role === "hr" || role === "branch_pic";
   const canManageEntitlements = role === "super_admin" || role === "hr";
+  const isHrView = role === "super_admin" || role === "hr";
+  const isBranchPicView = role === "branch_pic";
   const scopedRows = useMemo(
     () =>
       filterLeaveRequestsForRole(
@@ -99,6 +98,128 @@ export function LeaveWorkflowPage({
   const selectedLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === String(selectedStaff?.id ?? ""));
   const balanceSummary: LeaveBalanceSummary = buildLeaveBalanceSummary(selectedEntitlement, selectedLeaveRows);
   const totalDays = calculateLeaveDays(form.start_date, form.end_date, form.half_day);
+  const ownRows = scopedRows.filter((row) => String(row.staff_id ?? "") === String(currentStaff?.id ?? ""));
+  const reviewQueueRows = isBranchPicView
+    ? scopedRows.filter((row) => String(row.staff_id ?? "") !== String(currentStaff?.id ?? ""))
+    : scopedRows;
+
+  function getBranchName(branchId: unknown) {
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
+  }
+
+  function getStaffName(staffId: unknown) {
+    return String(staffRows.find((row) => String(row.id ?? "") === String(staffId ?? ""))?.full_name ?? staffId ?? "Unknown User");
+  }
+
+  function getBalanceForStaff(staffId: unknown) {
+    const staffEntitlement = getEntitlementForStaff(entitlements, String(staffId ?? ""));
+    const staffLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === String(staffId ?? ""));
+    return buildLeaveBalanceSummary(staffEntitlement, staffLeaveRows);
+  }
+
+  function renderInlineBalance(summary: LeaveBalanceSummary) {
+    return (
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-2xl bg-white/75 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Annual Leave</p>
+          <div className="mt-3 grid gap-2 text-sm text-[var(--foreground)] sm:grid-cols-2">
+            <p>Total: {summary.annual.total}</p>
+            <p>Used: {summary.annual.openingUsed + summary.annual.portalUsed}</p>
+            <p>Used Before Portal: {summary.annual.openingUsed}</p>
+            <p>Remaining: {summary.annual.remaining}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white/75 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Medical Leave</p>
+          <div className="mt-3 grid gap-2 text-sm text-[var(--foreground)] sm:grid-cols-2">
+            <p>Total: {summary.medical.total}</p>
+            <p>Used: {summary.medical.openingUsed + summary.medical.portalUsed}</p>
+            <p>Used Before Portal: {summary.medical.openingUsed}</p>
+            <p>Remaining: {summary.medical.remaining}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderLeaveCards(rows: TableRow[], emptyTitle: string, emptyDescription: string) {
+    if (!rows.length) {
+      return <EmptyState title={emptyTitle} description={emptyDescription} />;
+    }
+
+    return (
+      <div className="space-y-4">
+        {rows.map((row) => {
+          const summary = getBalanceForStaff(row.staff_id);
+          const normalizedStatus = normalizeString(row.status);
+          const cardTone =
+            ["approved", "resolved", "closed"].includes(normalizedStatus)
+              ? "border-emerald-200 bg-emerald-50/55"
+              : ["pending", "in_progress", "assigned", "rejected", "cancelled"].includes(normalizedStatus)
+                ? "border-rose-200 bg-rose-50/60"
+                : "border-[var(--border)] bg-white";
+
+          return (
+            <article key={String(row.id)} className={cn("rounded-[28px] border p-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", cardTone)}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-[var(--foreground)]">{getStaffName(row.staff_id)}</h3>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                    {getBranchName(row.branch_id)} · {String(row.leave_type ?? "-").replaceAll("_", " ")} · {formatDate(row.start_date)} - {formatDate(row.end_date)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge value={String(row.status ?? "pending")} />
+                  <span className="inline-flex rounded-full bg-white/85 px-3 py-1 text-xs font-semibold text-[var(--foreground)]">
+                    {String(row.total_days ?? "-")} day(s)
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Reason</p>
+                <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(row.reason ?? "-")}</p>
+              </div>
+
+              <div className="mt-4 rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
+                <p>
+                  <span className="font-semibold text-slate-800">Workflow:</span> {String(row.status ?? "pending").replaceAll("_", " ")}
+                </p>
+                <p className="mt-1">
+                  <span className="font-semibold text-slate-800">Reviewed:</span> {row.reviewed_at ? formatDateTime(row.reviewed_at) : "Pending review"}
+                </p>
+                {row.review_note ? (
+                  <p className="mt-1">
+                    <span className="font-semibold text-slate-800">Review note:</span> {String(row.review_note)}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mt-4 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-5 py-5">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Leave Balance Summary</p>
+                {renderInlineBalance(summary)}
+              </div>
+
+              {canReview ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {["pending", "approved", "rejected", "cancelled"].map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => updateLeaveStatus(String(row.id), status)}
+                      className="rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
+                    >
+                      {status.replaceAll("_", " ")}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
 
   async function handleLeaveSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -206,73 +327,38 @@ export function LeaveWorkflowPage({
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load leave data" description={error} /> : null}
-
-      <LeaveBalancePanel summary={balanceSummary} title={selectedStaff ? `${String(selectedStaff.full_name ?? "Staff")} Leave Balance` : "Leave Balance"} />
+      {!isHrView ? <LeaveBalancePanel summary={balanceSummary} title="My Leave Balance" /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <FormSection title="Leave requests" description="Real leave requests are stored in `leave_requests` and reviewed in-place.">
-          {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
-          {scopedRows.length ? (
-            <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-[var(--border)] text-left">
-                  <thead className="bg-[var(--card-muted)]/70">
-                    <tr>
-                      {[
-                        "Staff",
-                        "Type",
-                        "Dates",
-                        "Days",
-                        "Status",
-                        "Reviewed",
-                        "Action",
-                      ].map((label) => (
-                        <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)] bg-white">
-                    {scopedRows.map((row) => (
-                      <tr key={String(row.id)}>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{staffRows.find((staffRow) => String(staffRow.id ?? "") === String(row.staff_id ?? ""))?.full_name as string ?? String(row.staff_id ?? "-")}</td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.leave_type ?? "-").replaceAll("_", " ")}</td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.start_date)} - {formatDate(row.end_date)}</td>
-                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.total_days ?? "-")}</td>
-                        <td className="px-4 py-4 text-sm"><StatusBadge value={String(row.status ?? "pending")} /></td>
-                        <td className="px-4 py-4 text-xs text-[var(--muted-foreground)]">{row.reviewed_at ? `${formatDateTime(row.reviewed_at)}${row.review_note ? `\n${String(row.review_note)}` : ""}` : "-"}</td>
-                        <td className="px-4 py-4 text-sm">
-                          {canReview ? (
-                            <div className="flex flex-wrap gap-2">
-                              {[
-                                "pending",
-                                "approved",
-                                "rejected",
-                                "cancelled",
-                              ].map((status) => (
-                                <button
-                                  key={status}
-                                  type="button"
-                                  onClick={() => updateLeaveStatus(String(row.id), status)}
-                                  className="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
-                                >
-                                  {status.replaceAll("_", " ")}
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-[var(--muted-foreground)]">View only</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <EmptyState title="No leave requests yet" description="Submitted leave requests will appear here automatically." />
-          )}
-        </FormSection>
+        <div className="space-y-6">
+          <FormSection
+            title={isHrView ? "Leave Request Queue" : isBranchPicView ? "Branch Leave Review Queue" : "My Leave Requests"}
+            description={
+              isHrView
+                ? "Pantau permohonan cuti, semak status workflow, dan semak baki cuti setiap staff terus dalam kad permohonan."
+                : isBranchPicView
+                  ? "Semak permohonan cuti cawangan yang memerlukan tindakan anda."
+                  : "Pantau sejarah permohonan cuti dan status semakan anda."
+            }
+          >
+            {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
+            {renderLeaveCards(
+              isBranchPicView ? reviewQueueRows : scopedRows,
+              "No leave requests yet",
+              "Submitted leave requests will appear here automatically.",
+            )}
+          </FormSection>
+
+          {isBranchPicView ? (
+            <FormSection title="My Leave History" description="Paparan ringkas untuk permohonan cuti peribadi anda sendiri.">
+              {renderLeaveCards(
+                ownRows,
+                "No personal leave requests yet",
+                "Your own leave submissions will appear here after your first request.",
+              )}
+            </FormSection>
+          ) : null}
+        </div>
 
         <div className="space-y-6">
           <FormSection title="Create leave request" description="Submit real leave requests with linked profile, staff, and branch information.">
@@ -305,23 +391,59 @@ export function LeaveWorkflowPage({
           </FormSection>
 
           {canManageEntitlements ? (
-            <FormSection title="Leave entitlement settings" description="HR and super admin can define annual and medical leave balances for each staff member.">
+            <FormSection title="Leave Entitlement Settings" description="Set yearly leave balances for this staff member.">
               <form className="space-y-4" onSubmit={saveEntitlement}>
-                <select value={selectedStaffId} onChange={(event) => setSelectedStaffId(event.target.value)} className={inputClass}>
-                  {staffRows.map((row) => (
-                    <option key={String(row.id)} value={String(row.id ?? "")}>{String(row.full_name ?? row.email ?? row.id)}</option>
-                  ))}
-                </select>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <input value={entitlementForm.entitlement_year} onChange={(event) => setEntitlementForm((current) => ({ ...current, entitlement_year: event.target.value }))} placeholder="Entitlement year" className={inputClass} />
-                  <input value={entitlementForm.annual_leave_total} onChange={(event) => setEntitlementForm((current) => ({ ...current, annual_leave_total: event.target.value }))} placeholder="Annual leave total" className={inputClass} />
-                  <input value={entitlementForm.medical_leave_total} onChange={(event) => setEntitlementForm((current) => ({ ...current, medical_leave_total: event.target.value }))} placeholder="Medical leave total" className={inputClass} />
-                  <input value={entitlementForm.annual_leave_opening_used} onChange={(event) => setEntitlementForm((current) => ({ ...current, annual_leave_opening_used: event.target.value }))} placeholder="Annual leave used before portal" className={inputClass} />
-                  <input value={entitlementForm.medical_leave_opening_used} onChange={(event) => setEntitlementForm((current) => ({ ...current, medical_leave_opening_used: event.target.value }))} placeholder="Medical leave used before portal" className={inputClass} />
-                  <input type="date" value={entitlementForm.effective_from} onChange={(event) => setEntitlementForm((current) => ({ ...current, effective_from: event.target.value }))} className={inputClass} />
-                  <input type="date" value={entitlementForm.effective_to} onChange={(event) => setEntitlementForm((current) => ({ ...current, effective_to: event.target.value }))} className={inputClass} />
+                <div className="rounded-[28px] border border-[var(--border)] bg-[var(--card-muted)]/55 p-5">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Staff Member</span>
+                      <select value={selectedStaffId} onChange={(event) => setSelectedStaffId(event.target.value)} className={inputClass}>
+                        {staffRows.map((row) => (
+                          <option key={String(row.id)} value={String(row.id ?? "")}>{String(row.full_name ?? row.email ?? row.id)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Entitlement Year</span>
+                      <input value={entitlementForm.entitlement_year} onChange={(event) => setEntitlementForm((current) => ({ ...current, entitlement_year: event.target.value }))} placeholder="2026" className={inputClass} />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Annual Leave Days</span>
+                      <input value={entitlementForm.annual_leave_total} onChange={(event) => setEntitlementForm((current) => ({ ...current, annual_leave_total: event.target.value }))} placeholder="14" className={inputClass} />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Medical Leave Days</span>
+                      <input value={entitlementForm.medical_leave_total} onChange={(event) => setEntitlementForm((current) => ({ ...current, medical_leave_total: event.target.value }))} placeholder="8" className={inputClass} />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Annual Leave Used Before Portal</span>
+                      <input value={entitlementForm.annual_leave_opening_used} onChange={(event) => setEntitlementForm((current) => ({ ...current, annual_leave_opening_used: event.target.value }))} placeholder="2" className={inputClass} />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Medical Leave Used Before Portal</span>
+                      <input value={entitlementForm.medical_leave_opening_used} onChange={(event) => setEntitlementForm((current) => ({ ...current, medical_leave_opening_used: event.target.value }))} placeholder="0" className={inputClass} />
+                    </label>
+                  </div>
+
+                  <div className="mt-5 rounded-3xl border border-white/80 bg-white/70 p-4">
+                    <p className="text-sm font-semibold text-[var(--foreground)]">Date Settings</p>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Effective From</span>
+                        <input type="date" value={entitlementForm.effective_from} onChange={(event) => setEntitlementForm((current) => ({ ...current, effective_from: event.target.value }))} className={inputClass} />
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Expiry Date</span>
+                        <input type="date" value={entitlementForm.effective_to} onChange={(event) => setEntitlementForm((current) => ({ ...current, effective_to: event.target.value }))} className={inputClass} />
+                      </label>
+                    </div>
+                  </div>
+
+                  <label className="mt-5 block space-y-2">
+                    <span className="text-sm font-semibold text-[var(--foreground)]">Opening Balance Note</span>
+                    <textarea value={entitlementForm.opening_balance_note} onChange={(event) => setEntitlementForm((current) => ({ ...current, opening_balance_note: event.target.value }))} rows={3} placeholder="Add context for carry-forward or opening balance adjustments" className={textareaClass} />
+                  </label>
                 </div>
-                <textarea value={entitlementForm.opening_balance_note} onChange={(event) => setEntitlementForm((current) => ({ ...current, opening_balance_note: event.target.value }))} rows={3} placeholder="Opening balance note" className={textareaClass} />
                 {entitlementMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{entitlementMessage}</p> : null}
                 <button type="submit" disabled={isEntitlementSaving} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70">
                   <Save className="h-4 w-4" />
