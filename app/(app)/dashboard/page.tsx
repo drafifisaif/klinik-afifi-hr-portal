@@ -178,6 +178,10 @@ function countResolvedThisWeek(feedbacks: TableRow[]) {
   }).length;
 }
 
+function countValue(value: string | number) {
+  return typeof value === "number" ? value : Number(value) || 0;
+}
+
 function isPendingLeaveStatus(row: TableRow) {
   return normalizeString(row.status) === "pending";
 }
@@ -789,10 +793,10 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
         <StatCard title="Today Branch Roster" value={todayBranchRows.length} description="Jumlah assignment roster cawangan hari ini." icon={CalendarClock} />
         <StatCard title="Today Doctors On Duty" value={todayDoctors} description="Bilangan doktor atau locum yang bertugas hari ini." icon={Stethoscope} />
         <StatCard title="Today Staff On Duty" value={todaySupport} description="Bilangan support staff yang bertugas hari ini." icon={Users} />
-        <StatCard title="Pending Leave Requests" value={branchLeaveRows.rows.length} description="Permohonan cuti cawangan yang masih menunggu semakan." icon={ClipboardList} />
-        <StatCard title="Feedback Untuk Saya" value={feedbackForMe.length} description="Feedback yang ditujukan terus kepada anda atau telah diassign ke akaun anda." icon={MessageSquareMore} />
-        <StatCard title="Branch Operational Issues" value={branchOperationalIssues.length} description="Isu operasi cawangan yang relevan untuk tindakan atau pemantauan anda." icon={MessageSquareMore} />
-        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff cawangan yang masih perlukan kemaskini penting." icon={UserRound} />
+        <StatCard title="Pending Leave Requests" value={branchLeaveRows.rows.length} description="Permohonan cuti cawangan yang masih menunggu semakan." icon={ClipboardList} tone={countValue(branchLeaveRows.rows.length) > 0 ? "alert" : "neutral"} />
+        <StatCard title="Feedback Untuk Saya" value={feedbackForMe.length} description="Feedback yang ditujukan terus kepada anda atau telah diassign ke akaun anda." icon={MessageSquareMore} tone={countValue(feedbackForMe.length) > 0 ? "alert" : "neutral"} />
+        <StatCard title="Branch Operational Issues" value={branchOperationalIssues.length} description="Isu operasi cawangan yang relevan untuk tindakan atau pemantauan anda." icon={MessageSquareMore} tone={countValue(branchOperationalIssues.length) > 0 ? "alert" : "neutral"} />
+        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff cawangan yang masih perlukan kemaskini penting." icon={UserRound} tone={countValue(incompleteProfiles.length) > 0 ? "alert" : "neutral"} />
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -860,18 +864,18 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
       <PageHeader title="HR Dashboard" description="Action queue yang jelas untuk approval, compliance, dan staff profile supaya pasukan HR boleh bergerak ikut keutamaan harian." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Pending Leave" value={pendingLeave.length} description="Permohonan cuti menunggu semakan." icon={ClipboardList} />
-        <StatCard title="Pending MC Review" value={pendingMc.length} description="MC atau medical leave yang belum ditutup." icon={Upload} />
-        <StatCard title="Pending Staff Doc Review" value={pendingDocReview.length} description="Dokumen staff yang masih perlu review." icon={FileBadge} />
-        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff yang masih belum lengkap." icon={UserRound} />
-        <StatCard title="New HR Feedback" value={hrFeedback.length} description="Feedback baru yang perlukan perhatian HR." icon={MessageSquareMore} />
+        <StatCard title="Pending Leave" value={pendingLeave.length} description="Permohonan cuti menunggu semakan." icon={ClipboardList} tone={pendingLeave.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Pending MC Review" value={pendingMc.length} description="MC atau medical leave yang belum ditutup." icon={Upload} tone={pendingMc.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Pending Staff Doc Review" value={pendingDocReview.length} description="Dokumen staff yang masih perlu review." icon={FileBadge} tone={pendingDocReview.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff yang masih belum lengkap." icon={UserRound} tone={incompleteProfiles.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="New HR Feedback" value={hrFeedback.length} description="Feedback baru yang perlukan perhatian HR." icon={MessageSquareMore} tone={hrFeedback.length > 0 ? "alert" : "neutral"} />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Staff Docs Expiring Soon" value={countExpiringRows(staffDocs.rows)} description="Dokumen staff hampir tamat tempoh." icon={FileSearch} />
-        <StatCard title="Expired Staff Docs" value={expiredDocs.length} description="Dokumen staff yang telah tamat tempoh." icon={ShieldAlert} />
-        <StatCard title="Doctor APC/MMC Risk" value={doctorApc.length} description="Dokumen APC atau MMC doktor yang hampir tamat tempoh." icon={Stethoscope} />
-        <StatCard title="Juruxray / CME Risk" value={juruxrayDocs.length} description="Juruxray, CME, atau medical checkup yang hampir tamat tempoh." icon={ShieldCheck} />
+        <StatCard title="Staff Docs Expiring Soon" value={countExpiringRows(staffDocs.rows)} description="Dokumen staff hampir tamat tempoh." icon={FileSearch} tone={countExpiringRows(staffDocs.rows) > 0 ? "warning" : "neutral"} />
+        <StatCard title="Expired Staff Docs" value={expiredDocs.length} description="Dokumen staff yang telah tamat tempoh." icon={ShieldAlert} tone={expiredDocs.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Doctor APC/MMC Risk" value={doctorApc.length} description="Dokumen APC atau MMC doktor yang hampir tamat tempoh." icon={Stethoscope} tone={doctorApc.length > 0 ? "warning" : "neutral"} />
+        <StatCard title="Juruxray / CME Risk" value={juruxrayDocs.length} description="Juruxray, CME, atau medical checkup yang hampir tamat tempoh." icon={ShieldCheck} tone={juruxrayDocs.length > 0 ? "warning" : "neutral"} />
       </section>
 
       <QuickActions
@@ -919,11 +923,11 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
       <PageHeader title="Operation Dashboard" description="Dashboard operasi yang fokus pada isu, reply queue, dan perkara urgent tanpa mengganggu anda dengan metrik HR yang tidak berkaitan." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Assigned Feedback / Issues" value={assignedIssues.length} description="Jumlah isu yang kini visible kepada operation." icon={MessageSquareMore} />
-        <StatCard title="Open Operation Issues" value={openIssues.length} description="Isu aktif yang masih perlukan susulan." icon={ClipboardList} />
-        <StatCard title="Resolved This Week" value={resolvedThisWeek} description="Jumlah isu yang ditutup minggu ini." icon={CheckCircle2} />
-        <StatCard title="Urgent / Escalated" value={urgentIssues.length} description="Isu keutamaan tinggi yang perlu didahulukan." icon={ShieldAlert} />
-        <StatCard title="Portal System Issues" value={portalIssues.length} description="Feedback portal system yang singgah di aliran operation." icon={FileText} />
+        <StatCard title="Assigned Feedback / Issues" value={assignedIssues.length} description="Jumlah isu yang kini visible kepada operation." icon={MessageSquareMore} tone={assignedIssues.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Open Operation Issues" value={openIssues.length} description="Isu aktif yang masih perlukan susulan." icon={ClipboardList} tone={openIssues.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Resolved This Week" value={resolvedThisWeek} description="Jumlah isu yang ditutup minggu ini." icon={CheckCircle2} tone={resolvedThisWeek > 0 ? "success" : "neutral"} />
+        <StatCard title="Urgent / Escalated" value={urgentIssues.length} description="Isu keutamaan tinggi yang perlu didahulukan." icon={ShieldAlert} tone={urgentIssues.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Portal System Issues" value={portalIssues.length} description="Feedback portal system yang singgah di aliran operation." icon={FileText} tone={portalIssues.length > 0 ? "warning" : "neutral"} />
       </section>
 
       <QuickActions
@@ -992,9 +996,9 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <StatCard title="Total Active Staff" value={staffCount.count} description="Jumlah staff aktif di seluruh rangkaian klinik." icon={Users} />
         <StatCard title="Total Branches" value={branchCount.count} description="Jumlah cawangan yang sedang dipantau." icon={BriefcaseMedical} />
-        <StatCard title="Pending Leave Approvals" value={pendingLeave} description="Jumlah permohonan cuti yang masih terbuka." icon={ClipboardList} />
-        <StatCard title="Open Feedback / Issues" value={openIssues} description="Jumlah isu rentas cawangan yang belum ditutup." icon={MessageSquareMore} />
-        <StatCard title="Compliance Expiring Soon" value={complianceSoon} description="Gabungan dokumen staff dan klinik yang hampir tamat tempoh." icon={FileSearch} />
+        <StatCard title="Pending Leave Approvals" value={pendingLeave} description="Jumlah permohonan cuti yang masih terbuka." icon={ClipboardList} tone={pendingLeave > 0 ? "alert" : "neutral"} />
+        <StatCard title="Open Feedback / Issues" value={openIssues} description="Jumlah isu rentas cawangan yang belum ditutup." icon={MessageSquareMore} tone={openIssues > 0 ? "alert" : "neutral"} />
+        <StatCard title="Compliance Expiring Soon" value={complianceSoon} description="Gabungan dokumen staff dan klinik yang hampir tamat tempoh." icon={FileSearch} tone={complianceSoon > 0 ? "warning" : "neutral"} />
         <StatCard title="Next Clinic Holiday" value={nextHoliday ? formatCountdown(daysUntil(nextHoliday.holiday_date)) : "-"} description={nextHoliday ? `${String(nextHoliday.holiday_name ?? "Cuti akan datang")} pada ${formatDate(nextHoliday.holiday_date)}` : "Belum ada cuti akan datang yang direkodkan."} icon={CalendarDays} />
       </section>
 
