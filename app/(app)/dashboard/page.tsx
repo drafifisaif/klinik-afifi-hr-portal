@@ -75,6 +75,8 @@ interface AttendanceSnapshotRow {
   branchName: string;
   status: string;
   lateMinutes: number;
+  checkInNetworkStatus: string;
+  checkOutNetworkStatus: string;
 }
 
 function greetingByTime() {
@@ -417,6 +419,8 @@ function buildAttendanceSnapshotRows({
         branchName,
         status,
         lateMinutes,
+        checkInNetworkStatus: String(attendanceRow?.check_in_network_status ?? "unavailable"),
+        checkOutNetworkStatus: String(attendanceRow?.check_out_network_status ?? "unavailable"),
       };
     });
 }
@@ -610,6 +614,7 @@ function TodayAttendanceSnapshot({
     absent: rows.filter((row) => row.status === "absent").length,
     incomplete: rows.filter((row) => row.status === "incomplete").length,
     notPunchedIn: rows.filter((row) => row.status === "not_punched_in").length,
+    unknownNetwork: rows.filter((row) => row.checkInNetworkStatus === "unknown_network" || row.checkOutNetworkStatus === "unknown_network").length,
   };
 
   const urgentRows = rows
@@ -626,7 +631,7 @@ function TodayAttendanceSnapshot({
       description={description}
       className="overflow-visible"
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
           <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{counters.present}</p>
@@ -646,6 +651,10 @@ function TodayAttendanceSnapshot({
         <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Not Punched In</p>
           <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{counters.notPunchedIn}</p>
+        </div>
+        <div className="rounded-[24px] border border-orange-200 bg-orange-50/75 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Unknown Network Punches</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.unknownNetwork}</p>
         </div>
       </div>
 

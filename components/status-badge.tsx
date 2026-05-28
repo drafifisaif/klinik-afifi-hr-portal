@@ -25,6 +25,10 @@ const styles: Record<string, string> = {
   resolved: "bg-emerald-50 text-emerald-700",
   on_leave: "bg-indigo-50 text-indigo-700",
   mc: "bg-cyan-50 text-cyan-700",
+  clinic_network: "bg-emerald-50 text-emerald-700",
+  unknown_network: "bg-orange-50 text-orange-700",
+  unavailable: "bg-slate-100 text-slate-700",
+  ip_unavailable: "bg-slate-100 text-slate-700",
 };
 
 export function StatusBadge({ value }: StatusBadgeProps) {

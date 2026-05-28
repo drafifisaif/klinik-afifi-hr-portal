@@ -20,6 +20,7 @@ interface AttendancePageProps {
   rosterRows: TableRow[];
   shiftTemplateRows: TableRow[];
   leaveRows: TableRow[];
+  networkRows: TableRow[];
   profile: Profile | null;
   currentStaff: TableRow | null;
   role: UserRole;
@@ -41,6 +42,15 @@ const emptyAdjustmentForm = {
 const emptyManualAttendanceForm = {
   check_in_at: "",
   check_out_at: "",
+};
+
+const emptyNetworkForm = {
+  id: "",
+  branch_id: "",
+  ip_address: "",
+  label: "",
+  notes: "",
+  is_active: true,
 };
 
 function toDateInput(date = new Date()) {
@@ -187,6 +197,20 @@ function getBoardStatusTone(status: string) {
   return "border-[var(--border)] bg-white";
 }
 
+function getNetworkStatusLabel(status: unknown) {
+  const normalized = normalizeString(status);
+
+  if (normalized === "clinic_network") {
+    return "Clinic Network";
+  }
+
+  if (normalized === "unknown_network") {
+    return "Unknown Network";
+  }
+
+  return "IP Unavailable";
+}
+
 export function AttendancePage({
   attendanceRows,
   adjustmentRows,
@@ -196,6 +220,7 @@ export function AttendancePage({
   rosterRows,
   shiftTemplateRows,
   leaveRows,
+  networkRows,
   profile,
   currentStaff,
   role,
@@ -212,12 +237,18 @@ export function AttendancePage({
   const [adjustmentMessage, setAdjustmentMessage] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [manualMessage, setManualMessage] = useState<string | null>(null);
+  const [networkMessage, setNetworkMessage] = useState<string | null>(null);
   const [isPunching, setIsPunching] = useState(false);
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingNetwork, setIsSavingNetwork] = useState(false);
   const [activeManualRecordId, setActiveManualRecordId] = useState<string | null>(null);
+  const [networkFilterBranchId, setNetworkFilterBranchId] = useState(
+    String(profile?.branch_id ?? currentStaff?.branch_id ?? "") || "all",
+  );
   const [manualAttendanceForm, setManualAttendanceForm] = useState(emptyManualAttendanceForm);
   const [adjustmentForm, setAdjustmentForm] = useState(emptyAdjustmentForm);
+  const [networkForm, setNetworkForm] = useState(emptyNetworkForm);
   const [settingsForm, setSettingsForm] = useState({
     id: "",
     branch_id: String(profile?.branch_id ?? currentStaff?.branch_id ?? ""),
@@ -230,6 +261,8 @@ export function AttendancePage({
 
   const canReviewAdjustments = role === "super_admin" || role === "hr" || role === "branch_pic";
   const canManageSettings = role === "super_admin" || role === "hr";
+  const canManageNetworkIps = role === "super_admin" || role === "hr";
+  const canViewNetworkIps = canManageNetworkIps || role === "operation";
   const canViewAllBranches = role === "super_admin" || role === "hr" || role === "operation";
   const canUsePersonalPunch = Boolean(currentStaff?.id && profile?.id);
   const showPersonalAttendanceSection =
@@ -242,6 +275,7 @@ export function AttendancePage({
   const rosters = useMemo(() => mapRowsWithId(rosterRows), [rosterRows]);
   const staffDirectory = useMemo(() => mapRowsWithId(staffRows), [staffRows]);
   const settingsRows = useMemo(() => mapRowsWithId(settingRows), [settingRows]);
+  const clinicNetworkRows = useMemo(() => mapRowsWithId(networkRows), [networkRows]);
   const selectedBranchOptions = useMemo(() => {
     if (role === "staff" || role === "branch_pic") {
       const lockedId = String(profile?.branch_id ?? currentStaff?.branch_id ?? "");
@@ -252,6 +286,13 @@ export function AttendancePage({
   }, [branchRows, currentStaff?.branch_id, profile?.branch_id, role]);
 
   const historyDates = useMemo(() => buildHistoryDates(14), []);
+  const filteredNetworkRows = useMemo(() => {
+    if (networkFilterBranchId === "all") {
+      return clinicNetworkRows;
+    }
+
+    return clinicNetworkRows.filter((row) => String(row.branch_id ?? "") === networkFilterBranchId);
+  }, [clinicNetworkRows, networkFilterBranchId]);
   const todayRoster = rosters.find(
     (row) =>
       String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
@@ -397,6 +438,10 @@ export function AttendancePage({
       lateMinutes,
       scheduledStart,
       scheduledEnd,
+      checkInIp: String(record?.check_in_ip ?? ""),
+      checkOutIp: String(record?.check_out_ip ?? ""),
+      checkInNetworkStatus: String(record?.check_in_network_status ?? "unavailable"),
+      checkOutNetworkStatus: String(record?.check_out_network_status ?? "unavailable"),
     };
   });
 
@@ -424,6 +469,7 @@ export function AttendancePage({
     absent: boardRows.filter((row) => row.status === "absent").length,
     incomplete: boardRows.filter((row) => row.status === "incomplete").length,
     notPunchedIn: boardRows.filter((row) => row.status === "not_punched_in").length,
+    unknownNetwork: boardRows.filter((row) => row.checkInNetworkStatus === "unknown_network" || row.checkOutNetworkStatus === "unknown_network").length,
   };
 
   function getStaffName(staffId: unknown) {
@@ -449,109 +495,113 @@ export function AttendancePage({
     setSettingsMessage(null);
   }
 
+  function startEditNetworkRow(row: TableRow) {
+    setNetworkForm({
+      id: String(row.id ?? ""),
+      branch_id: String(row.branch_id ?? ""),
+      ip_address: String(row.ip_address ?? ""),
+      label: String(row.label ?? ""),
+      notes: String(row.notes ?? ""),
+      is_active: row.is_active !== false && normalizeString(row.status) !== "inactive",
+    });
+    setNetworkMessage(null);
+  }
+
   async function handlePunch(action: "in" | "out") {
-    if (!supabase || !profile?.id || !currentStaff?.id) {
+    if (!profile?.id || !currentStaff?.id) {
       setMessage("Complete your linked staff profile before using attendance.");
       return;
     }
 
     setIsPunching(true);
     setMessage(null);
-    const timestamp = new Date().toISOString();
-    const scheduledStart = buildScheduledDateTime(todayRoster, activeShiftTemplate, "start");
-    const scheduledEnd = buildScheduledDateTime(todayRoster, activeShiftTemplate, "end");
-    const lateMinutes = action === "in" ? computeLateMinutes(timestamp, scheduledStart, graceMinutes) : todayLateMinutes;
-
-    if (action === "in") {
-      if (todayAttendance?.id) {
-        const { error: updateError } = await supabase
-          .from("attendance_records")
-          .update({
-            check_in_at: todayAttendance.check_in_at ?? timestamp,
-            roster_id: todayRoster?.id ?? null,
-            scheduled_start: todayAttendance.scheduled_start ?? scheduledStart,
-            scheduled_end: todayAttendance.scheduled_end ?? scheduledEnd,
-            late_minutes: Number(todayAttendance.late_minutes ?? lateMinutes),
-            status: computeAttendanceStatus(
-              {
-                ...todayAttendance,
-                check_in_at: todayAttendance.check_in_at ?? timestamp,
-                scheduled_start: todayAttendance.scheduled_start ?? scheduledStart,
-                late_minutes: Number(todayAttendance.late_minutes ?? lateMinutes),
-              },
-              graceMinutes,
-            ),
-          })
-          .eq("id", todayAttendance.id);
-
-        setIsPunching(false);
-        if (updateError) {
-          setMessage(updateError.message);
-          return;
-        }
-
-        setMessage(todayRoster ? "Punch in updated." : "Punch in saved. Roster belum diset untuk hari ini.");
-        router.refresh();
-        return;
-      }
-
-      const { error: insertError } = await supabase.from("attendance_records").insert({
-        profile_id: profile.id,
-        staff_id: currentStaff.id,
-        branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
-        attendance_date: today,
-        roster_id: todayRoster?.id ?? null,
-        scheduled_start: scheduledStart,
-        scheduled_end: scheduledEnd,
-        check_in_at: timestamp,
-        late_minutes: lateMinutes,
-        status: lateMinutes > 0 ? "late" : "incomplete",
+    try {
+      const response = await fetch("/api/attendance/punch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
       });
 
+      const result = await response.json();
       setIsPunching(false);
-      if (insertError) {
-        setMessage(insertError.message);
+
+      if (!response.ok) {
+        setMessage(String(result?.error ?? "Unable to save attendance punch."));
         return;
       }
 
-      setMessage(todayRoster ? "Punch in recorded." : "Punch in recorded. Roster belum diset untuk hari ini.");
+      setMessage(String(result?.message ?? "Attendance punch saved."));
       router.refresh();
-      return;
-    }
-
-    if (!todayAttendance?.id) {
+    } catch (error) {
       setIsPunching(false);
-      setMessage("Punch in is required before punching out.");
+      setMessage(error instanceof Error ? error.message : "Unable to save attendance punch.");
+    }
+  }
+
+  async function saveNetworkRow(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase || !canManageNetworkIps) {
+      setNetworkMessage("Clinic network IP settings are restricted to HR and super admin.");
       return;
     }
 
-    const nextStatus = computeAttendanceStatus(
-      {
-        ...todayAttendance,
-        check_out_at: timestamp,
-      },
-      graceMinutes,
-    );
+    if (!networkForm.branch_id || !networkForm.ip_address.trim()) {
+      setNetworkMessage("Branch and IP address are required.");
+      return;
+    }
 
-    const { error: punchOutError } = await supabase
-      .from("attendance_records")
+    setIsSavingNetwork(true);
+    setNetworkMessage(null);
+
+    const payload = {
+      branch_id: networkForm.branch_id,
+      ip_address: networkForm.ip_address.trim(),
+      label: networkForm.label.trim() || null,
+      notes: networkForm.notes.trim() || null,
+      is_active: networkForm.is_active,
+      status: networkForm.is_active ? "active" : "inactive",
+    };
+
+    const query = networkForm.id
+      ? supabase.from("clinic_network_ips").update(payload).eq("id", networkForm.id)
+      : supabase.from("clinic_network_ips").insert(payload);
+
+    const { error: saveError } = await query;
+    setIsSavingNetwork(false);
+
+    if (saveError) {
+      setNetworkMessage(saveError.message);
+      return;
+    }
+
+    setNetworkForm(emptyNetworkForm);
+    setNetworkMessage("Clinic network IP saved.");
+    router.refresh();
+  }
+
+  async function deactivateNetworkRow(row: TableRow) {
+    if (!supabase || !canManageNetworkIps) {
+      setNetworkMessage("Clinic network IP settings are restricted to HR and super admin.");
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("clinic_network_ips")
       .update({
-        check_out_at: timestamp,
-        scheduled_start: todayAttendance.scheduled_start ?? scheduledStart,
-        scheduled_end: todayAttendance.scheduled_end ?? scheduledEnd,
-        late_minutes: Number(todayAttendance.late_minutes ?? lateMinutes),
-        status: nextStatus === "incomplete" ? "present" : nextStatus,
+        is_active: false,
+        status: "inactive",
       })
-      .eq("id", todayAttendance.id);
+      .eq("id", row.id);
 
-    setIsPunching(false);
-
-    if (punchOutError) {
-      setMessage(punchOutError.message);
+    if (updateError) {
+      setNetworkMessage(updateError.message);
       return;
     }
 
-    setMessage(todayRoster ? "Punch out recorded." : "Punch out recorded. Roster belum diset untuk hari ini.");
+    setNetworkMessage("Clinic network IP deactivated.");
     router.refresh();
   }
 
@@ -851,6 +901,28 @@ export function AttendancePage({
                   <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Check out</p>
                   <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{formatShortTime(todayAttendance?.check_out_at)}</p>
                 </div>
+                <div className="rounded-3xl bg-white/85 px-5 py-5 md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Network verification</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {todayAttendance?.check_in_at ? <StatusBadge value={getNetworkStatusLabel(todayAttendance?.check_in_network_status)} /> : null}
+                    {todayAttendance?.check_out_at ? <StatusBadge value={getNetworkStatusLabel(todayAttendance?.check_out_network_status)} /> : null}
+                  </div>
+                  <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+                    {todayAttendance?.check_out_at
+                      ? todayAttendance?.check_out_network_status === "clinic_network"
+                        ? "Clinic network verified."
+                        : todayAttendance?.check_out_network_status === "unknown_network"
+                          ? "Network not recognized."
+                          : "Network unavailable."
+                      : todayAttendance?.check_in_at
+                        ? todayAttendance?.check_in_network_status === "clinic_network"
+                          ? "Clinic network verified."
+                          : todayAttendance?.check_in_network_status === "unknown_network"
+                            ? "Network not recognized."
+                            : "Network unavailable."
+                        : "Punch in or punch out akan tunjuk status verifikasi rangkaian di sini."}
+                  </p>
+                </div>
               </div>
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -1009,7 +1081,7 @@ export function AttendancePage({
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Summary</p>
               <p className="mt-2 font-semibold">{boardRows.length} rostered staff</p>
               <p className="mt-1 text-[var(--muted-foreground)]">
-                {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in
+                {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in · {boardCounts.unknownNetwork} unknown network
               </p>
             </div>
           </div>
@@ -1031,6 +1103,10 @@ export function AttendancePage({
               <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
+              </div>
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Unknown Network Punches</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{boardCounts.unknownNetwork}</p>
               </div>
             </div>
           ) : null}
@@ -1054,6 +1130,18 @@ export function AttendancePage({
                     <p><span className="font-semibold">Check out:</span> {formatShortTime(row.record?.check_out_at)}</p>
                     <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
                     <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes}</p>
+                    <p><span className="font-semibold">Check in IP:</span> {row.checkInIp || "-"}</p>
+                    <p><span className="font-semibold">Check out IP:</span> {row.checkOutIp || "-"}</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--foreground)]">Check In:</span>
+                      <StatusBadge value={getNetworkStatusLabel(row.checkInNetworkStatus)} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--foreground)]">Check Out:</span>
+                      <StatusBadge value={getNetworkStatusLabel(row.checkOutNetworkStatus)} />
+                    </div>
                   </div>
 
                   {role === "super_admin" || role === "hr" ? (
@@ -1198,6 +1286,149 @@ export function AttendancePage({
             </div>
           </FormSection>
         )}
+
+        {canViewNetworkIps ? (
+          <FormSection
+            title="Clinic Network IP Settings"
+            description={canManageNetworkIps ? "Daftar dan kemas kini IP rangkaian klinik untuk soft verification attendance." : "Operation boleh melihat IP rangkaian klinik secara read-only."}
+          >
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                  <select
+                    value={networkFilterBranchId}
+                    onChange={(event) => setNetworkFilterBranchId(event.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="all">All branches</option>
+                    {branchRows.map((branch) => (
+                      <option key={branch.id} value={branch.id}>{branch.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Active networks</p>
+                  <p className="mt-2 text-2xl font-semibold">{filteredNetworkRows.filter((row) => row.is_active !== false && normalizeString(row.status) !== "inactive").length}</p>
+                </div>
+              </div>
+
+              {canManageNetworkIps ? (
+                <form className="space-y-4 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 p-4" onSubmit={saveNetworkRow}>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                      <select
+                        value={networkForm.branch_id}
+                        onChange={(event) => setNetworkForm((current) => ({ ...current, branch_id: event.target.value }))}
+                        className={inputClass}
+                        required
+                      >
+                        <option value="">Select branch</option>
+                        {branchRows.map((branch) => (
+                          <option key={branch.id} value={branch.id}>{branch.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">IP Address</span>
+                      <input
+                        value={networkForm.ip_address}
+                        onChange={(event) => setNetworkForm((current) => ({ ...current, ip_address: event.target.value }))}
+                        placeholder="203.0.113.10"
+                        className={inputClass}
+                        required
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Label</span>
+                      <input
+                        value={networkForm.label}
+                        onChange={(event) => setNetworkForm((current) => ({ ...current, label: event.target.value }))}
+                        placeholder="Main clinic WiFi"
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Notes</span>
+                      <input
+                        value={networkForm.notes}
+                        onChange={(event) => setNetworkForm((current) => ({ ...current, notes: event.target.value }))}
+                        placeholder="Reception counter network"
+                        className={inputClass}
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-sm text-[var(--foreground)]">
+                    <input
+                      type="checkbox"
+                      checked={networkForm.is_active}
+                      onChange={(event) => setNetworkForm((current) => ({ ...current, is_active: event.target.checked }))}
+                    />
+                    Active network IP
+                  </label>
+                  {networkMessage ? <p className="rounded-2xl bg-white px-4 py-3 text-sm text-[var(--foreground)]">{networkMessage}</p> : null}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                    <button type="submit" disabled={isSavingNetwork} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                      <Save className="h-4 w-4" />
+                      {isSavingNetwork ? "Saving..." : networkForm.id ? "Update IP" : "Add IP"}
+                    </button>
+                    {networkForm.id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNetworkForm(emptyNetworkForm);
+                          setNetworkMessage(null);
+                        }}
+                        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"
+                      >
+                        Cancel Edit
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              ) : null}
+
+              <div className="space-y-3">
+                {filteredNetworkRows.length ? (
+                  filteredNetworkRows.map((row) => {
+                    const isActive = row.is_active !== false && normalizeString(row.status) !== "inactive";
+                    return (
+                      <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-base font-semibold text-[var(--foreground)]">{String(row.label ?? row.ip_address ?? "Clinic network")}</p>
+                            <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.branch_id)} · {String(row.ip_address ?? "-")}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <StatusBadge value={isActive ? "active" : "closed"} />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-sm text-[var(--muted-foreground)]">{String(row.notes ?? "No notes")}</p>
+                        {canManageNetworkIps ? (
+                          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                            <button type="button" onClick={() => startEditNetworkRow(row)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-muted)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                              <Edit3 className="h-4 w-4" />
+                              Edit
+                            </button>
+                            {isActive ? (
+                              <button type="button" onClick={() => deactivateNetworkRow(row)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                                <XCircle className="h-4 w-4" />
+                                Deactivate
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })
+                ) : (
+                  <EmptyState title="Tiada IP rangkaian diset" description="Tambah IP rangkaian klinik untuk mula semak punch secara soft verification." />
+                )}
+              </div>
+            </div>
+          </FormSection>
+        ) : null}
       </div>
     </div>
   );

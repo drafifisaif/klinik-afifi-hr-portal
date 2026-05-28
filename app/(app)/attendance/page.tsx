@@ -17,7 +17,7 @@ export default async function AttendanceRoute() {
     );
   }
 
-  const [attendanceRows, adjustmentRows, settingRows, staffRows, branchRows, rosterRows, shiftTemplateRows, leaveRows] = await Promise.all([
+  const [attendanceRows, adjustmentRows, settingRows, staffRows, branchRows, rosterRows, shiftTemplateRows, leaveRows, networkRows] = await Promise.all([
     fetchRows(context.supabase, "attendance_records", 400),
     fetchRows(context.supabase, "attendance_adjustments", 200),
     fetchRows(context.supabase, "attendance_settings", 100),
@@ -26,6 +26,7 @@ export default async function AttendanceRoute() {
     fetchRows(context.supabase, "rosters", 400),
     fetchRows(context.supabase, "shift_templates", 200),
     fetchRows(context.supabase, "leave_requests", 300),
+    fetchRows(context.supabase, "clinic_network_ips", 200),
   ]);
 
   const branches = branchRows.rows
@@ -47,6 +48,7 @@ export default async function AttendanceRoute() {
         rosterRows={rosterRows.rows}
         shiftTemplateRows={shiftTemplateRows.rows}
         leaveRows={leaveRows.rows}
+        networkRows={networkRows.rows}
         profile={context.profile}
         currentStaff={context.staff}
         role={context.role}
@@ -59,6 +61,7 @@ export default async function AttendanceRoute() {
           ?? rosterRows.error
           ?? shiftTemplateRows.error
           ?? leaveRows.error
+          ?? networkRows.error
         }
       />
     </div>
