@@ -9,6 +9,7 @@ import { FormSection } from "@/components/form-section";
 import { LeaveBalancePanel } from "@/components/leave-balance-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { buildLeaveBalanceSummary } from "@/lib/data";
+import type { BulkImportPreviewRow } from "@/lib/staff-import";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { formatDate, formatDateInput, mapRowsWithId } from "@/lib/utils";
@@ -65,8 +66,14 @@ export function StaffManagementPage({
   const supabase = createClient();
   const formRef = useRef<HTMLDivElement | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPreviewingImport, setIsPreviewingImport] = useState(false);
+  const [isCreatingImport, setIsCreatingImport] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [bulkImportMessage, setBulkImportMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [bulkImportInput, setBulkImportInput] = useState("");
+  const [bulkImportRows, setBulkImportRows] = useState<BulkImportPreviewRow[]>([]);
+  const [bulkImportSummary, setBulkImportSummary] = useState<Record<string, number> | null>(null);
   const [form, setForm] = useState(emptyStaffForm);
 
   const canManageExtended = role === "super_admin" || role === "hr";
@@ -176,10 +183,159 @@ export function StaffManagementPage({
     router.refresh();
   }
 
+  async function handlePreviewImport() {
+    setIsPreviewingImport(true);
+    setBulkImportMessage(null);
+
+    try {
+      const response = await fetch("/api/staff/bulk-import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "preview",
+          rawInput: bulkImportInput,
+        }),
+      });
+
+      const result = await response.json();
+      setIsPreviewingImport(false);
+
+      if (!response.ok) {
+        setBulkImportMessage(String(result?.error ?? "Unable to preview bulk import."));
+        setBulkImportRows([]);
+        setBulkImportSummary(null);
+        return;
+      }
+
+      setBulkImportRows((result?.rows ?? []) as BulkImportPreviewRow[]);
+      setBulkImportSummary((result?.summary ?? null) as Record<string, number> | null);
+      setBulkImportMessage("Preview ready. Semak branch, email, dan duplicate sebelum create users.");
+    } catch (error) {
+      setIsPreviewingImport(false);
+      setBulkImportMessage(error instanceof Error ? error.message : "Unable to preview bulk import.");
+    }
+  }
+
+  async function handleCreateImport() {
+    setIsCreatingImport(true);
+    setBulkImportMessage(null);
+
+    try {
+      const response = await fetch("/api/staff/bulk-import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "create",
+          rawInput: bulkImportInput,
+        }),
+      });
+
+      const result = await response.json();
+      setIsCreatingImport(false);
+
+      if (!response.ok) {
+        setBulkImportMessage(String(result?.error ?? "Unable to create staff users."));
+        return;
+      }
+
+      setBulkImportRows((result?.rows ?? []) as BulkImportPreviewRow[]);
+      setBulkImportSummary((result?.summary ?? null) as Record<string, number> | null);
+      setBulkImportMessage("Bulk staff import finished. Temporary passwords are shown once below for created users.");
+      router.refresh();
+    } catch (error) {
+      setIsCreatingImport(false);
+      setBulkImportMessage(error instanceof Error ? error.message : "Unable to create staff users.");
+    }
+  }
+
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load staff data" description={error} /> : null}
       {selectedStaff ? <LeaveBalancePanel summary={balanceSummary} title={`${String(selectedStaff.full_name ?? "Staff")} Leave Balance`} /> : null}
+
+      {canManageExtended ? (
+        <FormSection
+          title="Bulk Add Staff"
+          description="Tampal senarai staff mengikut branch, preview dulu, kemudian cipta akaun staff secara batch."
+        >
+          <div className="space-y-5">
+            <textarea
+              value={bulkImportInput}
+              onChange={(event) => setBulkImportInput(event.target.value)}
+              rows={10}
+              placeholder={`Putatan\nJaiah, zulhijiah96@gmail.com\nShaza, nurshazanie.mohdjanini@yahoo.com\nAisah, azney1976@gmail.com\n\nRanau\nDr Izyan, izyan242@gmail.com\nDr Rizuwan, mr.rizuwan92@gmail.com\nSaleha, salehakaranau@gmail.com`}
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]"
+            />
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <button type="button" onClick={handlePreviewImport} disabled={isPreviewingImport || !bulkImportInput.trim()} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                <RefreshCw className="h-4 w-4" />
+                {isPreviewingImport ? "Previewing..." : "Preview Import"}
+              </button>
+              <button type="button" onClick={handleCreateImport} disabled={isCreatingImport || !bulkImportRows.some((row) => row.state === "ready")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
+                <Plus className="h-4 w-4" />
+                {isCreatingImport ? "Creating..." : "Create Staff Users"}
+              </button>
+            </div>
+
+            {bulkImportSummary ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {Object.entries(bulkImportSummary).map(([key, value]) => (
+                  <div key={key} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{key.replaceAll("_", " ")}</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {bulkImportMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{bulkImportMessage}</p> : null}
+
+            {bulkImportRows.length ? (
+              <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-[var(--border)] text-left">
+                    <thead className="bg-[var(--card-muted)]/70">
+                      <tr>
+                        {["Branch", "Name", "Email", "Role", "Position", "Status", "Result"].map((label) => (
+                          <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border)] bg-white">
+                      {bulkImportRows.map((row) => (
+                        <tr key={row.id}>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.branch || "-"}</td>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.name}</td>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">
+                            <div className="space-y-1">
+                              <p>{row.email}</p>
+                              {row.tempPassword ? <p className="text-xs text-amber-700">Temp password: {row.tempPassword}</p> : null}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.role}</td>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.position}</td>
+                          <td className="px-4 py-4 text-sm"><StatusBadge value={row.status} /></td>
+                          <td className="px-4 py-4 text-sm">
+                            <div className="space-y-2">
+                              <StatusBadge value={row.state} />
+                              <p className="text-xs text-[var(--muted-foreground)]">{row.reason || "-"}</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </FormSection>
+      ) : null}
 
       <FormSection
         title="Staff directory"

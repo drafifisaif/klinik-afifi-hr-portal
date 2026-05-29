@@ -112,6 +112,7 @@ Only the public Supabase variables are required in this project:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 ```
 
 This repo includes `.env.example` only and does not ship any local secret file.
@@ -150,6 +151,7 @@ pnpm lint
 - Auth uses Supabase email/password sign-in.
 - The frontend only uses `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 - No `service_role` key is used in the frontend.
+- HR bulk staff import uses `SUPABASE_SERVICE_ROLE_KEY` on the server only to create Auth users safely.
 
 ### Storage
 
