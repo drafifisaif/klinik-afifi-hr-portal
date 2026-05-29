@@ -183,6 +183,7 @@ const ROLE_ACCESS: Record<UserRole, AppRouteKey[]> = {
   operation: [
     "dashboard",
     "attendance",
+    "feedback",
     "feedbackManage",
     "notifications",
     "roster",
