@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { filterFeedbackForManageView, getOperationVisibleFeedback } from "@/lib/data";
 import { triggerFeedbackEmailNotifications } from "@/lib/feedback-email";
 import { createClient } from "@/lib/supabase/server";
 
@@ -32,6 +33,32 @@ export async function POST(request: Request) {
   }
 
   try {
+    const [{ data: profile }, { data: staff }, { data: feedback }] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+      supabase.from("staff").select("*").eq("profile_id", user.id).maybeSingle(),
+      supabase.from("feedbacks").select("*").eq("id", feedbackId).maybeSingle(),
+    ]);
+
+    if (!feedback) {
+      return NextResponse.json({ error: "Feedback not found." }, { status: 404 });
+    }
+
+    const role = String(profile?.role ?? "");
+    const canAccessFeedback =
+      role === "hr" ||
+      role === "super_admin" ||
+      (role === "operation"
+        ? getOperationVisibleFeedback([feedback], user.id).length > 0
+        : role === "branch_pic"
+          ? filterFeedbackForManageView([feedback], "branch_pic", profile ?? null, user.id, String(staff?.id ?? "") || undefined).length > 0
+          : String(feedback.submitted_by ?? "") === user.id ||
+            String(feedback.assigned_to ?? "") === user.id ||
+            (String(feedback.target_type ?? "") === "staff" && String(feedback.target_staff_id ?? "") === String(staff?.id ?? "")));
+
+    if (!canAccessFeedback) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
     const result = await triggerFeedbackEmailNotifications({
       feedbackId,
       eventType,

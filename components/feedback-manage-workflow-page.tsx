@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { ArrowRightCircle, MessageSquareReply } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -19,6 +19,7 @@ interface FeedbackManageWorkflowPageProps {
   commentRows: TableRow[];
   staffRows: TableRow[];
   profileRows: Profile[];
+  assignmentProfiles: Profile[];
   branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
@@ -33,6 +34,10 @@ const textareaClass =
 
 function getStatusPanelClass(status: string) {
   const normalized = normalizeString(status);
+
+  if (normalized === "escalated") {
+    return "border-rose-200 bg-rose-50/60";
+  }
 
   if (["resolved", "closed"].includes(normalized)) {
     return "border-emerald-200 bg-emerald-50/60";
@@ -67,7 +72,7 @@ function getCommentRoleTone(role: string) {
   return "border-slate-200 bg-slate-50/90";
 }
 
-export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
+export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, assignmentProfiles, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -88,6 +93,35 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
       ),
     [feedbackRows, role, profile, currentStaff?.id],
   );
+  const getBranchName = useCallback((branchId: unknown) => {
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
+  }, [branches]);
+
+  const assignmentOptions = useMemo(() => {
+    return assignmentProfiles
+      .map((candidate) => {
+        const linkedStaff = staffRows.find((row) => String(row.profile_id ?? "") === String(candidate.id ?? ""));
+        const staffStatus = normalizeString(linkedStaff?.status);
+        if (staffStatus === "inactive" || staffStatus === "resigned") {
+          return null;
+        }
+
+        const candidateRole = normalizeString(candidate.role);
+        if (!["staff", "branch_pic", "operation", "hr"].includes(candidateRole)) {
+          return null;
+        }
+
+        const branchName = getBranchName(candidate.branch_id ?? linkedStaff?.branch_id ?? null);
+        const fullName = String(candidate.full_name ?? linkedStaff?.full_name ?? candidate.email ?? "Unknown User");
+        return {
+          value: String(candidate.id),
+          role: candidateRole,
+          label: `${fullName} · ${candidateRole.replaceAll("_", " ")} · ${branchName}`,
+        };
+      })
+      .filter((option): option is { value: string; role: string; label: string } => Boolean(option))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [assignmentProfiles, getBranchName, staffRows]);
 
   function getComments(feedbackId: string) {
     return localComments
@@ -136,10 +170,6 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
     return role === "hr" || role === "super_admin";
   }
 
-  function getBranchName(branchId: unknown) {
-    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
-  }
-
   async function saveAssignment(feedback: TableRow) {
     if (!supabase || !profile?.id) {
       setMessage("Unable to update feedback right now.");
@@ -183,8 +213,14 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
       recipients.map((recipient) => ({
         recipient_profile_id: recipient.profile_id,
         recipient_email: recipient.email,
-        title: `Feedback status updated: ${String(feedback.title ?? "Feedback")}`,
-        message: `Status changed to ${draft.status.replaceAll("_", " ")}`,
+        title: draft.status === "escalated"
+          ? `Feedback escalated: ${String(feedback.title ?? "Feedback")}`
+          : String(feedback.assigned_to ?? "") && String(feedback.assigned_to ?? "") !== draft.assigned_to
+            ? `Feedback reassigned: ${String(feedback.title ?? "Feedback")}`
+            : `Feedback assignment updated: ${String(feedback.title ?? "Feedback")}`,
+        message: draft.status === "escalated"
+          ? `Escalated to ${draft.assigned_department || "next team"}`
+          : `Status changed to ${draft.status.replaceAll("_", " ")}`,
         type: "feedback_status_update",
         related_table: "feedbacks",
         related_id: feedback.id,
@@ -326,11 +362,27 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                       </div>
                     </div>
                     <div className="grid gap-3 lg:min-w-[280px] lg:max-w-[300px]">
-                      <input value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [String(feedback.id)]: { ...draft, assigned_department: event.target.value } }))} placeholder="Assigned department" className={inputClass} />
-                      <select value={draft.assigned_to} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [String(feedback.id)]: { ...draft, assigned_to: event.target.value } }))} className={inputClass}>
+                      <select value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [String(feedback.id)]: { ...draft, assigned_department: event.target.value } }))} className={inputClass}>
+                        <option value="">Assigned department</option>
+                        {["staff", "branch_pic", "operation", "hr"].map((department) => (
+                          <option key={department} value={department}>{department.replaceAll("_", " ")}</option>
+                        ))}
+                      </select>
+                      <select value={draft.assigned_to} onChange={(event) => {
+                        const selectedProfileId = event.target.value;
+                        const selectedOption = assignmentOptions.find((option) => option.value === selectedProfileId);
+                        setAssignmentDrafts((current) => ({
+                          ...current,
+                          [String(feedback.id)]: {
+                            ...draft,
+                            assigned_to: selectedProfileId,
+                            assigned_department: selectedOption?.role ?? draft.assigned_department,
+                          },
+                        }));
+                      }} className={inputClass}>
                         <option value="">Assign to user (optional)</option>
-                        {staffRows.map((row) => (
-                          <option key={String(row.profile_id ?? row.id)} value={String(row.profile_id ?? row.id ?? "")}>{String(row.full_name ?? row.email ?? row.id)}</option>
+                        {assignmentOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
                       <select value={draft.status} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [String(feedback.id)]: { ...draft, status: event.target.value } }))} className={inputClass}>
@@ -341,6 +393,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
                           "need_more_info",
                           "resolved",
                           "closed",
+                          "escalated",
                         ].map((status) => (
                           <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
                         ))}

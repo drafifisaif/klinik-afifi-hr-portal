@@ -35,6 +35,7 @@ import {
   filterExpiringRows,
   getNextHoliday,
   getExpiryStatus,
+  getOperationVisibleFeedback,
 } from "@/lib/data";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, normalizeString } from "@/lib/utils";
@@ -1278,12 +1279,19 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
   ]);
 
-  const assignedIssues = feedbackRows.rows.filter((row) => String(row.assigned_to ?? "") === profileId || normalizeString(row.target_type) === "operation" || normalizeString(row.assigned_department) === "operation");
-  const openIssues = assignedIssues.filter((row) => ["new", "assigned", "in_progress", "need_more_info"].includes(normalizeString(row.status)));
-  const urgentIssues = assignedIssues.filter((row) => ["high", "urgent"].includes(normalizeString(row.priority)) && !["resolved", "closed"].includes(normalizeString(row.status)));
+  const operationVisibleFeedback = getOperationVisibleFeedback(feedbackRows.rows, profileId);
+  const assignedIssues = operationVisibleFeedback.filter(
+    (row) =>
+      String(row.assigned_to ?? "") === profileId ||
+      normalizeString(row.target_type) === "operation" ||
+      normalizeString(row.assigned_department) === "operation",
+  );
+  const openIssues = operationVisibleFeedback.filter((row) => ["new", "assigned", "in_progress", "need_more_info", "escalated"].includes(normalizeString(row.status)));
+  const urgentIssues = operationVisibleFeedback.filter((row) => (["high", "urgent"].includes(normalizeString(row.priority)) || normalizeString(row.status) === "escalated") && !["resolved", "closed"].includes(normalizeString(row.status)));
   const resolvedThisWeek = countResolvedThisWeek(assignedIssues);
-  const portalIssues = assignedIssues.filter((row) => normalizeString(row.target_type) === "portal_system");
-  const recentReplies = commentRows.rows.filter((row) => String(row.created_at ?? "") >= startOfWeek);
+  const portalIssues = operationVisibleFeedback.filter((row) => normalizeString(row.target_type) === "portal_system" || normalizeString(row.category) === "system");
+  const operationFeedbackIds = new Set(operationVisibleFeedback.map((row) => String(row.id ?? "")));
+  const recentReplies = commentRows.rows.filter((row) => operationFeedbackIds.has(String(row.feedback_id ?? "")) && String(row.created_at ?? "") >= startOfWeek);
   const attendanceSnapshotRows = buildAttendanceSnapshotRows({
     rosterRows: rosterRows.rows,
     attendanceRows: attendanceRows.rows,
@@ -1301,7 +1309,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
       <PageHeader title="Operation Dashboard" description="Dashboard operasi yang fokus pada isu, reply queue, dan perkara urgent tanpa mengganggu anda dengan metrik HR yang tidak berkaitan." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Assigned Feedback / Issues" value={assignedIssues.length} description="Jumlah isu yang kini visible kepada operation." icon={MessageSquareMore} tone={assignedIssues.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Assigned Feedback" value={assignedIssues.length} description="Jumlah feedback operational yang kini berada dalam aliran operation." icon={MessageSquareMore} tone={assignedIssues.length > 0 ? "alert" : "neutral"} />
         <StatCard title="Open Operation Issues" value={openIssues.length} description="Isu aktif yang masih perlukan susulan." icon={ClipboardList} tone={openIssues.length > 0 ? "alert" : "neutral"} />
         <StatCard title="Resolved This Week" value={resolvedThisWeek} description="Jumlah isu yang ditutup minggu ini." icon={CheckCircle2} tone={resolvedThisWeek > 0 ? "success" : "neutral"} />
         <StatCard title="Urgent / Escalated" value={urgentIssues.length} description="Isu keutamaan tinggi yang perlu didahulukan." icon={ShieldAlert} tone={urgentIssues.length > 0 ? "alert" : "neutral"} />

@@ -318,7 +318,7 @@ export function filterFeedbackForManageView(
   }
 
   if (role === "operation") {
-    return rows.filter((row) => normalizeString(row.target_type) === "operation");
+    return getOperationVisibleFeedback(rows, userId);
   }
 
   if (role === "branch_pic") {
@@ -334,6 +334,101 @@ export function filterFeedbackForManageView(
     const targetStaffId = String(row.target_staff_id ?? "");
     return submittedBy === userId || (staffId ? targetStaffId === staffId : false);
   });
+}
+
+const OPERATIONAL_FEEDBACK_CATEGORIES = [
+  "operation",
+  "system",
+  "facility",
+  "roster",
+  "equipment",
+  "branch operation",
+  "maintenance",
+];
+
+const OPERATION_CONFIDENTIAL_KEYWORDS = [
+  "disciplinary",
+  "discipline",
+  "salary",
+  "payroll",
+  "leave approval note",
+  "hr confidential",
+  "confidential hr",
+  "harassment",
+  "bully",
+  "bullying",
+  "misconduct",
+  "staff complaint",
+  "complaint staff",
+];
+
+export function isOperationRestrictedFeedback(row: TableRow) {
+  const targetType = normalizeString(row.target_type);
+  const category = normalizeString(row.category);
+  const haystack = [
+    row.category,
+    row.title,
+    row.message,
+    row.expected_action,
+    row.portal_area,
+    row.review_note,
+  ]
+    .map((value) => normalizeString(value))
+    .join(" ");
+
+  if (targetType === "hr") {
+    return true;
+  }
+
+  if (targetType === "staff" && category !== "system") {
+    return true;
+  }
+
+  return OPERATION_CONFIDENTIAL_KEYWORDS.some((keyword) => haystack.includes(keyword));
+}
+
+export function isOperationVisibleFeedback(row: TableRow, profileId: string) {
+  if (isOperationRestrictedFeedback(row)) {
+    return false;
+  }
+
+  const category = normalizeString(row.category);
+  const targetType = normalizeString(row.target_type);
+  const assignedDepartment = normalizeString(row.assigned_department);
+  const assignedTo = String(row.assigned_to ?? "");
+  const haystack = [
+    row.category,
+    row.title,
+    row.message,
+    row.portal_area,
+    row.expected_action,
+    row.assigned_department,
+    row.target_type,
+  ]
+    .map((value) => normalizeString(value))
+    .join(" ");
+
+  const keywordMatch = [
+    "operation",
+    "system",
+    "facility",
+    "roster",
+    "equipment",
+    "branch operation",
+    "maintenance",
+  ].some((keyword) => haystack.includes(keyword));
+
+  return (
+    assignedTo === profileId ||
+    assignedDepartment === "operation" ||
+    targetType === "operation" ||
+    OPERATIONAL_FEEDBACK_CATEGORIES.includes(category) ||
+    keywordMatch
+  );
+}
+
+export function getOperationVisibleFeedback(rows: TableRow[], profileId: string) {
+  return rows.filter((row) => isOperationVisibleFeedback(row, profileId));
 }
 
 export function filterNotificationsForUser(rows: TableRow[], profileId: string) {

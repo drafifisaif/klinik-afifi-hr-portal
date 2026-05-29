@@ -57,7 +57,7 @@ function getEmailSubject(eventType: FeedbackEmailEvent, title: string) {
   }
 
   if (eventType === "feedback_assignment") {
-    return `[Klinik Afifi HR] Feedback assigned: ${title}`;
+    return "[HR Portal] New Feedback Assignment";
   }
 
   return `[Klinik Afifi HR] New feedback: ${title}`;
@@ -80,6 +80,7 @@ function buildEmailBody(options: {
   previewText: string;
   recipientRole: string;
   submitter: FeedbackRecipient | null;
+  actorName?: string | null;
 }) {
   const title = String(options.feedback.title ?? "Feedback");
   const submitterName = getRecipientSubmitterName(options.feedback, options.submitter, options.recipientRole);
@@ -105,9 +106,11 @@ function buildEmailBody(options: {
         <div style="padding:24px 28px;">
           <div style="border:1px solid #d7e6e2;background:#f8fbfb;border-radius:18px;padding:16px 18px;font-size:14px;line-height:1.8;color:#334155;">
             <div><strong>Branch:</strong> ${escapeHtml(options.branchName)}</div>
+            <div><strong>Category:</strong> ${escapeHtml(String(options.feedback.category ?? "general"))}</div>
             <div><strong>Status:</strong> ${escapeHtml(String(options.feedback.status ?? "new").replaceAll("_", " "))}</div>
             <div><strong>Priority:</strong> ${escapeHtml(String(options.feedback.priority ?? "normal"))}</div>
             <div><strong>Submitted by:</strong> ${escapeHtml(submittedBy)}</div>
+            ${options.eventType === "feedback_assignment" && options.actorName ? `<div><strong>Assigned by:</strong> ${escapeHtml(options.actorName)}</div>` : ""}
             <div><strong>Submitted:</strong> ${escapeHtml(formatDateTime(options.feedback.created_at))}</div>
           </div>
           <div style="margin-top:18px;border:1px solid #d7ece8;background:#eef8f6;border-radius:18px;padding:16px 18px;">
@@ -129,9 +132,11 @@ function buildEmailBody(options: {
     intro,
     "",
     `Branch: ${options.branchName}`,
+    `Category: ${String(options.feedback.category ?? "general")}`,
     `Status: ${String(options.feedback.status ?? "new").replaceAll("_", " ")}`,
     `Priority: ${String(options.feedback.priority ?? "normal")}`,
     `Submitted by: ${submittedBy}`,
+    ...(options.eventType === "feedback_assignment" && options.actorName ? [`Assigned by: ${options.actorName}`] : []),
     `Submitted: ${formatDateTime(options.feedback.created_at)}`,
     "",
     `Message preview: ${options.previewText}`,
@@ -267,6 +272,7 @@ export async function triggerFeedbackEmailNotifications(options: {
 
   const branchName = String(branchResult.data?.name ?? branchResult.data?.branch_name ?? "No branch");
   const submitterProfile = profileMap.get(submittedBy) ?? null;
+  const actorProfile = profileMap.get(String(options.actorProfileId ?? "").trim()) ?? null;
   const submitterStaff = submitterStaffResult.data ?? staffByProfileId.get(submittedBy) ?? null;
   const submitterIdentity: FeedbackRecipient | null = submitterProfile
     ? {
@@ -378,6 +384,7 @@ export async function triggerFeedbackEmailNotifications(options: {
         previewText,
         recipientRole: recipient.role,
         submitter: submitterIdentity,
+        actorName: String(actorProfile?.full_name ?? actorProfile?.email ?? "").trim() || null,
       });
 
       const result = await sendResendEmail({
