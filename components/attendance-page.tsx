@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { CheckCircle2, Edit3, LogIn, LogOut, Save, TriangleAlert, XCircle } from "lucide-react";
+import { CheckCircle2, Edit3, LogIn, LogOut, RefreshCw, Save, TriangleAlert, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
@@ -66,6 +66,51 @@ function combineDateAndTime(date: string, timeValue?: string | null) {
   return `${date}T${time}:00`;
 }
 
+function normalizeTimeForPostgres(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+
+    const hours = String(value.getHours()).padStart(2, "0");
+    const minutes = String(value.getMinutes()).padStart(2, "0");
+    const seconds = String(value.getSeconds()).padStart(2, "0");
+    return `${hours}:${minutes}:${seconds}`;
+  }
+
+  const text = String(value).trim();
+  if (!text) {
+    return null;
+  }
+
+  if (/^\d{2}:\d{2}:\d{2}$/.test(text)) {
+    return text;
+  }
+
+  if (/^\d{2}:\d{2}$/.test(text)) {
+    return `${text}:00`;
+  }
+
+  const isoMatch = text.match(/T(\d{2}:\d{2})(?::(\d{2}))?/);
+  if (isoMatch) {
+    return `${isoMatch[1]}:${isoMatch[2] ?? "00"}`;
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 function formatShortTime(value: unknown) {
   if (!value) {
     return "-";
@@ -105,12 +150,20 @@ function formatShortDateTime(value: unknown) {
   return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
-function parseIso(value: unknown) {
+function parseIso(value: unknown, referenceDate?: Date | null) {
   if (!value) {
     return null;
   }
 
-  const date = new Date(String(value));
+  const text = String(value).trim();
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
+    const [hours, minutes, seconds = "00"] = text.split(":");
+    const base = referenceDate ? new Date(referenceDate) : new Date();
+    base.setHours(Number(hours), Number(minutes), Number(seconds), 0);
+    return Number.isNaN(base.getTime()) ? null : base;
+  }
+
+  const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -127,13 +180,24 @@ function getShiftName(rosterRow: TableRow | null, shiftTemplate: TableRow | null
 
 function computeLateMinutes(checkInAt: unknown, scheduledStart: unknown, graceMinutes: number) {
   const checkIn = parseIso(checkInAt);
-  const scheduled = parseIso(scheduledStart);
+  const scheduled = parseIso(scheduledStart, checkIn);
   if (!checkIn || !scheduled) {
     return 0;
   }
 
   const diffMinutes = Math.max(0, Math.round((checkIn.getTime() - scheduled.getTime()) / 60000) - graceMinutes);
   return diffMinutes;
+}
+
+function computeEarlyLeaveMinutes(checkOutAt: unknown, scheduledEnd: unknown, graceMinutes: number) {
+  const checkOut = parseIso(checkOutAt);
+  const scheduled = parseIso(scheduledEnd, checkOut);
+  if (!checkOut || !scheduled) {
+    return 0;
+  }
+
+  const diffMinutes = Math.round((scheduled.getTime() - checkOut.getTime()) / 60000);
+  return diffMinutes > graceMinutes ? diffMinutes : 0;
 }
 
 function computeAttendanceStatus(row: TableRow | null, graceMinutes: number) {
@@ -211,6 +275,21 @@ function getNetworkStatusLabel(status: unknown) {
   return "IP Unavailable";
 }
 
+function MinuteAlertBadge({ tone, text }: { tone: "late" | "early"; text: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+        tone === "late"
+          ? "bg-orange-100 text-orange-700"
+          : "bg-amber-100 text-amber-700",
+      )}
+    >
+      {text}
+    </span>
+  );
+}
+
 export function AttendancePage({
   attendanceRows,
   adjustmentRows,
@@ -255,6 +334,7 @@ export function AttendancePage({
     grace_minutes: "10",
     allow_early_check_in_minutes: "0",
     auto_absent_after_minutes: "60",
+    early_leave_grace_minutes: "10",
     require_note_for_late: false,
     require_note_for_adjustment: false,
   });
@@ -323,6 +403,8 @@ export function AttendancePage({
   const todayScheduledEnd = buildScheduledDateTime(todayRoster, activeShiftTemplate, "end");
   const todayStatus = computeAttendanceStatus(todayAttendance, graceMinutes);
   const todayLateMinutes = Number(todayAttendance?.late_minutes ?? computeLateMinutes(todayAttendance?.check_in_at, todayAttendance?.scheduled_start ?? todayScheduledStart, graceMinutes));
+  const todayEarlyLeaveGraceMinutes = Number(scopedTodaySetting?.early_leave_grace_minutes ?? 10) || 10;
+  const todayEarlyLeaveMinutes = Number(todayAttendance?.early_leave_minutes ?? computeEarlyLeaveMinutes(todayAttendance?.check_out_at, todayAttendance?.scheduled_end ?? todayScheduledEnd, todayEarlyLeaveGraceMinutes));
 
   const personalHistory = historyDates
     .map((date) => {
@@ -350,6 +432,7 @@ export function AttendancePage({
         rosterRow,
         template,
         correction,
+        earlyLeaveMinutes: Number(attendanceRow?.early_leave_minutes ?? computeEarlyLeaveMinutes(attendanceRow?.check_out_at, attendanceRow?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end"), todayEarlyLeaveGraceMinutes)),
       };
     })
     .filter((row) => row.attendanceRow || row.rosterRow || row.correction);
@@ -402,6 +485,7 @@ export function AttendancePage({
       ?? settingsRows.find((row) => !String(row.branch_id ?? "").trim())
       ?? null;
     const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+    const rowEarlyLeaveGraceMinutes = Number(branchSetting?.early_leave_grace_minutes ?? 10) || 10;
     const approvedLeave = leaveRows.find(
       (row) => String(row.staff_id ?? "") === String(rosterRow.staff_id ?? "") && isLeaveForDate(row, selectedBoardDate),
     ) ?? null;
@@ -414,6 +498,7 @@ export function AttendancePage({
     const scheduledStart = record?.scheduled_start ?? buildScheduledDateTime(rosterRow, template, "start");
     const scheduledEnd = record?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end");
     const lateMinutes = Number(record?.late_minutes ?? computeLateMinutes(record?.check_in_at, scheduledStart, rowGraceMinutes));
+    const earlyLeaveMinutes = Number(record?.early_leave_minutes ?? computeEarlyLeaveMinutes(record?.check_out_at, scheduledEnd, rowEarlyLeaveGraceMinutes));
     const autoAbsentAfterMinutes = Number(branchSetting?.auto_absent_after_minutes ?? 60) || 60;
 
     let finalStatus = derivedStatus;
@@ -438,6 +523,7 @@ export function AttendancePage({
       lateMinutes,
       scheduledStart,
       scheduledEnd,
+      earlyLeaveMinutes,
       checkInIp: String(record?.check_in_ip ?? ""),
       checkOutIp: String(record?.check_out_ip ?? ""),
       checkInNetworkStatus: String(record?.check_in_network_status ?? "unavailable"),
@@ -489,6 +575,7 @@ export function AttendancePage({
       grace_minutes: String(row?.grace_minutes ?? 10),
       allow_early_check_in_minutes: String(row?.allow_early_check_in_minutes ?? 0),
       auto_absent_after_minutes: String(row?.auto_absent_after_minutes ?? 60),
+      early_leave_grace_minutes: String(row?.early_leave_grace_minutes ?? 10),
       require_note_for_late: row?.require_note_for_late === true,
       require_note_for_adjustment: row?.require_note_for_adjustment === true,
     });
@@ -671,9 +758,11 @@ export function AttendancePage({
         ?? settingsRows.find((item) => !String(item.branch_id ?? "").trim())
         ?? null;
       const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+      const rowEarlyLeaveGraceMinutes = Number(branchSetting?.early_leave_grace_minutes ?? 10) || 10;
       const scheduledStart = matchingRecord?.scheduled_start ?? buildScheduledDateTime(matchingRoster, matchingTemplate, "start");
       const scheduledEnd = matchingRecord?.scheduled_end ?? buildScheduledDateTime(matchingRoster, matchingTemplate, "end");
       const lateMinutes = computeLateMinutes(requestedCheckIn, scheduledStart, rowGraceMinutes);
+      const earlyLeaveMinutes = computeEarlyLeaveMinutes(requestedCheckOut, scheduledEnd, rowEarlyLeaveGraceMinutes);
       const nextStatus = computeAttendanceStatus(
         {
           ...matchingRecord,
@@ -691,10 +780,11 @@ export function AttendancePage({
           .update({
             check_in_at: requestedCheckIn ?? matchingRecord.check_in_at ?? null,
             check_out_at: requestedCheckOut ?? matchingRecord.check_out_at ?? null,
-            scheduled_start: scheduledStart,
-            scheduled_end: scheduledEnd,
+            scheduled_start: normalizeTimeForPostgres(scheduledStart),
+            scheduled_end: normalizeTimeForPostgres(scheduledEnd),
             roster_id: matchingRoster?.id ?? matchingRecord.roster_id ?? null,
             late_minutes: lateMinutes,
+            early_leave_minutes: earlyLeaveMinutes,
             status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
           })
           .eq("id", matchingRecord.id);
@@ -711,11 +801,12 @@ export function AttendancePage({
           branch_id: row.branch_id ?? null,
           attendance_date: requestedDate,
           roster_id: matchingRoster?.id ?? null,
-          scheduled_start: scheduledStart,
-          scheduled_end: scheduledEnd,
+          scheduled_start: normalizeTimeForPostgres(scheduledStart),
+          scheduled_end: normalizeTimeForPostgres(scheduledEnd),
           check_in_at: requestedCheckIn ?? null,
           check_out_at: requestedCheckOut ?? null,
           late_minutes: lateMinutes,
+          early_leave_minutes: earlyLeaveMinutes,
           status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
         });
 
@@ -761,7 +852,9 @@ export function AttendancePage({
       ?? settingsRows.find((item) => !String(item.branch_id ?? "").trim())
       ?? null;
     const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
+    const rowEarlyLeaveGraceMinutes = Number(branchSetting?.early_leave_grace_minutes ?? 10) || 10;
     const lateMinutes = computeLateMinutes(manualAttendanceForm.check_in_at, scheduledStart, rowGraceMinutes);
+    const earlyLeaveMinutes = computeEarlyLeaveMinutes(manualAttendanceForm.check_out_at, scheduledEnd, rowEarlyLeaveGraceMinutes);
     const nextStatus = computeAttendanceStatus(
       {
         ...row.record,
@@ -779,9 +872,8 @@ export function AttendancePage({
         .update({
           check_in_at: manualAttendanceForm.check_in_at || null,
           check_out_at: manualAttendanceForm.check_out_at || null,
-          scheduled_start: scheduledStart,
-          scheduled_end: scheduledEnd,
           late_minutes: lateMinutes,
+          early_leave_minutes: earlyLeaveMinutes,
           status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
         })
         .eq("id", row.record.id);
@@ -797,11 +889,12 @@ export function AttendancePage({
         branch_id: row.rosterRow.branch_id ?? row.member?.branch_id ?? null,
         attendance_date: selectedBoardDate,
         roster_id: row.rosterRow.id ?? null,
-        scheduled_start: scheduledStart,
-        scheduled_end: scheduledEnd,
+        scheduled_start: normalizeTimeForPostgres(scheduledStart),
+        scheduled_end: normalizeTimeForPostgres(scheduledEnd),
         check_in_at: manualAttendanceForm.check_in_at || null,
         check_out_at: manualAttendanceForm.check_out_at || null,
         late_minutes: lateMinutes,
+        early_leave_minutes: earlyLeaveMinutes,
         status: nextStatus === "not_punched_in" ? "incomplete" : nextStatus,
       });
 
@@ -815,6 +908,50 @@ export function AttendancePage({
     setActiveManualRecordId(null);
     setManualAttendanceForm(emptyManualAttendanceForm);
     router.refresh();
+  }
+
+  async function handleAdminRecordAction(row: (typeof boardRows)[number], action: "reset" | "delete") {
+    if (!profile?.id || (role !== "hr" && role !== "super_admin") || !row.record?.id) {
+      setManualMessage("Admin attendance action is not available for this record.");
+      return;
+    }
+
+    const confirmationMessage = action === "reset"
+      ? "Reset punch record for this staff on this date?"
+      : "Delete this attendance record? This action cannot be undone.";
+
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    setManualMessage(null);
+
+    try {
+      const response = await fetch("/api/attendance/admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action,
+          recordId: row.record.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setManualMessage(String(result?.error ?? "Unable to update attendance record."));
+        return;
+      }
+
+      setManualMessage(String(result?.message ?? "Attendance record updated."));
+      setActiveManualRecordId(null);
+      setManualAttendanceForm(emptyManualAttendanceForm);
+      router.refresh();
+    } catch (error) {
+      setManualMessage(error instanceof Error ? error.message : "Unable to update attendance record.");
+    }
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -833,6 +970,7 @@ export function AttendancePage({
       grace_minutes: Number(settingsForm.grace_minutes || 10),
       allow_early_check_in_minutes: Number(settingsForm.allow_early_check_in_minutes || 0),
       auto_absent_after_minutes: Number(settingsForm.auto_absent_after_minutes || 60),
+      early_leave_grace_minutes: Number(settingsForm.early_leave_grace_minutes || 10),
       require_note_for_late: settingsForm.require_note_for_late,
       require_note_for_adjustment: settingsForm.require_note_for_adjustment,
     };
@@ -871,7 +1009,8 @@ export function AttendancePage({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge value={todayStatus} />
-                  {todayLateMinutes > 0 ? <StatusBadge value={`${todayLateMinutes} min late`} /> : null}
+                  {todayLateMinutes > 0 ? <MinuteAlertBadge tone="late" text={`${todayLateMinutes} min late`} /> : null}
+                  {todayEarlyLeaveMinutes > 0 ? <MinuteAlertBadge tone="early" text={`${todayEarlyLeaveMinutes} min early leave`} /> : null}
                 </div>
               </div>
 
@@ -1020,12 +1159,14 @@ export function AttendancePage({
                       <div className="flex flex-wrap gap-2">
                         <StatusBadge value={status} />
                         {entry.correction ? <StatusBadge value={String(entry.correction.status ?? "pending")} /> : null}
+                        {entry.earlyLeaveMinutes > 0 ? <MinuteAlertBadge tone="early" text={`${entry.earlyLeaveMinutes} min early leave`} /> : null}
                       </div>
                     </div>
                     <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
                       <p><span className="font-semibold">Check in:</span> {formatShortTime(entry.attendanceRow?.check_in_at)}</p>
                       <p><span className="font-semibold">Check out:</span> {formatShortTime(entry.attendanceRow?.check_out_at)}</p>
                       <p><span className="font-semibold">Late minutes:</span> {String(entry.attendanceRow?.late_minutes ?? computeLateMinutes(entry.attendanceRow?.check_in_at, entry.attendanceRow?.scheduled_start, graceMinutes))}</p>
+                      <p><span className="font-semibold">Early leave:</span> {entry.earlyLeaveMinutes > 0 ? `${entry.earlyLeaveMinutes} min` : "-"}</p>
                       <p><span className="font-semibold">Correction status:</span> {String(entry.correction?.status ?? "-")}</p>
                     </div>
                   </article>
@@ -1113,8 +1254,11 @@ export function AttendancePage({
 
           <div className="mt-5 space-y-3">
             {boardRows.length ? (
-              boardRows.map((row) => (
-                <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className={cn("rounded-[24px] border px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getBoardStatusTone(row.status))}>
+              boardRows.map((row) => {
+                const adminRecordId = String(row.record?.id ?? "").trim();
+
+                return (
+                  <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className={cn("rounded-[24px] border px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getBoardStatusTone(row.status))}>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-base font-semibold text-[var(--foreground)]">{String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
@@ -1122,7 +1266,8 @@ export function AttendancePage({
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge value={row.status} />
-                      {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
+                      {row.lateMinutes > 0 ? <MinuteAlertBadge tone="late" text={`${row.lateMinutes} min late`} /> : null}
+                      {row.earlyLeaveMinutes > 0 ? <MinuteAlertBadge tone="early" text={`${row.earlyLeaveMinutes} min early leave`} /> : null}
                     </div>
                   </div>
                   <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
@@ -1130,6 +1275,7 @@ export function AttendancePage({
                     <p><span className="font-semibold">Check out:</span> {formatShortTime(row.record?.check_out_at)}</p>
                     <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
                     <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes}</p>
+                    <p><span className="font-semibold">Early leave minutes:</span> {row.earlyLeaveMinutes || "-"}</p>
                     <p><span className="font-semibold">Check in IP:</span> {row.checkInIp || "-"}</p>
                     <p><span className="font-semibold">Check out IP:</span> {row.checkOutIp || "-"}</p>
                   </div>
@@ -1153,6 +1299,25 @@ export function AttendancePage({
                           Edit record
                         </button>
                       </div>
+                      <p className="text-xs text-[var(--muted-foreground)]">Admin reset/delete tools are for testing or correction only.</p>
+
+                      {adminRecordId ? (
+                        <div className="rounded-2xl border border-[var(--border)] bg-white/80 px-4 py-4">
+                          <p className="text-sm font-semibold text-[var(--foreground)]">Admin actions</p>
+                          <p className="mt-1 text-xs text-[var(--muted-foreground)]">Gunakan dengan berhati-hati untuk correction atau testing sahaja.</p>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                            <button type="button" onClick={() => handleAdminRecordAction(row, "reset")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 sm:w-auto">
+                              <RefreshCw className="h-4 w-4" />
+                              Reset Punch Record
+                            </button>
+                            <button type="button" onClick={() => handleAdminRecordAction(row, "delete")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                              <XCircle className="h-4 w-4" />
+                              Delete Test Record
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
                       {activeManualRecordId === String(row.record?.id ?? row.rosterRow.id ?? row.member?.id ?? "") ? (
                         <div className="grid gap-3 md:grid-cols-2">
                           <input type="datetime-local" value={manualAttendanceForm.check_in_at} onChange={(event) => setManualAttendanceForm((current) => ({ ...current, check_in_at: event.target.value }))} className={inputClass} />
@@ -1167,12 +1332,28 @@ export function AttendancePage({
                               Cancel
                             </button>
                           </div>
+                          {adminRecordId ? (
+                            <div className="md:col-span-2 rounded-2xl border border-[var(--border)] bg-white px-4 py-4">
+                              <p className="text-sm font-semibold text-[var(--foreground)]">Admin actions</p>
+                              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                                <button type="button" onClick={() => handleAdminRecordAction(row, "reset")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 sm:w-auto">
+                                  <RefreshCw className="h-4 w-4" />
+                                  Reset Punch Record
+                                </button>
+                                <button type="button" onClick={() => handleAdminRecordAction(row, "delete")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                                  <XCircle className="h-4 w-4" />
+                                  Delete Test Record
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
                   ) : null}
-                </article>
-              ))
+                  </article>
+                );
+              })
             ) : (
               <EmptyState title="Roster belum diset" description="Tiada staff roster untuk tarikh dan cawangan yang dipilih." />
             )}
@@ -1253,6 +1434,11 @@ export function AttendancePage({
                   <span className="text-sm font-semibold text-[var(--foreground)]">Auto Absent After Minutes</span>
                   <input value={settingsForm.auto_absent_after_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, auto_absent_after_minutes: event.target.value }))} placeholder="60" className={inputClass} />
                   <p className="text-xs text-[var(--muted-foreground)]">If roster exists and there is still no punch after this threshold, status becomes absent.</p>
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Early Leave Grace Minutes</span>
+                  <input value={settingsForm.early_leave_grace_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, early_leave_grace_minutes: event.target.value }))} placeholder="10" className={inputClass} />
+                  <p className="text-xs text-[var(--muted-foreground)]">Staff will be flagged as early leave if punch out is earlier than scheduled end minus this grace period.</p>
                 </label>
               </div>
               <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">

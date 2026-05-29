@@ -295,18 +295,26 @@ function combineDateAndTime(date: string, timeValue?: string | null) {
   return `${date}T${time}:00`;
 }
 
-function parseIso(value: unknown) {
+function parseIso(value: unknown, referenceDate?: Date | null) {
   if (!value) {
     return null;
   }
 
-  const date = new Date(String(value));
+  const text = String(value).trim();
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
+    const [hours, minutes, seconds = "00"] = text.split(":");
+    const base = referenceDate ? new Date(referenceDate) : new Date();
+    base.setHours(Number(hours), Number(minutes), Number(seconds), 0);
+    return Number.isNaN(base.getTime()) ? null : base;
+  }
+
+  const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function computeAttendanceLateMinutes(checkInAt: unknown, scheduledStart: unknown, graceMinutes: number) {
   const checkIn = parseIso(checkInAt);
-  const scheduled = parseIso(scheduledStart);
+  const scheduled = parseIso(scheduledStart, checkIn);
 
   if (!checkIn || !scheduled) {
     return 0;

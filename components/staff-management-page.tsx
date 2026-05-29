@@ -78,7 +78,7 @@ export function StaffManagementPage({
     }
 
     if (role === "branch_pic") {
-      return staffRows.filter((row) => String(row.branch_id ?? "") === String(profile?.branch_id ?? ""));
+      return staffRows.filter((row) => String(row.branch_id ?? "") === String(currentStaff?.branch_id ?? profile?.branch_id ?? ""));
     }
 
     return staffRows;
@@ -156,7 +156,12 @@ export function StaffManagementPage({
     }
 
     if (canManageExtended && form.profile_id) {
-      const { error: profileError } = await supabase.from("profiles").update({ role: form.role }).eq("id", form.profile_id);
+      const profileUpdatePayload = {
+        role: form.role,
+        branch_id: form.branch_id || null,
+      };
+
+      const { error: profileError } = await supabase.from("profiles").update(profileUpdatePayload).eq("id", form.profile_id);
 
       if (profileError) {
         setIsSubmitting(false);

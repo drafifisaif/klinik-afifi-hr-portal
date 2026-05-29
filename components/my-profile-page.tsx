@@ -27,8 +27,10 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [form, setForm] = useState({
     full_name: String(staff?.full_name ?? profile.full_name ?? ""),
     ic_no: String(staff?.ic_no ?? ""),
@@ -42,6 +44,10 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     department: String(staff?.department ?? ""),
     status: String(staff?.status ?? "active"),
     role: String(profile.role ?? "staff"),
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: "",
+    confirmPassword: "",
   });
 
   const canManageExtended = role === "hr" || role === "super_admin";
@@ -79,6 +85,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       full_name: form.full_name,
       email: form.email || null,
       role: canManageExtended ? form.role : profile.role,
+      branch_id: canManageExtended ? form.branch_id || null : staff?.branch_id ?? profile.branch_id ?? null,
       avatar_url: avatarPath,
     };
 
@@ -125,6 +132,45 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     setMessage(avatarPath ? (hasLinkedStaff ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
     setAvatarFile(null);
     router.refresh();
+  }
+
+  async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase) {
+      setPasswordMessage("Supabase is not configured.");
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordMessage("Password mesti sekurang-kurangnya 8 aksara.");
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMessage("Pengesahan password tidak sepadan.");
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    setPasswordMessage(null);
+
+    const { error: passwordError } = await supabase.auth.updateUser({
+      password: passwordForm.newPassword,
+    });
+
+    setIsUpdatingPassword(false);
+
+    if (passwordError) {
+      setPasswordMessage(passwordError.message);
+      return;
+    }
+
+    setPasswordForm({
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setPasswordMessage("Password berjaya dikemas kini.");
   }
 
   return (
@@ -205,6 +251,51 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
           <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
             {staff ? <Save className="h-4 w-4" /> : <UserRoundPlus className="h-4 w-4" />}
             {isSubmitting ? "Saving..." : staff ? "Update my profile" : "Complete profile"}
+          </button>
+        </form>
+      </FormSection>
+
+      <FormSection
+        title="Change Password"
+        description="Gunakan password yang kuat dan jangan kongsi akaun dengan staff lain."
+      >
+        <form className="space-y-5" onSubmit={handlePasswordSubmit}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-[var(--foreground)]">New Password</span>
+              <input
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                placeholder="Minimum 8 characters"
+                className={inputClass}
+                minLength={8}
+                required
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-[var(--foreground)]">Confirm New Password</span>
+              <input
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                placeholder="Repeat your new password"
+                className={inputClass}
+                minLength={8}
+                required
+              />
+            </label>
+          </div>
+
+          {passwordMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{passwordMessage}</p> : null}
+
+          <button
+            type="submit"
+            disabled={isUpdatingPassword}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto"
+          >
+            <Save className="h-4 w-4" />
+            {isUpdatingPassword ? "Updating..." : "Update Password"}
           </button>
         </form>
       </FormSection>

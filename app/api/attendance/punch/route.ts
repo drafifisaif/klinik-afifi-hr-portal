@@ -15,23 +15,42 @@ function combineDateAndTime(date: string, timeValue?: string | null) {
   return `${date}T${time}:00`;
 }
 
-function parseIso(value: unknown) {
+function parseIso(value: unknown, referenceDate?: Date | null) {
   if (!value) {
     return null;
   }
 
-  const date = new Date(String(value));
+  const text = String(value).trim();
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
+    const [hours, minutes, seconds = "00"] = text.split(":");
+    const base = referenceDate ? new Date(referenceDate) : new Date();
+    base.setHours(Number(hours), Number(minutes), Number(seconds), 0);
+    return Number.isNaN(base.getTime()) ? null : base;
+  }
+
+  const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function computeLateMinutes(checkInAt: unknown, scheduledStart: unknown, graceMinutes: number) {
   const checkIn = parseIso(checkInAt);
-  const scheduled = parseIso(scheduledStart);
+  const scheduled = parseIso(scheduledStart, checkIn);
   if (!checkIn || !scheduled) {
     return 0;
   }
 
   return Math.max(0, Math.round((checkIn.getTime() - scheduled.getTime()) / 60000) - graceMinutes);
+}
+
+function computeEarlyLeaveMinutes(checkOutAt: unknown, scheduledEnd: unknown, graceMinutes: number) {
+  const checkOut = parseIso(checkOutAt);
+  const scheduled = parseIso(scheduledEnd, checkOut);
+  if (!checkOut || !scheduled) {
+    return 0;
+  }
+
+  const diffMinutes = Math.round((scheduled.getTime() - checkOut.getTime()) / 60000);
+  return diffMinutes > graceMinutes ? diffMinutes : 0;
 }
 
 function computeAttendanceStatus(record: Record<string, unknown> | null, graceMinutes: number) {
@@ -138,6 +157,7 @@ export async function POST(request: Request) {
 
   const activeSetting = branchSetting ?? globalSetting ?? null;
   const graceMinutes = Number(activeSetting?.grace_minutes ?? 10) || 10;
+  const earlyLeaveGraceMinutes = Number(activeSetting?.early_leave_grace_minutes ?? 10) || 10;
 
   const { data: networkRows } = await supabase
     .from("clinic_network_ips")
@@ -168,12 +188,11 @@ export async function POST(request: Request) {
       branch_id: staff.branch_id ?? profile?.branch_id ?? null,
       attendance_date: today,
       roster_id: roster?.id ?? null,
-      scheduled_start: existingRecord?.scheduled_start ?? scheduledStart,
-      scheduled_end: existingRecord?.scheduled_end ?? scheduledEnd,
       check_in_at: existingRecord?.check_in_at ?? timestamp,
       check_in_ip: clientIp,
       check_in_network_status: networkStatus,
       late_minutes: Number(existingRecord?.late_minutes ?? lateMinutes),
+      early_leave_minutes: Number(existingRecord?.early_leave_minutes ?? 0),
       status: computeAttendanceStatus(
         {
           ...existingRecord,
@@ -195,7 +214,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `${roster ? "Punch in recorded." : "Punch in recorded. Roster belum diset untuk hari ini."} ${getNetworkMessage(networkStatus)}`,
+      message: `${roster ? "Punch in recorded." : "Punch in recorded. Roster belum diset untuk hari ini."}${lateMinutes > 0 ? ` Late by ${lateMinutes} minutes.` : ""} ${getNetworkMessage(networkStatus)}`,
       networkStatus,
       ip: clientIp,
     });
@@ -206,6 +225,7 @@ export async function POST(request: Request) {
   }
 
   const lateMinutes = Number(existingRecord.late_minutes ?? computeLateMinutes(existingRecord.check_in_at, existingRecord.scheduled_start ?? scheduledStart, graceMinutes));
+  const earlyLeaveMinutes = Number(existingRecord.early_leave_minutes ?? computeEarlyLeaveMinutes(timestamp, existingRecord.scheduled_end ?? scheduledEnd, earlyLeaveGraceMinutes));
   const status = computeAttendanceStatus(
     {
       ...existingRecord,
@@ -220,9 +240,8 @@ export async function POST(request: Request) {
       check_out_at: timestamp,
       check_out_ip: clientIp,
       check_out_network_status: networkStatus,
-      scheduled_start: existingRecord.scheduled_start ?? scheduledStart,
-      scheduled_end: existingRecord.scheduled_end ?? scheduledEnd,
       late_minutes: lateMinutes,
+      early_leave_minutes: earlyLeaveMinutes,
       status: status === "incomplete" ? "present" : status,
     })
     .eq("id", existingRecord.id);
@@ -233,7 +252,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    message: `${roster ? "Punch out recorded." : "Punch out recorded. Roster belum diset untuk hari ini."} ${getNetworkMessage(networkStatus)}`,
+    message: `${roster ? "Punch out recorded." : "Punch out recorded. Roster belum diset untuk hari ini."}${lateMinutes > 0 ? ` Late by ${lateMinutes} minutes.` : ""}${earlyLeaveMinutes > 0 ? ` Early leave by ${earlyLeaveMinutes} minutes.` : ""} ${getNetworkMessage(networkStatus)}`,
     networkStatus,
     ip: clientIp,
   });
