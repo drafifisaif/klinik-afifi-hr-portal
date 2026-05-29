@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
+import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
 import { createClient } from "@/lib/supabase/client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
@@ -215,6 +216,12 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       })),
     );
 
+    await triggerFeedbackEmailNotification({
+      feedbackId: String(feedback.id ?? ""),
+      eventType: "feedback_reply",
+      commentText: value,
+    });
+
     setLocalComments((current) => [...current, data as TableRow]);
     setCommentDrafts((current) => ({ ...current, [String(feedback.id)]: "" }));
     setCommentMessage("Reply added.");
@@ -349,6 +356,11 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
         is_read: false,
       })),
     );
+
+    await triggerFeedbackEmailNotification({
+      feedbackId: String(data.id ?? ""),
+      eventType: "feedback_new",
+    });
 
     setIsSubmitting(false);
     setMessage("Feedback submitted.");

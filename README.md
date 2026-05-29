@@ -167,8 +167,12 @@ Files are not exposed publicly in this batch. The app stores the Supabase Storag
 
 - Notification logging in the `notifications` table is active for feedback workflows
 - `email_status` is written as `pending`
-- TODO hooks are left in place for future Resend, SMTP, or background worker integration
-- Missing email provider configuration does not break the build
+- Feedback email notifications are sent server-side through Resend for new feedback, workflow assignment, and replies
+- Required server env vars for feedback email:
+  - `RESEND_API_KEY`
+  - `FEEDBACK_EMAIL_FROM`
+  - `NEXT_PUBLIC_APP_URL`
+- Missing email provider configuration does not break the build. Feedback still saves and in-app notifications still work.
 
 ### Tables used
 

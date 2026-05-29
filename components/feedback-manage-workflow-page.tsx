@@ -9,6 +9,7 @@ import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { filterFeedbackForManageView } from "@/lib/data";
+import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { cn, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
@@ -192,6 +193,11 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
       })),
     );
 
+    await triggerFeedbackEmailNotification({
+      feedbackId: String(feedback.id ?? ""),
+      eventType: "feedback_assignment",
+    });
+
     setMessage("Feedback assignment updated.");
     router.refresh();
   }
@@ -247,6 +253,12 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
         is_read: false,
       })),
     );
+
+    await triggerFeedbackEmailNotification({
+      feedbackId: String(feedback.id ?? ""),
+      eventType: "feedback_reply",
+      commentText: value,
+    });
 
     setCommentMessage("Comment added.");
     setLocalComments((current) => [...current, data as TableRow]);
