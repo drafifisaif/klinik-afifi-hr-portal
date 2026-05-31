@@ -30,6 +30,7 @@ interface RosterManagementPageProps {
   branches: BranchOption[];
   role: UserRole;
   profile: Profile | null;
+  currentStaff: TableRow | null;
   error?: string | null;
 }
 
@@ -90,6 +91,27 @@ function formatTimeRange(start: unknown, end: unknown) {
   }
 
   return `${startValue || "-"} - ${endValue || "-"}`;
+}
+
+function compareRosterRows(left: TableRow, right: TableRow, staffRows: TableRow[]) {
+  const leftStaff = staffRows.find((item) => String(item.id ?? "") === String(left.staff_id ?? ""));
+  const rightStaff = staffRows.find((item) => String(item.id ?? "") === String(right.staff_id ?? ""));
+  const leftRoleWeight = inferRoleOnShift(left, leftStaff) === "doctor" ? 0 : 1;
+  const rightRoleWeight = inferRoleOnShift(right, rightStaff) === "doctor" ? 0 : 1;
+
+  if (leftRoleWeight !== rightRoleWeight) {
+    return leftRoleWeight - rightRoleWeight;
+  }
+
+  const leftStart = String(left.custom_start_time ?? "").slice(0, 5);
+  const rightStart = String(right.custom_start_time ?? "").slice(0, 5);
+  if (leftStart !== rightStart) {
+    return leftStart.localeCompare(rightStart);
+  }
+
+  const leftName = String(leftStaff?.full_name ?? "");
+  const rightName = String(rightStaff?.full_name ?? "");
+  return leftName.localeCompare(rightName);
 }
 
 function startOfWeek(date: Date) {
@@ -156,17 +178,19 @@ function enumerateDates(startDate: string, endDate: string) {
   return dates;
 }
 
-function getVisibleBranchOptions(branches: BranchOption[], profile: Profile | null, role: UserRole) {
-  if ((role === "staff" || role === "branch_pic") && profile?.branch_id) {
-    return branches.filter((branch) => branch.id === String(profile.branch_id));
+function getVisibleBranchOptions(branches: BranchOption[], profile: Profile | null, currentStaff: TableRow | null, role: UserRole) {
+  const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
+  if ((role === "staff" || role === "branch_pic") && scopedBranchId) {
+    return branches.filter((branch) => branch.id === scopedBranchId);
   }
 
   return branches;
 }
 
-function getDefaultViewerBranchId(profile: Profile | null, role: UserRole, branchOptions: BranchOption[]) {
-  if ((role === "staff" || role === "branch_pic") && profile?.branch_id) {
-    return String(profile.branch_id);
+function getDefaultViewerBranchId(profile: Profile | null, currentStaff: TableRow | null, role: UserRole, branchOptions: BranchOption[]) {
+  const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
+  if ((role === "staff" || role === "branch_pic") && scopedBranchId) {
+    return scopedBranchId;
   }
 
   if (role === "operation" && profile?.branch_id) {
@@ -180,25 +204,31 @@ function getDefaultViewerBranchId(profile: Profile | null, role: UserRole, branc
   return String(branchOptions[0]?.id ?? "");
 }
 
-function getDefaultBuilderBranchId(profile: Profile | null, role: UserRole, branchOptions: BranchOption[]) {
-  if (role === "branch_pic" && profile?.branch_id) {
-    return String(profile.branch_id);
+function getDefaultBuilderBranchId(profile: Profile | null, currentStaff: TableRow | null, role: UserRole, branchOptions: BranchOption[]) {
+  const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
+  if (role === "branch_pic" && scopedBranchId) {
+    return scopedBranchId;
   }
 
   return String(branchOptions[0]?.id ?? "");
 }
 
-export function RosterManagementPage({ rosters, shiftTemplates, staff, branches, role, profile, error }: RosterManagementPageProps) {
+export function RosterManagementPage({ rosters, shiftTemplates, staff, branches, role, profile, currentStaff, error }: RosterManagementPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const canManage = role === "super_admin" || role === "hr" || role === "branch_pic";
-  const viewerBranchOptions = useMemo(() => getVisibleBranchOptions(branches, profile, role), [branches, profile, role]);
+  const viewerBranchOptions = useMemo(() => getVisibleBranchOptions(branches, profile, currentStaff, role), [branches, currentStaff, profile, role]);
   const builderBranchOptions = useMemo(
-    () => (role === "branch_pic" && profile?.branch_id ? branches.filter((branch) => branch.id === String(profile.branch_id)) : branches),
-    [branches, profile, role],
+    () => {
+      const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
+      return role === "branch_pic" && scopedBranchId
+        ? branches.filter((branch) => branch.id === scopedBranchId)
+        : branches;
+    },
+    [branches, currentStaff, profile, role],
   );
-  const defaultViewerBranchId = getDefaultViewerBranchId(profile, role, viewerBranchOptions);
-  const defaultBuilderBranchId = getDefaultBuilderBranchId(profile, role, builderBranchOptions);
+  const defaultViewerBranchId = getDefaultViewerBranchId(profile, currentStaff, role, viewerBranchOptions);
+  const defaultBuilderBranchId = getDefaultBuilderBranchId(profile, currentStaff, role, builderBranchOptions);
   const [viewerBranchId, setViewerBranchId] = useState(defaultViewerBranchId);
   const [builderBranchId, setBuilderBranchId] = useState(defaultBuilderBranchId);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
@@ -223,16 +253,17 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
   const rosterRows = useMemo(() => mapRowsWithId(rosters), [rosters]);
   const scopedRosterRows = useMemo(() => {
+    const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
     if (role === "staff" || role === "branch_pic") {
-      if (!profile?.branch_id) {
+      if (!scopedBranchId) {
         return [];
       }
 
-      return rosterRows.filter((row) => String(row.branch_id ?? "") === String(profile.branch_id));
+      return rosterRows.filter((row) => String(row.branch_id ?? "") === scopedBranchId);
     }
 
     return rosterRows;
-  }, [profile?.branch_id, role, rosterRows]);
+  }, [currentStaff, profile?.branch_id, role, rosterRows]);
 
   const scopedTemplates = useMemo(() => {
     return shiftTemplates.filter((row) => {
@@ -299,7 +330,9 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
   const viewerGroups = useMemo(() => {
     return viewerDates.map((date) => {
-      const dateRows = visibleViewerRows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === date);
+      const dateRows = visibleViewerRows
+        .filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === date)
+        .sort((left, right) => compareRosterRows(left, right, staff));
       const doctors = dateRows.filter((row) => {
         const staffRow = staff.find((member) => String(member.id ?? "") === String(row.staff_id ?? ""));
         return inferRoleOnShift(row, staffRow) === "doctor";
@@ -313,17 +346,20 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
         date,
         doctors,
         support,
+        teamRows: dateRows,
+        myShiftRows: currentStaff ? dateRows.filter((row) => String(row.staff_id ?? "") === String(currentStaff.id ?? "")) : [],
       };
     });
-  }, [staff, viewerDates, visibleViewerRows]);
+  }, [currentStaff, staff, viewerDates, visibleViewerRows]);
 
   useEffect(() => {
-    if ((role === "staff" || role === "branch_pic") && profile?.branch_id) {
-      setViewerBranchId(String(profile.branch_id));
-      setBuilderBranchId(String(profile.branch_id));
-      setTemplateForm((current) => ({ ...current, branch_id: String(profile.branch_id) }));
+    const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
+    if ((role === "staff" || role === "branch_pic") && scopedBranchId) {
+      setViewerBranchId(scopedBranchId);
+      setBuilderBranchId(scopedBranchId);
+      setTemplateForm((current) => ({ ...current, branch_id: scopedBranchId }));
     }
-  }, [profile?.branch_id, role]);
+  }, [currentStaff, profile?.branch_id, role]);
 
   useEffect(() => {
     if (role === "operation" && profile?.branch_id) {
@@ -567,7 +603,24 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     router.refresh();
   }
 
-  function renderRosterList(rows: TableRow[], emptyMessage: string) {
+  function getRosterRoleLabel(row: TableRow, member?: TableRow | null) {
+    const explicitRole = normalizeString(row.role_on_shift);
+    if (explicitRole === "doctor") {
+      return "Doctor";
+    }
+
+    if (explicitRole === "staff") {
+      return String(member?.position ?? "Staff");
+    }
+
+    if (member?.position) {
+      return String(member.position);
+    }
+
+    return inferRoleOnShift(row, member) === "doctor" ? "Doctor" : "Staff";
+  }
+
+  function renderRosterList(rows: TableRow[], emptyMessage: string, options?: { showYouBadge?: boolean }) {
     if (!rows.length) {
       return <p className="text-sm text-[var(--muted-foreground)]">{emptyMessage}</p>;
     }
@@ -578,13 +631,17 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
           const member = staff.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
           const template = shiftTemplates.find((item) => String(item.id ?? "") === String(row.shift_template_id ?? ""));
           const branchName = branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-");
+          const isYou = String(row.staff_id ?? "") === String(currentStaff?.id ?? "");
 
           return (
             <div key={String(row.id ?? `${row.staff_id}-${row.shift_template_id}-${row.roster_date}`)} className="rounded-2xl border border-[var(--border)] bg-white px-4 py-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--foreground)]">{String(member?.full_name ?? row.staff_id ?? "Unknown staff")}</p>
-                  <p className="text-xs text-[var(--muted-foreground)]">{String(member?.position ?? row.position ?? "Position not set")}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-[var(--foreground)]">{String(member?.full_name ?? row.staff_id ?? "Unknown staff")}</p>
+                    {options?.showYouBadge && isYou ? <StatusBadge value="You" /> : null}
+                  </div>
+                  <p className="text-xs text-[var(--muted-foreground)]">{getRosterRoleLabel(row, member)}</p>
                 </div>
                 <StatusBadge value={String(row.is_published === true ? "published" : row.status ?? "draft")} />
               </div>
@@ -713,16 +770,35 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
                   <span className="rounded-2xl bg-[var(--card-muted)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{group.doctors.length + group.support.length} shifts</span>
                 </div>
 
-                <div className="mt-5 space-y-5">
-                  <div>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]"><Stethoscope className="h-4 w-4 text-[var(--accent)]" />Doktor Bertugas</div>
-                    {renderRosterList(group.doctors, "No roster set")}
+                {role === "staff" ? (
+                  <div className="mt-5 space-y-5">
+                    <div>
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                        <Clock3 className="h-4 w-4 text-[var(--accent)]" />
+                        My Shift
+                      </div>
+                      {renderRosterList(group.myShiftRows, "Tiada roster sendiri untuk tarikh ini.", { showYouBadge: true })}
+                    </div>
+                    <div>
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                        <Users className="h-4 w-4 text-[var(--accent)]" />
+                        Team On Duty
+                      </div>
+                      {renderRosterList(group.teamRows, "Tiada senarai team bertugas untuk tarikh ini.", { showYouBadge: true })}
+                    </div>
                   </div>
-                  <div>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]"><Users className="h-4 w-4 text-[var(--accent)]" />Staff Bertugas</div>
-                    {renderRosterList(group.support, "No roster set")}
+                ) : (
+                  <div className="mt-5 space-y-5">
+                    <div>
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]"><Stethoscope className="h-4 w-4 text-[var(--accent)]" />Doktor Bertugas</div>
+                      {renderRosterList(group.doctors, "No roster set")}
+                    </div>
+                    <div>
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]"><Users className="h-4 w-4 text-[var(--accent)]" />Staff Bertugas</div>
+                      {renderRosterList(group.support, "No roster set")}
+                    </div>
                   </div>
-                </div>
+                )}
               </article>
             );
           }) : <EmptyState title="No dates available" description="Choose a valid start and end date to view roster coverage." />}
