@@ -53,6 +53,11 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
   const canManageExtended = role === "hr" || role === "super_admin";
   const hasAvatar = Boolean(String(profile.avatar_url ?? "").trim());
+  const hasBranchMismatch =
+    canManageExtended &&
+    String(staff?.branch_id ?? "").trim() &&
+    String(profile.branch_id ?? "").trim() &&
+    String(staff?.branch_id ?? "") !== String(profile.branch_id ?? "");
 
   useEffect(() => {
     if (!canManageExtended) {
@@ -104,7 +109,6 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       full_name: form.full_name,
       email: form.email || null,
       role: canManageExtended ? form.role : profile.role,
-      branch_id: canManageExtended ? form.branch_id || null : operationalBranchId || null,
       avatar_url: avatarPath,
     };
 
@@ -133,20 +137,43 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     const hasLinkedStaff = Boolean(String(staff?.profile_id ?? "").trim() || String(staff?.id ?? "").trim());
     const staffQuery = hasLinkedStaff
-      ? supabase.from("staff").update(staffPayload).eq("profile_id", profile.id)
+      ? supabase.from("staff").update(staffPayload).eq("profile_id", profile.id).select("id").single()
       : supabase.from("staff").insert({
           ...staffPayload,
           date_joined: new Date().toISOString().slice(0, 10),
-        });
+        }).select("id").single();
 
     const staffResult = await staffQuery;
 
-    setIsSubmitting(false);
-
     if (staffResult.error) {
+      setIsSubmitting(false);
       setMessage(staffResult.error.message);
       return;
     }
+
+    const savedStaffId = String((staffResult.data as { id?: string } | null)?.id ?? staff?.id ?? "").trim();
+
+    if (canManageExtended && savedStaffId) {
+      const syncResponse = await fetch("/api/staff/branch-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          staffId: savedStaffId,
+          branchId: form.branch_id || null,
+        }),
+      });
+
+      const syncResult = await syncResponse.json().catch(() => null);
+      if (!syncResponse.ok) {
+        setIsSubmitting(false);
+        setMessage(String(syncResult?.error ?? "Branch sync failed."));
+        return;
+      }
+    }
+
+    setIsSubmitting(false);
 
     setMessage(avatarPath ? (hasLinkedStaff ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
     setAvatarFile(null);
@@ -206,6 +233,11 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
         description="You can update your personal staff information here. Branch, role, and organizational fields remain controlled by HR unless your role allows more access."
       >
         <form className="space-y-5" onSubmit={handleSubmit}>
+          {hasBranchMismatch ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+              Branch mismatch detected between staff and profile. Saving this record will sync the profile branch to the staff branch source.
+            </div>
+          ) : null}
           {!hasAvatar && !avatarFile ? (
             <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
               Sila upload gambar profil untuk melengkapkan profil anda.

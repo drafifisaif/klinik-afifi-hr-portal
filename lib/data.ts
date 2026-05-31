@@ -141,17 +141,19 @@ export function filterRowsForScope(
   role: UserRole,
   profile: Profile | null,
   userId: string,
+  operationalBranchId?: string | null,
 ) {
   if (role === "super_admin" || role === "hr" || role === "operation") {
     return rows;
   }
 
   if (role === "branch_pic") {
-    if (!profile?.branch_id) {
+    const branchId = String(operationalBranchId ?? profile?.branch_id ?? "");
+    if (!branchId) {
       return rows;
     }
 
-    return rows.filter((row) => String(row.branch_id ?? "") === String(profile.branch_id));
+    return rows.filter((row) => String(row.branch_id ?? "") === branchId);
   }
 
   return rows.filter((row) => {
@@ -223,13 +225,15 @@ export function filterLeaveRequestsForRole(
   profile: Profile | null,
   userId: string,
   staffId?: string | null,
+  operationalBranchId?: string | null,
 ) {
   if (role === "super_admin" || role === "hr") {
     return rows;
   }
 
   if (role === "branch_pic") {
-    return rows.filter((row) => String(row.branch_id ?? "") === String(profile?.branch_id ?? ""));
+    const branchId = String(operationalBranchId ?? profile?.branch_id ?? "");
+    return rows.filter((row) => String(row.branch_id ?? "") === branchId);
   }
 
   return rows.filter((row) => {
@@ -245,9 +249,10 @@ export function filterMcRequestsForRole(
   profile: Profile | null,
   userId: string,
   staffId?: string | null,
+  operationalBranchId?: string | null,
 ) {
   const mcRows = rows.filter((row) => normalizeString(row.leave_type) === "medical_leave");
-  return filterLeaveRequestsForRole(mcRows, role, profile, userId, staffId);
+  return filterLeaveRequestsForRole(mcRows, role, profile, userId, staffId, operationalBranchId);
 }
 
 export function calculateApprovedLeaveUsage(rows: TableRow[]) {
@@ -312,6 +317,7 @@ export function filterFeedbackForManageView(
   profile: Profile | null,
   userId: string,
   staffId?: string | null,
+  operationalBranchId?: string | null,
 ) {
   if (role === "super_admin" || role === "hr") {
     return rows;
@@ -322,8 +328,9 @@ export function filterFeedbackForManageView(
   }
 
   if (role === "branch_pic") {
+    const branchId = String(operationalBranchId ?? profile?.branch_id ?? "");
     return rows.filter((row) => {
-      const isBranch = String(row.branch_id ?? "") === String(profile?.branch_id ?? "");
+      const isBranch = String(row.branch_id ?? "") === branchId;
       const anonymous = row.is_anonymous === true;
       return isBranch && !anonymous;
     });

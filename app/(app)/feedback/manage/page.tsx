@@ -30,6 +30,7 @@ export default async function FeedbackManagePage() {
     context.profile,
     context.profile?.id ?? context.user.id,
     String(context.staff?.id ?? "") || undefined,
+    String(context.staff?.branch_id ?? context.profile?.branch_id ?? "") || undefined,
   );
   const visibleFeedbackIds = new Set(visibleFeedbackRows.map((row) => String(row.id ?? "")));
   const visibleCommentRows = commentRows.rows.filter((row) => visibleFeedbackIds.has(String(row.feedback_id ?? "")));

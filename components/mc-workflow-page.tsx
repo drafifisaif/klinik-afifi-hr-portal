@@ -44,8 +44,9 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
         profile,
         profile?.id ?? "",
         String(currentStaff?.id ?? "") || undefined,
+        String(currentStaff?.branch_id ?? profile?.branch_id ?? "") || undefined,
       ),
-    [leaveRequests, role, profile, currentStaff?.id],
+    [leaveRequests, role, profile, currentStaff?.id, currentStaff?.branch_id],
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

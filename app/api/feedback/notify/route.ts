@@ -50,7 +50,14 @@ export async function POST(request: Request) {
       (role === "operation"
         ? getOperationVisibleFeedback([feedback], user.id).length > 0
         : role === "branch_pic"
-          ? filterFeedbackForManageView([feedback], "branch_pic", profile ?? null, user.id, String(staff?.id ?? "") || undefined).length > 0
+          ? filterFeedbackForManageView(
+              [feedback],
+              "branch_pic",
+              profile ?? null,
+              user.id,
+              String(staff?.id ?? "") || undefined,
+              String(staff?.branch_id ?? profile?.branch_id ?? "") || undefined,
+            ).length > 0
           : String(feedback.submitted_by ?? "") === user.id ||
             String(feedback.assigned_to ?? "") === user.id ||
             (String(feedback.target_type ?? "") === "staff" && String(feedback.target_staff_id ?? "") === String(staff?.id ?? "")));

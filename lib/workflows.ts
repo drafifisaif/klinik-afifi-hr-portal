@@ -80,6 +80,78 @@ export async function fetchLinkedProfileAndStaff(supabase: SupabaseClient, profi
   };
 }
 
+export async function syncStaffProfileBranch(
+  supabase: SupabaseClient | null,
+  staffId: string,
+) {
+  if (!supabase) {
+    return {
+      success: false,
+      error: "Supabase is not configured.",
+      profileId: null,
+      branchId: null,
+    };
+  }
+
+  const { data: staffRow, error: staffError } = await supabase
+    .from("staff")
+    .select("id, profile_id, branch_id")
+    .eq("id", staffId)
+    .maybeSingle();
+
+  if (staffError) {
+    return {
+      success: false,
+      error: staffError.message,
+      profileId: null,
+      branchId: null,
+    };
+  }
+
+  if (!staffRow) {
+    return {
+      success: false,
+      error: "Staff record not found.",
+      profileId: null,
+      branchId: null,
+    };
+  }
+
+  const profileId = String(staffRow.profile_id ?? "").trim();
+  if (!profileId) {
+    return {
+      success: false,
+      error: "Linked profile is missing for this staff record.",
+      profileId: null,
+      branchId: String(staffRow.branch_id ?? "").trim() || null,
+    };
+  }
+
+  const branchId = String(staffRow.branch_id ?? "").trim() || null;
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({
+      branch_id: branchId,
+    })
+    .eq("id", profileId);
+
+  if (profileError) {
+    return {
+      success: false,
+      error: profileError.message,
+      profileId,
+      branchId,
+    };
+  }
+
+  return {
+    success: true,
+    error: null,
+    profileId,
+    branchId,
+  };
+}
+
 export async function fetchLatestLeaveEntitlement(
   supabase: SupabaseClient | null,
   staffId?: string | null,

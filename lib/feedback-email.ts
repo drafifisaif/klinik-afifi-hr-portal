@@ -314,7 +314,7 @@ export async function triggerFeedbackEmailNotifications(options: {
       email,
       role: String(profile.role ?? linkedStaff?.position ?? "").trim(),
       fullName: String(profile.full_name ?? profile.email ?? linkedStaff?.full_name ?? "Unknown User"),
-      branchId: String(profile.branch_id ?? linkedStaff?.branch_id ?? "") || null,
+      branchId: String(linkedStaff?.branch_id ?? profile.branch_id ?? "") || null,
     });
   }
 

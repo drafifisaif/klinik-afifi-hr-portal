@@ -132,7 +132,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
     return {
       name: String(submitterProfile?.full_name ?? submitterProfile?.email ?? submitterStaff?.full_name ?? "Unknown User"),
       position: String(submitterProfile?.role ?? submitterStaff?.position ?? "").trim(),
-      branchName: getBranchName(submitterProfile?.branch_id ?? submitterStaff?.branch_id ?? null),
+      branchName: getBranchName(submitterStaff?.branch_id ?? submitterProfile?.branch_id ?? null),
     };
   }
 

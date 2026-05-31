@@ -166,10 +166,10 @@ export function StaffManagementPage({
     };
 
     const query = editingId
-      ? supabase.from("staff").update(payload).eq("id", editingId)
-      : supabase.from("staff").insert(payload);
+      ? supabase.from("staff").update(payload).eq("id", editingId).select("id, profile_id").single()
+      : supabase.from("staff").insert(payload).select("id, profile_id").single();
 
-    const { error: saveError } = await query;
+    const { data: savedStaff, error: saveError } = await query;
 
     if (saveError) {
       setIsSubmitting(false);
@@ -180,7 +180,6 @@ export function StaffManagementPage({
     if (canManageExtended && form.profile_id) {
       const profileUpdatePayload = {
         role: form.role,
-        branch_id: form.branch_id || null,
       };
 
       const { error: profileError } = await supabase.from("profiles").update(profileUpdatePayload).eq("id", form.profile_id);
@@ -190,6 +189,33 @@ export function StaffManagementPage({
         setMessage(profileError.message);
         return;
       }
+    }
+
+    const savedStaffId = String(savedStaff?.id ?? editingId ?? "").trim();
+    const savedProfileId = String(savedStaff?.profile_id ?? form.profile_id ?? "").trim();
+
+    if (canManageExtended && savedStaffId) {
+      const syncResponse = await fetch("/api/staff/branch-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          staffId: savedStaffId,
+          branchId: form.branch_id || null,
+        }),
+      });
+
+      const syncResult = await syncResponse.json().catch(() => null);
+      if (!syncResponse.ok) {
+        setIsSubmitting(false);
+        setMessage(String(syncResult?.error ?? "Branch sync failed."));
+        return;
+      }
+    } else if (canManageExtended && form.branch_id && !savedProfileId) {
+      setIsSubmitting(false);
+      setMessage("Staff branch saved, but linked profile is missing so profile branch could not be synced.");
+      return;
     }
 
     setIsSubmitting(false);

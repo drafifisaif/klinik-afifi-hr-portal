@@ -93,8 +93,9 @@ export function LeaveWorkflowPage({
         profile,
         profile?.id ?? "",
         String(currentStaff?.id ?? "") || undefined,
+        String(currentStaff?.branch_id ?? profile?.branch_id ?? "") || undefined,
       ),
-    [leaveRequests, role, profile, currentStaff?.id],
+    [leaveRequests, role, profile, currentStaff?.id, currentStaff?.branch_id],
   );
 
   const selectedStaff = staffRows.find((row) => String(row.id ?? "") === selectedStaffId) ?? currentStaff;

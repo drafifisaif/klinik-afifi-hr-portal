@@ -90,8 +90,9 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
         profile,
         profile?.id ?? "",
         String(currentStaff?.id ?? "") || undefined,
+        String(currentStaff?.branch_id ?? profile?.branch_id ?? "") || undefined,
       ),
-    [feedbackRows, role, profile, currentStaff?.id],
+    [feedbackRows, role, profile, currentStaff?.id, currentStaff?.branch_id],
   );
   const getBranchName = useCallback((branchId: unknown) => {
     return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
@@ -138,7 +139,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
     return {
       name: String(submitterProfile?.full_name ?? submitterProfile?.email ?? submitterStaff?.full_name ?? "Unknown User"),
       role: String(submitterProfile?.role ?? submitterStaff?.position ?? "").trim(),
-      branchId: submitterProfile?.branch_id ?? submitterStaff?.branch_id ?? null,
+      branchId: submitterStaff?.branch_id ?? submitterProfile?.branch_id ?? null,
     };
   }
 
