@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Save, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -26,6 +26,7 @@ const textareaClass =
 export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageProps) {
   const router = useRouter();
   const supabase = createClient();
+  const operationalBranchId = String(staff?.branch_id ?? profile.branch_id ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -39,7 +40,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     address: String(staff?.address ?? ""),
     emergency_contact_name: String(staff?.emergency_contact_name ?? ""),
     emergency_contact_phone: String(staff?.emergency_contact_phone ?? ""),
-    branch_id: String(staff?.branch_id ?? profile.branch_id ?? ""),
+    branch_id: operationalBranchId,
     position: String(staff?.position ?? ""),
     department: String(staff?.department ?? ""),
     status: String(staff?.status ?? "active"),
@@ -52,6 +53,24 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
   const canManageExtended = role === "hr" || role === "super_admin";
   const hasAvatar = Boolean(String(profile.avatar_url ?? "").trim());
+
+  useEffect(() => {
+    if (!canManageExtended) {
+      return;
+    }
+
+    setForm((current) => {
+      const nextBranchId = String(staff?.branch_id ?? profile.branch_id ?? "");
+      if (current.branch_id === nextBranchId) {
+        return current;
+      }
+
+      return {
+        ...current,
+        branch_id: nextBranchId,
+      };
+    });
+  }, [canManageExtended, profile.branch_id, staff?.branch_id]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -85,7 +104,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       full_name: form.full_name,
       email: form.email || null,
       role: canManageExtended ? form.role : profile.role,
-      branch_id: canManageExtended ? form.branch_id || null : staff?.branch_id ?? profile.branch_id ?? null,
+      branch_id: canManageExtended ? form.branch_id || null : operationalBranchId || null,
       avatar_url: avatarPath,
     };
 
@@ -98,7 +117,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       address: form.address || null,
       emergency_contact_name: form.emergency_contact_name || null,
       emergency_contact_phone: form.emergency_contact_phone || null,
-      branch_id: canManageExtended ? form.branch_id || null : staff?.branch_id ?? profile.branch_id ?? null,
+      branch_id: canManageExtended ? form.branch_id || null : operationalBranchId || null,
       position: canManageExtended ? form.position || null : staff?.position ?? null,
       department: canManageExtended ? form.department || null : staff?.department ?? null,
       status: canManageExtended ? form.status : staff?.status ?? "active",
@@ -240,7 +259,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Branch: {branches.find((branch) => branch.id === String(staff?.branch_id ?? profile.branch_id ?? ""))?.name ?? "Not set"}</div>
+              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Branch: {branches.find((branch) => branch.id === operationalBranchId)?.name ?? "Not set"}</div>
               <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Position: {String(staff?.position ?? "Not set")}</div>
               <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Department: {String(staff?.department ?? "Not set")}</div>
               <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Status: {String(staff?.status ?? "active")}</div>

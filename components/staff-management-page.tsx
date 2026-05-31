@@ -22,6 +22,7 @@ interface StaffManagementPageProps {
   currentStaff: TableRow | null;
   entitlements: TableRow[];
   leaveRequests: TableRow[];
+  profileRows: TableRow[];
   error?: string | null;
 }
 
@@ -60,6 +61,7 @@ export function StaffManagementPage({
   currentStaff,
   entitlements,
   leaveRequests,
+  profileRows,
   error,
 }: StaffManagementPageProps) {
   const router = useRouter();
@@ -78,6 +80,7 @@ export function StaffManagementPage({
 
   const canManageExtended = role === "super_admin" || role === "hr";
   const staffRows = useMemo(() => mapRowsWithId(rows), [rows]);
+  const linkedProfiles = useMemo(() => mapRowsWithId(profileRows), [profileRows]);
 
   const scopedRows = useMemo(() => {
     if (role === "staff") {
@@ -108,6 +111,8 @@ export function StaffManagementPage({
   }
 
   function startEdit(row: TableRow) {
+    const linkedProfile = linkedProfiles.find((item) => String(item.id ?? "") === String(row.profile_id ?? "")) ?? null;
+    const operationalBranchId = String(row.branch_id ?? linkedProfile?.branch_id ?? "");
     setEditingId(String(row.id ?? ""));
     setForm({
       profile_id: String(row.profile_id ?? ""),
@@ -117,12 +122,22 @@ export function StaffManagementPage({
       phone: String(row.phone ?? ""),
       position: String(row.position ?? ""),
       department: String(row.department ?? ""),
-      branch_id: String(row.branch_id ?? ""),
+      branch_id: operationalBranchId,
       date_joined: formatDateInput(row.date_joined),
       status: String(row.status ?? "active"),
-      role: String(row.role ?? profile?.role ?? "staff"),
+      role: String(linkedProfile?.role ?? row.role ?? profile?.role ?? "staff"),
     });
-    setMessage(null);
+    if (
+      canManageExtended &&
+      linkedProfile &&
+      String(row.branch_id ?? "") &&
+      String(linkedProfile.branch_id ?? "") &&
+      String(row.branch_id ?? "") !== String(linkedProfile.branch_id ?? "")
+    ) {
+      setMessage("Branch mismatch detected. Using staff branch as the operational source and syncing both records on save.");
+    } else {
+      setMessage(null);
+    }
     scrollToForm();
   }
 

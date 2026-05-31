@@ -16,11 +16,12 @@ export default async function StaffPage() {
     );
   }
 
-  const [staffRows, branchRows, entitlementRows, leaveRows] = await Promise.all([
+  const [staffRows, branchRows, entitlementRows, leaveRows, profileRows] = await Promise.all([
     fetchRows(context.supabase, "staff", 200),
     fetchRows(context.supabase, "branches", 100),
     fetchRows(context.supabase, "leave_entitlements", 200),
     fetchRows(context.supabase, "leave_requests", 200),
+    fetchRows(context.supabase, "profiles", 300),
   ]);
 
   return (
@@ -39,7 +40,8 @@ export default async function StaffPage() {
         currentStaff={context.staff}
         entitlements={entitlementRows.rows}
         leaveRequests={leaveRows.rows}
-        error={staffRows.error ?? branchRows.error ?? entitlementRows.error ?? leaveRows.error}
+        profileRows={profileRows.rows}
+        error={staffRows.error ?? branchRows.error ?? entitlementRows.error ?? leaveRows.error ?? profileRows.error}
       />
     </div>
   );

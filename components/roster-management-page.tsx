@@ -193,8 +193,8 @@ function getDefaultViewerBranchId(profile: Profile | null, currentStaff: TableRo
     return scopedBranchId;
   }
 
-  if (role === "operation" && profile?.branch_id) {
-    return String(profile.branch_id);
+  if (role === "operation" && scopedBranchId) {
+    return scopedBranchId;
   }
 
   if (role === "hr" || role === "super_admin" || role === "operation") {
@@ -266,18 +266,19 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   }, [currentStaff, profile?.branch_id, role, rosterRows]);
 
   const scopedTemplates = useMemo(() => {
+    const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
     return shiftTemplates.filter((row) => {
       if (normalizeString(row.is_active) === "false" || row.is_active === false) {
         return false;
       }
 
-      if (role === "branch_pic" && profile?.branch_id) {
-        return !row.branch_id || String(row.branch_id ?? "") === String(profile.branch_id);
+      if (role === "branch_pic" && scopedBranchId) {
+        return !row.branch_id || String(row.branch_id ?? "") === scopedBranchId;
       }
 
       return true;
     });
-  }, [profile?.branch_id, role, shiftTemplates]);
+  }, [currentStaff?.branch_id, profile?.branch_id, role, shiftTemplates]);
 
   const activeBuilderStaff = useMemo(() => {
     return staff.filter((row) => {
@@ -362,10 +363,11 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   }, [currentStaff, profile?.branch_id, role]);
 
   useEffect(() => {
-    if (role === "operation" && profile?.branch_id) {
-      setViewerBranchId((current) => current || String(profile.branch_id));
+    const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
+    if (role === "operation" && scopedBranchId) {
+      setViewerBranchId((current) => current || scopedBranchId);
     }
-  }, [profile?.branch_id, role]);
+  }, [currentStaff?.branch_id, profile?.branch_id, role]);
 
   useEffect(() => {
     const nextDoctors: DraftRow[] = [];
@@ -594,7 +596,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     setTemplateForm({
       name: "",
       code: "",
-      branch_id: role === "branch_pic" ? String(profile?.branch_id ?? "") : builderBranchId,
+      branch_id: role === "branch_pic" ? String(currentStaff?.branch_id ?? profile?.branch_id ?? "") : builderBranchId,
       start_time: "",
       end_time: "",
       description: "",
@@ -732,7 +734,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
         <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
-            <select value={viewerBranchId} onChange={(event) => setViewerBranchId(event.target.value)} className={inputClass} disabled={(role === "staff" || role === "branch_pic") && Boolean(profile?.branch_id)}>
+            <select value={viewerBranchId} onChange={(event) => setViewerBranchId(event.target.value)} className={inputClass} disabled={(role === "staff" || role === "branch_pic") && Boolean(currentStaff?.branch_id ?? profile?.branch_id)}>
               {(role === "hr" || role === "super_admin" || role === "operation") ? <option value="all">All visible branches</option> : null}
               {viewerBranchOptions.map((branch) => (
                 <option key={branch.id} value={branch.id}>{branch.name}</option>

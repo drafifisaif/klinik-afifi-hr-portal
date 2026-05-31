@@ -308,9 +308,10 @@ export function AttendancePage({
   const router = useRouter();
   const supabase = createClient();
   const today = toDateInput();
+  const operationalBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
   const [selectedBoardDate, setSelectedBoardDate] = useState(today);
   const [selectedBranchId, setSelectedBranchId] = useState(
-    role === "branch_pic" || role === "staff" ? String(profile?.branch_id ?? currentStaff?.branch_id ?? "") : String(profile?.branch_id ?? "all") || "all",
+    role === "branch_pic" || role === "staff" ? operationalBranchId : String(profile?.branch_id ?? "all") || "all",
   );
   const [message, setMessage] = useState<string | null>(null);
   const [adjustmentMessage, setAdjustmentMessage] = useState<string | null>(null);
@@ -323,14 +324,14 @@ export function AttendancePage({
   const [isSavingNetwork, setIsSavingNetwork] = useState(false);
   const [activeManualRecordId, setActiveManualRecordId] = useState<string | null>(null);
   const [networkFilterBranchId, setNetworkFilterBranchId] = useState(
-    String(profile?.branch_id ?? currentStaff?.branch_id ?? "") || "all",
+    operationalBranchId || "all",
   );
   const [manualAttendanceForm, setManualAttendanceForm] = useState(emptyManualAttendanceForm);
   const [adjustmentForm, setAdjustmentForm] = useState(emptyAdjustmentForm);
   const [networkForm, setNetworkForm] = useState(emptyNetworkForm);
   const [settingsForm, setSettingsForm] = useState({
     id: "",
-    branch_id: String(profile?.branch_id ?? currentStaff?.branch_id ?? ""),
+    branch_id: operationalBranchId,
     grace_minutes: "10",
     allow_early_check_in_minutes: "0",
     auto_absent_after_minutes: "60",
@@ -358,12 +359,12 @@ export function AttendancePage({
   const clinicNetworkRows = useMemo(() => mapRowsWithId(networkRows), [networkRows]);
   const selectedBranchOptions = useMemo(() => {
     if (role === "staff" || role === "branch_pic") {
-      const lockedId = String(profile?.branch_id ?? currentStaff?.branch_id ?? "");
+      const lockedId = operationalBranchId;
       return branchRows.filter((branch) => branch.id === lockedId);
     }
 
     return branchRows;
-  }, [branchRows, currentStaff?.branch_id, profile?.branch_id, role]);
+  }, [branchRows, operationalBranchId, role]);
 
   const historyDates = useMemo(() => buildHistoryDates(14), []);
   const filteredNetworkRows = useMemo(() => {
@@ -387,9 +388,9 @@ export function AttendancePage({
     .sort((left, right) => String(left.roster_date ?? left.date ?? "").localeCompare(String(right.roster_date ?? right.date ?? "")))[0] ?? null;
   const activeRoster = todayRoster ?? nextRoster;
   const activeShiftTemplate = shiftTemplateRows.find((row) => String(row.id ?? "") === String(activeRoster?.shift_template_id ?? "")) ?? null;
-  const activeBranchName = branchRows.find((branch) => branch.id === String(currentStaff?.branch_id ?? profile?.branch_id ?? ""))?.name ?? "No branch";
+  const activeBranchName = branchRows.find((branch) => branch.id === operationalBranchId)?.name ?? "No branch";
 
-  const scopedTodaySetting = settingsRows.find((row) => String(row.branch_id ?? "") === String(currentStaff?.branch_id ?? profile?.branch_id ?? ""))
+  const scopedTodaySetting = settingsRows.find((row) => String(row.branch_id ?? "") === operationalBranchId)
     ?? settingsRows.find((row) => !String(row.branch_id ?? "").trim())
     ?? null;
   const graceMinutes = Number(scopedTodaySetting?.grace_minutes ?? 10) || 10;
@@ -439,7 +440,7 @@ export function AttendancePage({
 
   const boardBranchId =
     role === "staff" || role === "branch_pic"
-      ? String(profile?.branch_id ?? currentStaff?.branch_id ?? "")
+      ? operationalBranchId
       : selectedBranchId || "all";
 
   const visibleRosterRows = rosters.filter((row) => {
@@ -457,7 +458,7 @@ export function AttendancePage({
 
   const visibleBranchStaff = staffDirectory.filter((row) => {
     if (role === "branch_pic") {
-      return String(row.branch_id ?? "") === String(profile?.branch_id ?? "");
+      return String(row.branch_id ?? "") === operationalBranchId;
     }
 
     if (role === "staff") {
@@ -541,7 +542,7 @@ export function AttendancePage({
     }
 
     if (role === "branch_pic") {
-      return String(row.branch_id ?? "") === String(profile?.branch_id ?? "");
+      return String(row.branch_id ?? "") === operationalBranchId;
     }
 
     return String(row.profile_id ?? "") === String(profile?.id ?? "");
