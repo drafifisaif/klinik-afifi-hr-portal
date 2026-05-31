@@ -232,7 +232,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   const [viewerBranchId, setViewerBranchId] = useState(defaultViewerBranchId);
   const [builderBranchId, setBuilderBranchId] = useState(defaultBuilderBranchId);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
-  const [viewerRange, setViewerRange] = useState(buildWeekRange(0));
+  const [viewerRange, setViewerRange] = useState(buildNext14DayRange());
   const [isPublished, setIsPublished] = useState("false");
   const [message, setMessage] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
