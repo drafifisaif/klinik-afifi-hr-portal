@@ -129,6 +129,66 @@ export function formatDateInput(value: unknown) {
   return date.toISOString().slice(0, 10);
 }
 
+export function getMalaysiaDateString(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  return formatter.format(date);
+}
+
+export function getMalaysiaDateTimeParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const read = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+
+  return {
+    year: read("year"),
+    month: read("month"),
+    day: read("day"),
+    hour: read("hour"),
+    minute: read("minute"),
+    second: read("second"),
+  };
+}
+
+export function getMalaysiaDateTimeLocalInput(date = new Date()) {
+  const parts = getMalaysiaDateTimeParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+export function calculateDistanceMeters(
+  firstLatitude: number,
+  firstLongitude: number,
+  secondLatitude: number,
+  secondLongitude: number,
+) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const latitudeDelta = toRadians(secondLatitude - firstLatitude);
+  const longitudeDelta = toRadians(secondLongitude - firstLongitude);
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(toRadians(firstLatitude))
+      * Math.cos(toRadians(secondLatitude))
+      * Math.sin(longitudeDelta / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(earthRadiusMeters * c);
+}
+
 export function daysUntil(dateValue: unknown) {
   if (!dateValue) {
     return null;

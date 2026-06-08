@@ -21,7 +21,7 @@ import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { formatDate, mapRowsWithId, normalizeString } from "@/lib/utils";
+import { formatDate, getMalaysiaDateString, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface RosterManagementPageProps {
   rosters: TableRow[];
@@ -130,7 +130,7 @@ function addDays(date: Date, amount: number) {
 }
 
 function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return getMalaysiaDateString(date);
 }
 
 function buildWeekRange(offsetWeeks = 0) {
@@ -231,7 +231,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   const defaultBuilderBranchId = getDefaultBuilderBranchId(profile, currentStaff, role, builderBranchOptions);
   const [viewerBranchId, setViewerBranchId] = useState(defaultViewerBranchId);
   const [builderBranchId, setBuilderBranchId] = useState(defaultBuilderBranchId);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(getMalaysiaDateString());
   const [viewerRange, setViewerRange] = useState(buildNext14DayRange());
   const [isPublished, setIsPublished] = useState("false");
   const [message, setMessage] = useState<string | null>(null);

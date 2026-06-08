@@ -30,7 +30,20 @@ export default async function AttendanceRoute() {
   ]);
 
   const branches = branchRows.rows
-    .map((row) => ({ id: String(row.id ?? ""), name: String(row.name ?? row.branch_name ?? row.id) }))
+    .map((row) => {
+      const latitude = typeof row.latitude === "number" ? row.latitude : Number(row.latitude ?? NaN);
+      const longitude = typeof row.longitude === "number" ? row.longitude : Number(row.longitude ?? NaN);
+      const radius = typeof row.gps_radius_meters === "number" ? row.gps_radius_meters : Number(row.gps_radius_meters ?? NaN);
+
+      return {
+        id: String(row.id ?? ""),
+        name: String(row.name ?? row.branch_name ?? row.id),
+        latitude: Number.isFinite(latitude) ? latitude : null,
+        longitude: Number.isFinite(longitude) ? longitude : null,
+        gps_radius_meters: Number.isFinite(radius) ? radius : null,
+        is_active: row.gps_is_active === false ? false : row.is_active === false ? false : true,
+      };
+    })
     .filter((row) => row.id) as BranchOption[];
 
   return (

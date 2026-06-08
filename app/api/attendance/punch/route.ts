@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
-
-function toDateInput(date = new Date()) {
-  return date.toISOString().slice(0, 10);
-}
+import { calculateDistanceMeters, getMalaysiaDateString } from "@/lib/utils";
 
 function combineDateAndTime(date: string, timeValue?: string | null) {
   const time = String(timeValue ?? "").trim().slice(0, 5);
@@ -80,24 +77,41 @@ function getRequestIp(request: Request) {
   return realIp?.trim() || null;
 }
 
-function getNetworkStatus(ip: string | null, activeIps: string[]) {
-  if (!ip) {
-    return "unavailable";
+function getLocationMessage(status: string) {
+  if (status === "verified_location") {
+    return "Location verified.";
   }
 
-  return activeIps.includes(ip) ? "clinic_network" : "unknown_network";
+  if (status === "outside_location") {
+    return "Location recorded outside branch radius.";
+  }
+
+  if (status === "permission_denied") {
+    return "Location permission denied.";
+  }
+
+  return "Location unavailable.";
 }
 
-function getNetworkMessage(status: string) {
-  if (status === "clinic_network") {
-    return "Clinic network verified.";
+interface PunchLocationPayload {
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy?: number | null;
+  status?: "verified_location" | "outside_location" | "location_unavailable" | "permission_denied" | "captured";
+}
+
+interface OffsitePayload {
+  isOffsite?: boolean;
+  note?: string | null;
+}
+
+function toNumberOrNull(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
   }
 
-  if (status === "unknown_network") {
-    return "Network not recognized.";
-  }
-
-  return "Network unavailable.";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export async function POST(request: Request) {
@@ -115,7 +129,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => null)) as { action?: "in" | "out" } | null;
+  const body = (await request.json().catch(() => null)) as {
+    action?: "in" | "out";
+    location?: PunchLocationPayload | null;
+    offsite?: OffsitePayload | null;
+  } | null;
   const action = body?.action;
 
   if (action !== "in" && action !== "out") {
@@ -129,7 +147,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Linked staff profile is required before using attendance." }, { status: 400 });
   }
 
-  const today = toDateInput();
+  const locationPayload = body?.location ?? null;
+  const offsitePayload = body?.offsite ?? null;
+
+  if (offsitePayload?.isOffsite && !String(offsitePayload.note ?? "").trim()) {
+    return NextResponse.json({ error: "Offsite note is required." }, { status: 400 });
+  }
+
+  const today = getMalaysiaDateString();
   const timestamp = new Date().toISOString();
   const clientIp = getRequestIp(request);
 
@@ -146,6 +171,9 @@ export async function POST(request: Request) {
     : { data: null };
 
   const branchId = String(staff.branch_id ?? profile?.branch_id ?? "");
+  const { data: branch } = branchId
+    ? await supabase.from("branches").select("*").eq("id", branchId).maybeSingle()
+    : { data: null };
   const { data: branchSetting } = await supabase
     .from("attendance_settings")
     .select("*")
@@ -159,17 +187,31 @@ export async function POST(request: Request) {
   const graceMinutes = Number(activeSetting?.grace_minutes ?? 10) || 10;
   const earlyLeaveGraceMinutes = Number(activeSetting?.early_leave_grace_minutes ?? 10) || 10;
 
-  const { data: networkRows } = await supabase
-    .from("clinic_network_ips")
-    .select("*")
-    .eq("branch_id", branchId);
+  const branchLatitude = toNumberOrNull(branch?.latitude);
+  const branchLongitude = toNumberOrNull(branch?.longitude);
+  const branchRadiusMeters = Number(branch?.gps_radius_meters ?? 300) || 300;
+  const branchGpsIsActive = branch?.gps_is_active !== false;
+  const locationLatitude = toNumberOrNull(locationPayload?.latitude);
+  const locationLongitude = toNumberOrNull(locationPayload?.longitude);
+  const incomingLocationStatus = String(locationPayload?.status ?? "").trim();
 
-  const activeIps = (networkRows ?? [])
-    .filter((row) => row.is_active !== false && String(row.status ?? "").toLowerCase() !== "inactive")
-    .map((row) => String(row.ip_address ?? "").trim())
-    .filter(Boolean);
+  let resolvedLocationStatus = "location_unavailable";
+  let resolvedDistanceMeters: number | null = null;
 
-  const networkStatus = getNetworkStatus(clientIp, activeIps);
+  if (incomingLocationStatus === "permission_denied") {
+    resolvedLocationStatus = "permission_denied";
+  } else if (branchGpsIsActive && locationLatitude !== null && locationLongitude !== null && branchLatitude !== null && branchLongitude !== null) {
+    resolvedDistanceMeters = calculateDistanceMeters(
+      branchLatitude,
+      branchLongitude,
+      locationLatitude,
+      locationLongitude,
+    );
+    resolvedLocationStatus = resolvedDistanceMeters <= branchRadiusMeters ? "verified_location" : "outside_location";
+  } else {
+    resolvedLocationStatus = "location_unavailable";
+  }
+
   const scheduledStart = combineDateAndTime(today, String(roster?.custom_start_time ?? shiftTemplate?.start_time ?? ""));
   const scheduledEnd = combineDateAndTime(today, String(roster?.custom_end_time ?? shiftTemplate?.end_time ?? ""));
 
@@ -190,9 +232,15 @@ export async function POST(request: Request) {
       roster_id: roster?.id ?? null,
       check_in_at: existingRecord?.check_in_at ?? timestamp,
       check_in_ip: clientIp,
-      check_in_network_status: networkStatus,
+      check_in_network_status: existingRecord?.check_in_network_status ?? null,
+      check_in_latitude: locationLatitude,
+      check_in_longitude: locationLongitude,
+      check_in_distance_meters: resolvedDistanceMeters,
+      check_in_location_status: resolvedLocationStatus,
+      check_in_is_offsite: offsitePayload?.isOffsite === true,
       late_minutes: Number(existingRecord?.late_minutes ?? lateMinutes),
       early_leave_minutes: Number(existingRecord?.early_leave_minutes ?? 0),
+      offsite_note: (offsitePayload?.note?.trim() || existingRecord?.offsite_note) ?? null,
       status: computeAttendanceStatus(
         {
           ...existingRecord,
@@ -214,8 +262,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `${roster ? "Punch in recorded." : "Punch in recorded. Roster belum diset untuk hari ini."}${lateMinutes > 0 ? ` Late by ${lateMinutes} minutes.` : ""} ${getNetworkMessage(networkStatus)}`,
-      networkStatus,
+      message: `${roster ? "Punch in recorded." : "Punch in recorded. Roster belum diset untuk hari ini."}${lateMinutes > 0 ? ` Late by ${lateMinutes} minutes.` : ""} ${getLocationMessage(resolvedLocationStatus)}`,
+      locationStatus: resolvedLocationStatus,
+      distanceMeters: resolvedDistanceMeters,
       ip: clientIp,
     });
   }
@@ -239,9 +288,15 @@ export async function POST(request: Request) {
     .update({
       check_out_at: timestamp,
       check_out_ip: clientIp,
-      check_out_network_status: networkStatus,
+      check_out_network_status: existingRecord.check_out_network_status ?? null,
+      check_out_latitude: locationLatitude,
+      check_out_longitude: locationLongitude,
+      check_out_distance_meters: resolvedDistanceMeters,
+      check_out_location_status: resolvedLocationStatus,
+      check_out_is_offsite: offsitePayload?.isOffsite === true,
       late_minutes: lateMinutes,
       early_leave_minutes: earlyLeaveMinutes,
+      offsite_note: (offsitePayload?.note?.trim() || existingRecord.offsite_note) ?? null,
       status: status === "incomplete" ? "present" : status,
     })
     .eq("id", existingRecord.id);
@@ -252,8 +307,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    message: `${roster ? "Punch out recorded." : "Punch out recorded. Roster belum diset untuk hari ini."}${lateMinutes > 0 ? ` Late by ${lateMinutes} minutes.` : ""}${earlyLeaveMinutes > 0 ? ` Early leave by ${earlyLeaveMinutes} minutes.` : ""} ${getNetworkMessage(networkStatus)}`,
-    networkStatus,
+    message: `${roster ? "Punch out recorded." : "Punch out recorded. Roster belum diset untuk hari ini."}${lateMinutes > 0 ? ` Late by ${lateMinutes} minutes.` : ""}${earlyLeaveMinutes > 0 ? ` Early leave by ${earlyLeaveMinutes} minutes.` : ""} ${getLocationMessage(resolvedLocationStatus)}`,
+    locationStatus: resolvedLocationStatus,
+    distanceMeters: resolvedDistanceMeters,
     ip: clientIp,
   });
 }

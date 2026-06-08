@@ -29,6 +29,11 @@ const styles: Record<string, string> = {
   unknown_network: "bg-orange-50 text-orange-700",
   unavailable: "bg-slate-100 text-slate-700",
   ip_unavailable: "bg-slate-100 text-slate-700",
+  verified_location: "bg-emerald-50 text-emerald-700",
+  outside_location: "bg-rose-50 text-rose-700",
+  location_unavailable: "bg-slate-100 text-slate-700",
+  permission_denied: "bg-amber-100 text-amber-700",
+  offsite: "bg-violet-50 text-violet-700",
 };
 
 export function StatusBadge({ value }: StatusBadgeProps) {

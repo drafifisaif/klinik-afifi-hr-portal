@@ -54,6 +54,10 @@ export type TableRow = Record<string, unknown> & {
 export interface BranchOption {
   id: string;
   name: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  gps_radius_meters?: number | null;
+  is_active?: boolean | null;
 }
 
 export interface SelectOption {

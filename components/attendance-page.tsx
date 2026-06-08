@@ -9,7 +9,14 @@ import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { cn, formatDate, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
+import {
+  cn,
+  formatDate,
+  formatDateTime,
+  getMalaysiaDateString,
+  mapRowsWithId,
+  normalizeString,
+} from "@/lib/utils";
 
 interface AttendancePageProps {
   attendanceRows: TableRow[];
@@ -44,6 +51,14 @@ const emptyManualAttendanceForm = {
   check_out_at: "",
 };
 
+const emptyLocationForm = {
+  branch_id: "",
+  latitude: "",
+  longitude: "",
+  gps_radius_meters: "30",
+  is_active: true,
+};
+
 const emptyNetworkForm = {
   id: "",
   branch_id: "",
@@ -54,7 +69,7 @@ const emptyNetworkForm = {
 };
 
 function toDateInput(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  return getMalaysiaDateString(date);
 }
 
 function combineDateAndTime(date: string, timeValue?: string | null) {
@@ -261,18 +276,40 @@ function getBoardStatusTone(status: string) {
   return "border-[var(--border)] bg-white";
 }
 
-function getNetworkStatusLabel(status: unknown) {
+function getLocationStatusLabel(status: unknown) {
   const normalized = normalizeString(status);
 
-  if (normalized === "clinic_network") {
-    return "Clinic Network";
+  if (normalized === "verified_location") {
+    return "Verified Location";
   }
 
-  if (normalized === "unknown_network") {
-    return "Unknown Network";
+  if (normalized === "outside_location") {
+    return "Outside Location";
   }
 
-  return "IP Unavailable";
+  if (normalized === "permission_denied") {
+    return "Location Permission Denied";
+  }
+
+  return "Location Unavailable";
+}
+
+function getLocationStatusMessage(status: unknown) {
+  const normalized = normalizeString(status);
+
+  if (normalized === "verified_location") {
+    return "Location verified.";
+  }
+
+  if (normalized === "outside_location") {
+    return "Location recorded outside branch radius.";
+  }
+
+  if (normalized === "permission_denied") {
+    return "Location permission denied.";
+  }
+
+  return "Location unavailable.";
 }
 
 function MinuteAlertBadge({ tone, text }: { tone: "late" | "early"; text: string }) {
@@ -317,17 +354,25 @@ export function AttendancePage({
   const [adjustmentMessage, setAdjustmentMessage] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [manualMessage, setManualMessage] = useState<string | null>(null);
+  const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [networkMessage, setNetworkMessage] = useState<string | null>(null);
   const [isPunching, setIsPunching] = useState(false);
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isSavingNetwork, setIsSavingNetwork] = useState(false);
   const [activeManualRecordId, setActiveManualRecordId] = useState<string | null>(null);
+  const [isOffsitePunch, setIsOffsitePunch] = useState(false);
+  const [offsiteNote, setOffsiteNote] = useState("");
+  const [locationFilterBranchId, setLocationFilterBranchId] = useState(
+    operationalBranchId || "all",
+  );
   const [networkFilterBranchId, setNetworkFilterBranchId] = useState(
     operationalBranchId || "all",
   );
   const [manualAttendanceForm, setManualAttendanceForm] = useState(emptyManualAttendanceForm);
   const [adjustmentForm, setAdjustmentForm] = useState(emptyAdjustmentForm);
+  const [locationForm, setLocationForm] = useState(emptyLocationForm);
   const [networkForm, setNetworkForm] = useState(emptyNetworkForm);
   const [settingsForm, setSettingsForm] = useState({
     id: "",
@@ -342,6 +387,8 @@ export function AttendancePage({
 
   const canReviewAdjustments = role === "super_admin" || role === "hr" || role === "branch_pic";
   const canManageSettings = role === "super_admin" || role === "hr";
+  const canManageBranchGps = role === "super_admin" || role === "hr";
+  const canViewBranchGps = canManageBranchGps || role === "operation";
   const canManageNetworkIps = role === "super_admin" || role === "hr";
   const canViewNetworkIps = canManageNetworkIps || role === "operation";
   const canViewAllBranches = role === "super_admin" || role === "hr" || role === "operation";
@@ -357,6 +404,13 @@ export function AttendancePage({
   const staffDirectory = useMemo(() => mapRowsWithId(staffRows), [staffRows]);
   const settingsRows = useMemo(() => mapRowsWithId(settingRows), [settingRows]);
   const clinicNetworkRows = useMemo(() => mapRowsWithId(networkRows), [networkRows]);
+  const filteredBranchLocationRows = useMemo(() => {
+    if (locationFilterBranchId === "all") {
+      return branchRows;
+    }
+
+    return branchRows.filter((row) => String(row.id ?? "") === locationFilterBranchId);
+  }, [branchRows, locationFilterBranchId]);
   const selectedBranchOptions = useMemo(() => {
     if (role === "staff" || role === "branch_pic") {
       const lockedId = operationalBranchId;
@@ -529,6 +583,14 @@ export function AttendancePage({
       checkOutIp: String(record?.check_out_ip ?? ""),
       checkInNetworkStatus: String(record?.check_in_network_status ?? "unavailable"),
       checkOutNetworkStatus: String(record?.check_out_network_status ?? "unavailable"),
+      checkInLocationStatus: String(record?.check_in_location_status ?? "location_unavailable"),
+      checkOutLocationStatus: String(record?.check_out_location_status ?? "location_unavailable"),
+      checkInDistanceMeters: Number(record?.check_in_distance_meters ?? 0) || 0,
+      checkOutDistanceMeters: Number(record?.check_out_distance_meters ?? 0) || 0,
+      checkInLatitude: record?.check_in_latitude ?? null,
+      checkInLongitude: record?.check_in_longitude ?? null,
+      checkOutLatitude: record?.check_out_latitude ?? null,
+      checkOutLongitude: record?.check_out_longitude ?? null,
     };
   });
 
@@ -556,7 +618,7 @@ export function AttendancePage({
     absent: boardRows.filter((row) => row.status === "absent").length,
     incomplete: boardRows.filter((row) => row.status === "incomplete").length,
     notPunchedIn: boardRows.filter((row) => row.status === "not_punched_in").length,
-    unknownNetwork: boardRows.filter((row) => row.checkInNetworkStatus === "unknown_network" || row.checkOutNetworkStatus === "unknown_network").length,
+    outsideLocation: boardRows.filter((row) => row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location").length,
   };
 
   function getStaffName(staffId: unknown) {
@@ -595,21 +657,82 @@ export function AttendancePage({
     setNetworkMessage(null);
   }
 
+  function startEditBranchLocation(branch: BranchOption) {
+    setLocationForm({
+      branch_id: String(branch.id ?? ""),
+      latitude: branch.latitude === null || branch.latitude === undefined ? "" : String(branch.latitude),
+      longitude: branch.longitude === null || branch.longitude === undefined ? "" : String(branch.longitude),
+      gps_radius_meters: String(branch.gps_radius_meters ?? 30),
+      is_active: branch.is_active !== false,
+    });
+    setLocationMessage(null);
+  }
+
+  async function requestPunchLocation() {
+    if (typeof window === "undefined" || !("geolocation" in navigator)) {
+      return { status: "location_unavailable" as const };
+    }
+
+    return new Promise<{
+      status: "captured" | "permission_denied" | "location_unavailable";
+      latitude?: number;
+      longitude?: number;
+      accuracy?: number;
+    }>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            status: "captured",
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          });
+        },
+        (error) => {
+          if (error.code === error.PERMISSION_DENIED) {
+            resolve({ status: "permission_denied" });
+            return;
+          }
+
+          resolve({ status: "location_unavailable" });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        },
+      );
+    });
+  }
+
   async function handlePunch(action: "in" | "out") {
     if (!profile?.id || !currentStaff?.id) {
       setMessage("Complete your linked staff profile before using attendance.");
       return;
     }
 
+    if (isOffsitePunch && !offsiteNote.trim()) {
+      setMessage("Sila isi nota ringkas untuk offsite / external duty.");
+      return;
+    }
+
     setIsPunching(true);
     setMessage(null);
     try {
+      const location = await requestPunchLocation();
       const response = await fetch("/api/attendance/punch", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          action,
+          location,
+          offsite: {
+            isOffsite: isOffsitePunch,
+            note: offsiteNote.trim() || null,
+          },
+        }),
       });
 
       const result = await response.json();
@@ -621,11 +744,53 @@ export function AttendancePage({
       }
 
       setMessage(String(result?.message ?? "Attendance punch saved."));
+      setIsOffsitePunch(false);
+      setOffsiteNote("");
       router.refresh();
     } catch (error) {
       setIsPunching(false);
       setMessage(error instanceof Error ? error.message : "Unable to save attendance punch.");
     }
+  }
+
+  async function saveBranchLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase || !canManageBranchGps) {
+      setLocationMessage("Branch GPS settings are restricted to HR and super admin.");
+      return;
+    }
+
+    if (!locationForm.branch_id) {
+      setLocationMessage("Branch is required.");
+      return;
+    }
+
+    setIsSavingLocation(true);
+    setLocationMessage(null);
+
+    const payload = {
+      latitude: locationForm.latitude ? Number(locationForm.latitude) : null,
+      longitude: locationForm.longitude ? Number(locationForm.longitude) : null,
+      gps_radius_meters: Number(locationForm.gps_radius_meters || 30) || 30,
+      gps_is_active: locationForm.is_active,
+    };
+
+    const { error: saveError } = await supabase
+      .from("branches")
+      .update(payload)
+      .eq("id", locationForm.branch_id);
+
+    setIsSavingLocation(false);
+
+    if (saveError) {
+      setLocationMessage(saveError.message);
+      return;
+    }
+
+    setLocationMessage("Branch GPS settings saved.");
+    setLocationForm(emptyLocationForm);
+    router.refresh();
   }
 
   async function saveNetworkRow(event: FormEvent<HTMLFormElement>) {
@@ -1042,26 +1207,27 @@ export function AttendancePage({
                   <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{formatShortTime(todayAttendance?.check_out_at)}</p>
                 </div>
                 <div className="rounded-3xl bg-white/85 px-5 py-5 md:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Network verification</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Location verification</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {todayAttendance?.check_in_at ? <StatusBadge value={getNetworkStatusLabel(todayAttendance?.check_in_network_status)} /> : null}
-                    {todayAttendance?.check_out_at ? <StatusBadge value={getNetworkStatusLabel(todayAttendance?.check_out_network_status)} /> : null}
+                    {todayAttendance?.check_in_at ? <StatusBadge value={getLocationStatusLabel(todayAttendance?.check_in_location_status)} /> : null}
+                    {todayAttendance?.check_out_at ? <StatusBadge value={getLocationStatusLabel(todayAttendance?.check_out_location_status)} /> : null}
+                    {todayAttendance?.check_in_is_offsite || todayAttendance?.check_out_is_offsite ? <StatusBadge value="offsite" /> : null}
                   </div>
                   <p className="mt-3 text-sm text-[var(--muted-foreground)]">
                     {todayAttendance?.check_out_at
-                      ? todayAttendance?.check_out_network_status === "clinic_network"
-                        ? "Clinic network verified."
-                        : todayAttendance?.check_out_network_status === "unknown_network"
-                          ? "Network not recognized."
-                          : "Network unavailable."
+                      ? getLocationStatusMessage(todayAttendance?.check_out_location_status)
                       : todayAttendance?.check_in_at
-                        ? todayAttendance?.check_in_network_status === "clinic_network"
-                          ? "Clinic network verified."
-                          : todayAttendance?.check_in_network_status === "unknown_network"
-                            ? "Network not recognized."
-                            : "Network unavailable."
-                        : "Punch in or punch out akan tunjuk status verifikasi rangkaian di sini."}
+                        ? getLocationStatusMessage(todayAttendance?.check_in_location_status)
+                        : "Location is captured only when you punch in or punch out."}
                   </p>
+                  {todayAttendance?.check_out_at && todayAttendance?.check_out_distance_meters !== null && todayAttendance?.check_out_distance_meters !== undefined ? (
+                    <p className="mt-2 text-sm text-[var(--muted-foreground)]">Distance from clinic: {Math.round(Number(todayAttendance.check_out_distance_meters))}m</p>
+                  ) : todayAttendance?.check_in_at && todayAttendance?.check_in_distance_meters !== null && todayAttendance?.check_in_distance_meters !== undefined ? (
+                    <p className="mt-2 text-sm text-[var(--muted-foreground)]">Distance from clinic: {Math.round(Number(todayAttendance.check_in_distance_meters))}m</p>
+                  ) : null}
+                  {todayAttendance?.offsite_note ? (
+                    <p className="mt-2 text-sm text-[var(--muted-foreground)]">Offsite note: {String(todayAttendance.offsite_note)}</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -1084,6 +1250,23 @@ export function AttendancePage({
                   <LogOut className="h-4 w-4" />
                   Punch Out
                 </button>
+              </div>
+              <div className="mt-4 rounded-3xl border border-[var(--border)] bg-white/85 px-4 py-4">
+                <label className="flex items-center gap-3 text-sm text-[var(--foreground)]">
+                  <input type="checkbox" checked={isOffsitePunch} onChange={(event) => setIsOffsitePunch(event.target.checked)} />
+                  Offsite / External Duty
+                </label>
+                <p className="mt-2 text-sm text-[var(--muted-foreground)]">Location is captured only when you punch in or punch out.</p>
+                {isOffsitePunch ? (
+                  <textarea
+                    value={offsiteNote}
+                    onChange={(event) => setOffsiteNote(event.target.value)}
+                    rows={3}
+                    placeholder="Program khatan, meeting luar, training"
+                    className="mt-3 w-full rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]"
+                    required
+                  />
+                ) : null}
               </div>
               {message ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
             </div>
@@ -1223,13 +1406,13 @@ export function AttendancePage({
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Summary</p>
               <p className="mt-2 font-semibold">{boardRows.length} rostered staff</p>
               <p className="mt-1 text-[var(--muted-foreground)]">
-                {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in · {boardCounts.unknownNetwork} unknown network
+                {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in · {boardCounts.outsideLocation} outside location
               </p>
             </div>
           </div>
 
           {(role === "branch_pic" || role === "hr" || role === "super_admin" || role === "operation") ? (
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{boardCounts.present}</p>
@@ -1247,8 +1430,8 @@ export function AttendancePage({
                 <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
               </div>
               <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Unknown Network Punches</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{boardCounts.unknownNetwork}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Outside Location Punches</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{boardCounts.outsideLocation}</p>
               </div>
             </div>
           ) : null}
@@ -1277,18 +1460,25 @@ export function AttendancePage({
                     <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
                     <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes}</p>
                     <p><span className="font-semibold">Early leave minutes:</span> {row.earlyLeaveMinutes || "-"}</p>
+                    <p><span className="font-semibold">Check in distance:</span> {row.checkInDistanceMeters > 0 ? `${Math.round(row.checkInDistanceMeters)}m` : "-"}</p>
+                    <p><span className="font-semibold">Check out distance:</span> {row.checkOutDistanceMeters > 0 ? `${Math.round(row.checkOutDistanceMeters)}m` : "-"}</p>
                     <p><span className="font-semibold">Check in IP:</span> {row.checkInIp || "-"}</p>
                     <p><span className="font-semibold">Check out IP:</span> {row.checkOutIp || "-"}</p>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-3 text-sm">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-[var(--foreground)]">Check In:</span>
-                      <StatusBadge value={getNetworkStatusLabel(row.checkInNetworkStatus)} />
+                      <StatusBadge value={getLocationStatusLabel(row.checkInLocationStatus)} />
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-[var(--foreground)]">Check Out:</span>
-                      <StatusBadge value={getNetworkStatusLabel(row.checkOutNetworkStatus)} />
+                      <StatusBadge value={getLocationStatusLabel(row.checkOutLocationStatus)} />
                     </div>
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-[var(--muted-foreground)]">
+                    <p>Check in GPS: {row.checkInLatitude && row.checkInLongitude ? `${row.checkInLatitude}, ${row.checkInLongitude}` : "-"}</p>
+                    <p>Check out GPS: {row.checkOutLatitude && row.checkOutLongitude ? `${row.checkOutLatitude}, ${row.checkOutLongitude}` : "-"}</p>
+                    <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
                   </div>
 
                   {role === "super_admin" || role === "hr" ? (
@@ -1474,10 +1664,143 @@ export function AttendancePage({
           </FormSection>
         )}
 
+        {canViewBranchGps ? (
+          <FormSection
+            title="Branch GPS Settings"
+            description={canManageBranchGps ? "GPS verification checks whether staff punch in/out within the branch radius." : "Operation boleh melihat tetapan GPS cawangan secara read-only."}
+          >
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                  <select
+                    value={locationFilterBranchId}
+                    onChange={(event) => setLocationFilterBranchId(event.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="all">All branches</option>
+                    {branchRows.map((branch) => (
+                      <option key={branch.id} value={branch.id}>{branch.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Configured branches</p>
+                  <p className="mt-2 text-2xl font-semibold">{filteredBranchLocationRows.filter((row) => row.latitude !== null && row.longitude !== null).length}</p>
+                </div>
+              </div>
+
+              {canManageBranchGps ? (
+                <form className="space-y-4 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 p-4" onSubmit={saveBranchLocation}>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                      <select
+                        value={locationForm.branch_id}
+                        onChange={(event) => setLocationForm((current) => ({ ...current, branch_id: event.target.value }))}
+                        className={inputClass}
+                        required
+                      >
+                        <option value="">Select branch</option>
+                        {branchRows.map((branch) => (
+                          <option key={branch.id} value={branch.id}>{branch.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Radius in meters</span>
+                      <input
+                        value={locationForm.gps_radius_meters}
+                        onChange={(event) => setLocationForm((current) => ({ ...current, gps_radius_meters: event.target.value }))}
+                        placeholder="30"
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Latitude</span>
+                      <input
+                        value={locationForm.latitude}
+                        onChange={(event) => setLocationForm((current) => ({ ...current, latitude: event.target.value }))}
+                        placeholder="5.123456"
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Longitude</span>
+                      <input
+                        value={locationForm.longitude}
+                        onChange={(event) => setLocationForm((current) => ({ ...current, longitude: event.target.value }))}
+                        placeholder="116.123456"
+                        className={inputClass}
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-sm text-[var(--foreground)]">
+                    <input
+                      type="checkbox"
+                      checked={locationForm.is_active}
+                      onChange={(event) => setLocationForm((current) => ({ ...current, is_active: event.target.checked }))}
+                    />
+                    Active
+                  </label>
+                  {locationMessage ? <p className="rounded-2xl bg-white px-4 py-3 text-sm text-[var(--foreground)]">{locationMessage}</p> : null}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                    <button type="submit" disabled={isSavingLocation} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                      <Save className="h-4 w-4" />
+                      {isSavingLocation ? "Saving..." : "Save GPS Settings"}
+                    </button>
+                    {locationForm.branch_id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationForm(emptyLocationForm);
+                          setLocationMessage(null);
+                        }}
+                        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"
+                      >
+                        Cancel Edit
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              ) : null}
+
+              <div className="space-y-3">
+                {filteredBranchLocationRows.map((branch) => (
+                  <article key={branch.id} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-base font-semibold text-[var(--foreground)]">{branch.name}</p>
+                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                          {branch.latitude !== null && branch.longitude !== null
+                            ? `${branch.latitude}, ${branch.longitude}`
+                            : "GPS belum diset"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge value={branch.latitude !== null && branch.longitude !== null ? "verified_location" : "location_unavailable"} />
+                      </div>
+                    </div>
+                    <p className="mt-3 text-sm text-[var(--muted-foreground)]">Radius: {Number(branch.gps_radius_meters ?? 30) || 30}m</p>
+                    {canManageBranchGps ? (
+                      <div className="mt-4">
+                        <button type="button" onClick={() => startEditBranchLocation(branch)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-muted)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                          <Edit3 className="h-4 w-4" />
+                          Edit GPS
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </div>
+          </FormSection>
+        ) : null}
+
         {canViewNetworkIps ? (
           <FormSection
-            title="Clinic Network IP Settings"
-            description={canManageNetworkIps ? "Daftar dan kemas kini IP rangkaian klinik untuk soft verification attendance." : "Operation boleh melihat IP rangkaian klinik secara read-only."}
+            title="Legacy IP Audit Settings"
+            description={canManageNetworkIps ? "IP disimpan untuk audit lama sahaja. GPS location verification kini menjadi verifikasi utama attendance." : "Operation boleh melihat tetapan IP audit lama secara read-only."}
           >
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">

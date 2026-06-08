@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, TableRow, UserRole } from "@/lib/types";
 import { filterMcRequestsForRole } from "@/lib/data";
-import { formatDate, formatDateTime, getFilename, mapRowsWithId, sanitizeFilename } from "@/lib/utils";
+import { formatDate, formatDateTime, getFilename, getMalaysiaDateString, mapRowsWithId, sanitizeFilename } from "@/lib/utils";
 
 interface McWorkflowPageProps {
   leaveRequests: TableRow[];
@@ -66,7 +66,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
     setMessage(null);
 
     const safeName = sanitizeFilename(file.name);
-    const datePrefix = new Date().toISOString().slice(0, 10);
+    const datePrefix = getMalaysiaDateString();
     const filePath = `mc/${profile.id}/${datePrefix}-${safeName}`;
     const uploadResult = await supabase.storage.from("mc-uploads").upload(filePath, file, {
       upsert: true,

@@ -4,6 +4,7 @@ import type { LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/typ
 import {
   calculateLeaveDays,
   daysUntil,
+  getMalaysiaDateString,
   normalizeString,
 } from "@/lib/utils";
 
@@ -215,7 +216,7 @@ export function countExpiringRows(rows: TableRow[], field = "expiry_date") {
 }
 
 export function countTodayRoster(rows: TableRow[]) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getMalaysiaDateString();
   return rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today).length;
 }
 

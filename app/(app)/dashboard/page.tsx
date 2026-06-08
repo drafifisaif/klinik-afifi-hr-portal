@@ -38,7 +38,7 @@ import {
   getOperationVisibleFeedback,
 } from "@/lib/data";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, normalizeString } from "@/lib/utils";
+import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, getMalaysiaDateString, normalizeString } from "@/lib/utils";
 
 interface RowQueryResult {
   rows: TableRow[];
@@ -76,8 +76,8 @@ interface AttendanceSnapshotRow {
   branchName: string;
   status: string;
   lateMinutes: number;
-  checkInNetworkStatus: string;
-  checkOutNetworkStatus: string;
+  checkInLocationStatus: string;
+  checkOutLocationStatus: string;
 }
 
 function greetingByTime() {
@@ -163,7 +163,7 @@ function getNextPersonalShift(rosters: TableRow[], staffId?: string | null) {
     return null;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getMalaysiaDateString();
   return rosters
     .filter(
       (row) =>
@@ -410,11 +410,12 @@ function buildAttendanceSnapshotRows({
         : computeAttendanceStatus(attendanceRow, graceMinutes);
 
       const scheduledStartDate = parseIso(scheduledStart);
-      const isToday = date === new Date().toISOString().slice(0, 10);
+      const malaysiaToday = getMalaysiaDateString();
+      const isToday = date === malaysiaToday;
       const now = new Date();
 
       if (!leaveRow && !attendanceRow && scheduledStartDate) {
-        if (date < new Date().toISOString().slice(0, 10)) {
+        if (date < malaysiaToday) {
           status = "absent";
         } else if (isToday && now.getTime() > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
           status = "absent";
@@ -428,8 +429,8 @@ function buildAttendanceSnapshotRows({
         branchName,
         status,
         lateMinutes,
-        checkInNetworkStatus: String(attendanceRow?.check_in_network_status ?? "unavailable"),
-        checkOutNetworkStatus: String(attendanceRow?.check_out_network_status ?? "unavailable"),
+        checkInLocationStatus: String(attendanceRow?.check_in_location_status ?? "location_unavailable"),
+        checkOutLocationStatus: String(attendanceRow?.check_out_location_status ?? "location_unavailable"),
       };
     });
 }
@@ -623,7 +624,7 @@ function TodayAttendanceSnapshot({
     absent: rows.filter((row) => row.status === "absent").length,
     incomplete: rows.filter((row) => row.status === "incomplete").length,
     notPunchedIn: rows.filter((row) => row.status === "not_punched_in").length,
-    unknownNetwork: rows.filter((row) => row.checkInNetworkStatus === "unknown_network" || row.checkOutNetworkStatus === "unknown_network").length,
+    outsideLocation: rows.filter((row) => row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location").length,
   };
 
   const urgentRows = rows
@@ -662,8 +663,8 @@ function TodayAttendanceSnapshot({
           <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{counters.notPunchedIn}</p>
         </div>
         <div className="rounded-[24px] border border-orange-200 bg-orange-50/75 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Unknown Network Punches</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.unknownNetwork}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Outside Location Punches</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.outsideLocation}</p>
         </div>
       </div>
 
@@ -958,14 +959,14 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const staffId = String(context.staff?.id ?? "");
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getMalaysiaDateString();
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
   const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, branchStaffRows, feedbackRows, staffDirectoryRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
-    queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(120)),
+    queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", getMalaysiaDateString(inSevenDays)).order("roster_date", { ascending: true }).limit(120)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
     queryRows(() => supabase.from("leave_entitlements").select("*").eq("staff_id", staffId).order("entitlement_year", { ascending: false }).limit(5)),
@@ -1050,7 +1051,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const staffId = String(context.staff?.id ?? "");
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getMalaysiaDateString();
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
 
@@ -1059,8 +1060,8 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
     queryRows(() => supabase.from("leave_entitlements").select("*").eq("staff_id", staffId).order("entitlement_year", { ascending: false }).limit(5)),
-    queryRows(() => supabase.from("rosters").select("*").eq("staff_id", staffId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(20)),
-    queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", inSevenDays.toISOString().slice(0, 10)).order("roster_date", { ascending: true }).limit(200)),
+    queryRows(() => supabase.from("rosters").select("*").eq("staff_id", staffId).gte("roster_date", today).lte("roster_date", getMalaysiaDateString(inSevenDays)).order("roster_date", { ascending: true }).limit(20)),
+    queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", getMalaysiaDateString(inSevenDays)).order("roster_date", { ascending: true }).limit(200)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).eq("status", "pending").limit(80)),
     queryRows(() => supabase.from("feedbacks").select("*").in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(200)),
     queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
@@ -1182,8 +1183,8 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
     queryRows(() => supabase.from("feedbacks").select("*").limit(250)),
     queryRows(() => supabase.from("staff").select("*").limit(300)),
-    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", new Date().toISOString().slice(0, 10)).limit(300)),
-    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", new Date().toISOString().slice(0, 10)).limit(300)),
+    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", getMalaysiaDateString()).limit(300)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", getMalaysiaDateString()).limit(300)),
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
   ]);
 
@@ -1210,7 +1211,7 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
     staffRows: staffRows.rows,
     leaveRows: leaveRows.rows,
     branches,
-    date: new Date().toISOString().slice(0, 10),
+    date: getMalaysiaDateString(),
     branchScope: "all",
   });
 
@@ -1272,8 +1273,8 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("feedbacks").select("*").limit(280)),
     queryRows(() => supabase.from("feedback_comments").select("*").order("created_at", { ascending: false }).limit(120)),
-    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", new Date().toISOString().slice(0, 10)).limit(300)),
-    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", new Date().toISOString().slice(0, 10)).limit(300)),
+    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", getMalaysiaDateString()).limit(300)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", getMalaysiaDateString()).limit(300)),
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
     queryRows(() => supabase.from("staff").select("*").limit(300)),
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
@@ -1299,7 +1300,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
     staffRows: staffRows.rows,
     leaveRows: leaveRows.rows,
     branches,
-    date: new Date().toISOString().slice(0, 10),
+    date: getMalaysiaDateString(),
     branchScope: branchId || "all",
   });
 
@@ -1367,8 +1368,8 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
     queryRows(() => supabase.from("clinic_compliance_documents").select("*").limit(240)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
-    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", new Date().toISOString().slice(0, 10)).limit(400)),
-    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", new Date().toISOString().slice(0, 10)).limit(400)),
+    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", getMalaysiaDateString()).limit(400)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", getMalaysiaDateString()).limit(400)),
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
   ]);
 
@@ -1384,7 +1385,7 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
     staffRows: staffRows.rows,
     leaveRows: leaveRows.rows,
     branches,
-    date: new Date().toISOString().slice(0, 10),
+    date: getMalaysiaDateString(),
     branchScope: "all",
   });
   const branchIssueSummary = branches.map((branch) => ({
