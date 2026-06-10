@@ -158,12 +158,19 @@ export async function POST(request: Request) {
   const timestamp = new Date().toISOString();
   const clientIp = getRequestIp(request);
 
-  const { data: roster } = await supabase
+  const { data: rosterRows, error: rosterError } = await supabase
     .from("rosters")
     .select("*")
     .eq("staff_id", staff.id)
     .eq("roster_date", today)
-    .maybeSingle();
+    .order("custom_start_time", { ascending: true })
+    .limit(1);
+
+  if (rosterError) {
+    return NextResponse.json({ error: rosterError.message }, { status: 400 });
+  }
+
+  const roster = (rosterRows?.[0] ?? null) as Record<string, unknown> | null;
 
   const shiftTemplateId = String(roster?.shift_template_id ?? "");
   const { data: shiftTemplate } = shiftTemplateId

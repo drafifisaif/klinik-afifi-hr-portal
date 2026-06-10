@@ -3,7 +3,8 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
-import type { BranchOption } from "@/lib/types";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { BranchOption, TableRow } from "@/lib/types";
 
 export default async function AttendanceRoute() {
   const context = await requireRouteAccess("attendance");
@@ -17,17 +18,46 @@ export default async function AttendanceRoute() {
     );
   }
 
-  const [attendanceRows, adjustmentRows, settingRows, staffRows, branchRows, rosterRows, shiftTemplateRows, leaveRows, networkRows] = await Promise.all([
+  const adminClient = createAdminClient();
+  const staffBranchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
+
+  const [attendanceRows, adjustmentRows, settingRows, branchRows, shiftTemplateRows, leaveRows, networkRows] = await Promise.all([
     fetchRows(context.supabase, "attendance_records", 400),
     fetchRows(context.supabase, "attendance_adjustments", 200),
     fetchRows(context.supabase, "attendance_settings", 100),
-    fetchRows(context.supabase, "staff", 300),
     fetchRows(context.supabase, "branches", 100),
-    fetchRows(context.supabase, "rosters", 400),
     fetchRows(context.supabase, "shift_templates", 200),
     fetchRows(context.supabase, "leave_requests", 300),
     fetchRows(context.supabase, "clinic_network_ips", 200),
   ]);
+
+  let rosterRows = await fetchRows(context.supabase, "rosters", 700);
+  let staffRows = await fetchRows(context.supabase, "staff", 300);
+
+  if ((context.role === "staff" || context.role === "branch_pic") && adminClient && staffBranchId) {
+    const [branchRosterResult, branchStaffResult] = await Promise.all([
+      adminClient
+        .from("rosters")
+        .select("*")
+        .eq("branch_id", staffBranchId)
+        .order("roster_date", { ascending: true })
+        .limit(700),
+      adminClient
+        .from("staff")
+        .select("*")
+        .eq("branch_id", staffBranchId)
+        .limit(300),
+    ]);
+
+    rosterRows = {
+      rows: (branchRosterResult.data ?? []) as TableRow[],
+      error: branchRosterResult.error?.message ?? rosterRows.error,
+    };
+    staffRows = {
+      rows: (branchStaffResult.data ?? []) as TableRow[],
+      error: branchStaffResult.error?.message ?? staffRows.error,
+    };
+  }
 
   const branches = branchRows.rows
     .map((row) => {
