@@ -38,7 +38,7 @@ import {
   getOperationVisibleFeedback,
 } from "@/lib/data";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, getMalaysiaDateString, normalizeString } from "@/lib/utils";
+import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, getMalaysiaDateString, getMalaysiaHour, normalizeString } from "@/lib/utils";
 
 interface RowQueryResult {
   rows: TableRow[];
@@ -84,14 +84,18 @@ interface AttendanceSnapshotRow {
 }
 
 function greetingByTime() {
-  const hour = new Date().getHours();
+  const hour = getMalaysiaHour();
 
-  if (hour < 12) {
+  if (hour >= 5 && hour < 12) {
     return "Selamat pagi";
   }
 
-  if (hour < 18) {
+  if (hour >= 12 && hour < 14) {
     return "Selamat tengah hari";
+  }
+
+  if (hour >= 14 && hour < 19) {
+    return "Selamat petang";
   }
 
   return "Selamat malam";
@@ -1083,6 +1087,9 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const latestEntitlement = entitlementRows.rows[0] ?? null;
   const leaveBalance = buildLeaveBalanceSummary(latestEntitlement, leaveRows.rows);
   const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
+  const nextApprovedAnnualLeave = [...leaveRows.rows]
+    .filter((row) => normalizeString(row.status) === "approved" && normalizeString(row.leave_type) === "annual_leave" && String(row.start_date ?? "").slice(0, 10) >= today)
+    .sort((left, right) => String(left.start_date ?? "").localeCompare(String(right.start_date ?? "")))[0] ?? null;
 
   return (
     <div className="space-y-8">
@@ -1098,8 +1105,13 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
 
       {isProfileIncomplete(context.profile, context.staff) ? (
         <FormSection title="Profil Belum Lengkap" description="Lengkapkan maklumat peribadi supaya urusan cuti, MC, dan komunikasi HR berjalan lebih lancar.">
-          <div className="flex flex-col gap-4 rounded-3xl bg-[var(--card-muted)] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-[var(--foreground)]">Beberapa maklumat wajib masih belum diisi. Sila upload gambar profil untuk melengkapkan profil anda jika belum dibuat.</p>
+          <div className="flex flex-col gap-4 rounded-3xl border border-rose-200 bg-rose-50 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <span className="inline-flex w-fit rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">
+                Action needed
+              </span>
+              <p className="text-sm text-rose-900">Beberapa maklumat wajib masih belum diisi. Sila upload gambar profil untuk melengkapkan profil anda jika belum dibuat.</p>
+            </div>
             <Link href="/settings" className="inline-flex items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[var(--accent-foreground)]">
               Buka My Profile
               <ChevronRight className="h-4 w-4" />
@@ -1107,6 +1119,45 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
           </div>
         </FormSection>
       ) : null}
+
+      <RosterPreview
+        title="Upcoming Roster"
+        description="Paparan 7 hari terdekat untuk cawangan anda, dengan shift anda sendiri ditanda supaya lebih mudah merancang cuti."
+        rows={rosters.rows}
+        staffRows={branchStaffRows.rows}
+        shiftTemplates={shiftTemplates.rows}
+        focusStaffId={staffId}
+        branches={branches}
+      />
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <FormSection title="Next Shift" description="Shift seterusnya yang telah dijadualkan untuk anda.">
+          {nextShift ? (
+            <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+              <p className="text-lg font-semibold text-[var(--foreground)]">{formatDate(nextShift.roster_date)}</p>
+              <p className="mt-2 text-sm text-[var(--foreground)]">{getShiftName(nextShift, shiftTemplates.rows)} · {getTimeRange(nextShift, shiftTemplates.rows)}</p>
+              <p className="mt-2 text-sm text-[var(--muted-foreground)]">{getBranchName(branches, String(nextShift.branch_id ?? branchId))}</p>
+            </div>
+          ) : (
+            <EmptyState title="No shift scheduled yet" description="Shift seterusnya akan muncul di sini bila roster sudah diset." />
+          )}
+        </FormSection>
+        <FormSection title="Next Approved Annual Leave" description="Cuti tahunan yang telah diluluskan dan akan datang.">
+          {nextApprovedAnnualLeave ? (
+            <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+              <p className="text-lg font-semibold text-[var(--foreground)]">{formatDate(nextApprovedAnnualLeave.start_date)}{String(nextApprovedAnnualLeave.end_date ?? "") !== String(nextApprovedAnnualLeave.start_date ?? "") ? ` - ${formatDate(nextApprovedAnnualLeave.end_date)}` : ""}</p>
+              <p className="mt-2 text-sm text-[var(--foreground)]">{Number(nextApprovedAnnualLeave.total_days ?? 0) || 0} day(s)</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <StatusBadge value="approved" />
+                {nextApprovedAnnualLeave.reviewed_by ? <span className="text-sm text-[var(--muted-foreground)]">Approved by {String(nextApprovedAnnualLeave.reviewed_by)}</span> : null}
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="No approved annual leave upcoming." description="Approved annual leave akan muncul di sini bila sudah diluluskan." />
+          )}
+        </FormSection>
+        <HolidayWidget holiday={nextHoliday} />
+      </div>
 
       <LeaveBalancePanel summary={leaveBalance} title="Ringkasan Leave dan MC" />
 
@@ -1120,17 +1171,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
         ]}
       />
 
-      <RosterPreview
-        title="Upcoming Roster"
-        description="Paparan 7 hari terdekat untuk cawangan anda, dengan shift anda sendiri ditanda supaya lebih mudah merancang cuti."
-        rows={rosters.rows}
-        staffRows={branchStaffRows.rows}
-        shiftTemplates={shiftTemplates.rows}
-        focusStaffId={staffId}
-        branches={branches}
-      />
-
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-1">
         <DashboardList
           title="Feedback Untuk Saya"
           description="Maklum balas yang ditujukan terus kepada akaun staff anda supaya tindakan susulan lebih jelas."
@@ -1138,8 +1179,6 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
           emptyTitle="Tiada feedback untuk anda"
           emptyDescription="Belum ada feedback yang disasarkan terus kepada anda buat masa ini."
         />
-        <NotificationWidget rows={notifications.rows.slice(0, 5)} unreadCount={countUnreadNotifications(notifications.rows, profileId)} error={notifications.error} />
-        <HolidayWidget holiday={nextHoliday} />
       </div>
     </div>
   );

@@ -70,15 +70,25 @@ export interface SelectOption {
 export interface LeaveBalanceSummary {
   annual: {
     total: number;
+    used: number;
     openingUsed: number;
     portalUsed: number;
     remaining: number;
   };
   medical: {
     total: number;
+    used: number;
     openingUsed: number;
     portalUsed: number;
     remaining: number;
+  };
+  emergency: {
+    total: number;
+    used: number;
+  };
+  unpaid: {
+    total: number;
+    used: number;
   };
   entitlementYear: number | null;
   note: string | null;

@@ -262,7 +262,7 @@ export function filterMcRequestsForRole(
 }
 
 export function calculateApprovedLeaveUsage(rows: TableRow[]) {
-  return rows.reduce<{ annual: number; medical: number }>(
+  return rows.reduce<{ annual: number; medical: number; emergency: number; unpaid: number }>(
     (summary, row) => {
       if (normalizeString(row.status) !== "approved") {
         return summary;
@@ -283,9 +283,17 @@ export function calculateApprovedLeaveUsage(rows: TableRow[]) {
         summary.medical += totalDays;
       }
 
+      if (leaveType === "emergency_leave") {
+        summary.emergency += totalDays;
+      }
+
+      if (leaveType === "unpaid_leave") {
+        summary.unpaid += totalDays;
+      }
+
       return summary;
     },
-    { annual: 0, medical: 0 },
+    { annual: 0, medical: 0, emergency: 0, unpaid: 0 },
   );
 }
 
@@ -302,15 +310,25 @@ export function buildLeaveBalanceSummary(
   return {
     annual: {
       total: annualTotal,
+      used: annualOpening + usage.annual + usage.emergency,
       openingUsed: annualOpening,
       portalUsed: usage.annual,
-      remaining: annualTotal - annualOpening - usage.annual,
+      remaining: annualTotal - annualOpening - usage.annual - usage.emergency,
     },
     medical: {
       total: medicalTotal,
+      used: medicalOpening + usage.medical,
       openingUsed: medicalOpening,
       portalUsed: usage.medical,
       remaining: medicalTotal - medicalOpening - usage.medical,
+    },
+    emergency: {
+      total: usage.emergency,
+      used: usage.emergency,
+    },
+    unpaid: {
+      total: usage.unpaid,
+      used: usage.unpaid,
     },
     entitlementYear: entitlement ? Number(entitlement.entitlement_year ?? null) : null,
     note: entitlement ? String(entitlement.opening_balance_note ?? "") || null : null,

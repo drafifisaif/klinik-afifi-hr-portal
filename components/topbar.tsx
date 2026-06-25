@@ -3,7 +3,7 @@ import { Bell, Menu, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react"
 
 import { LogoutButton } from "@/components/logout-button";
 import type { Profile } from "@/lib/types";
-import { formatTitleFromPath, getInitials } from "@/lib/utils";
+import { cn, formatTitleFromPath, getInitials } from "@/lib/utils";
 
 interface TopbarProps {
   currentPath: string;
@@ -68,12 +68,17 @@ export function Topbar({
           </button>
           <Link
             href="/notifications"
-            className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] shadow-sm"
+            className={cn(
+              "relative flex h-11 w-11 items-center justify-center rounded-2xl border bg-[var(--card)] shadow-sm transition duration-300",
+              unreadCount > 0
+                ? "border-rose-200 bg-rose-50 text-rose-600 shadow-rose-200/40"
+                : "border-[var(--border)] text-[var(--muted-foreground)]",
+            )}
             aria-label="Notifications"
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 ? (
-              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             ) : null}

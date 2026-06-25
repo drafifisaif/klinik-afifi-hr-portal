@@ -8,14 +8,12 @@ interface LeaveBalancePanelProps {
 function BalanceCard({
   title,
   total,
-  openingUsed,
-  portalUsed,
+  used,
   remaining,
 }: {
   title: string;
   total: number;
-  openingUsed: number;
-  portalUsed: number;
+  used: number;
   remaining: number;
 }) {
   return (
@@ -27,16 +25,12 @@ function BalanceCard({
           <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{total}</p>
         </div>
         <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used</p>
+          <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{used}</p>
+        </div>
+        <div>
           <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Remaining</p>
           <p className="mt-1 text-xl font-semibold text-[var(--accent)]">{remaining}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used Before Portal</p>
-          <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{openingUsed}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used In Portal</p>
-          <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{portalUsed}</p>
         </div>
       </div>
     </div>
@@ -56,6 +50,34 @@ export function LeaveBalancePanel({ summary, title = "Leave Balance" }: LeaveBal
       <div className="grid gap-4 lg:grid-cols-2">
         <BalanceCard title="Annual Leave" {...summary.annual} />
         <BalanceCard title="Medical Leave" {...summary.medical} />
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+          <h4 className="text-base font-semibold text-[var(--foreground)]">Emergency Leave</h4>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Total</p>
+              <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{summary.emergency.total}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used</p>
+              <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{summary.emergency.used}</p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+          <h4 className="text-base font-semibold text-[var(--foreground)]">Unpaid Leave</h4>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Total</p>
+              <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{summary.unpaid.total}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used</p>
+              <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{summary.unpaid.used}</p>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );

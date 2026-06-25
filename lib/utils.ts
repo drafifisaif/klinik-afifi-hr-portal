@@ -210,6 +210,16 @@ export function getMalaysiaDateTimeParts(date = new Date()) {
   };
 }
 
+export function getMalaysiaHour(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    hour: "2-digit",
+    hour12: false,
+  });
+
+  return Number(formatter.format(date));
+}
+
 export function getMalaysiaDateTimeLocalInput(date = new Date()) {
   const parts = getMalaysiaDateTimeParts(date);
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
