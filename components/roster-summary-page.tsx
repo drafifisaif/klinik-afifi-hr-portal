@@ -2,7 +2,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import type { BranchOption, UserRole } from "@/lib/types";
-import { formatDate, formatDateTime, formatMinutesAsHours } from "@/lib/utils";
+import { formatDate, formatMalaysiaDateTime, formatMinutesAsHours } from "@/lib/utils";
 
 interface SummaryDayRow {
   date: string;
@@ -255,8 +255,8 @@ export function RosterSummaryPage({
                           <p><span className="font-semibold">Net Scheduled Hours:</span> {formatMinutesAsHours(day.scheduledMinutes)}</p>
                           <p><span className="font-semibold">Counted Worked Hours:</span> {formatMinutesAsHours(day.countedWorkedMinutes)}</p>
                           <p><span className="font-semibold">Late Minutes:</span> {day.lateMinutes}</p>
-                          <p><span className="font-semibold">Check In:</span> {day.checkInAt ? formatDateTime(day.checkInAt) : "-"}</p>
-                          <p><span className="font-semibold">Check Out:</span> {day.checkOutAt ? formatDateTime(day.checkOutAt) : "-"}</p>
+                          <p><span className="font-semibold">Check In:</span> {day.checkInAt ? formatMalaysiaDateTime(day.checkInAt) : "-"}</p>
+                          <p><span className="font-semibold">Check Out:</span> {day.checkOutAt ? formatMalaysiaDateTime(day.checkOutAt) : "-"}</p>
                           <p><span className="font-semibold">Early Out Minutes:</span> {day.earlyLeaveMinutes}</p>
                         </div>
                       </div>

@@ -14,8 +14,10 @@ import {
   cn,
   formatMinutesAsHours,
   formatDate,
-  formatDateTime,
+  formatMalaysiaDateTime,
+  formatMalaysiaTime,
   getMalaysiaDateString,
+  getMalaysiaDateTimeParts,
   mapRowsWithId,
   normalizeString,
 } from "@/lib/utils";
@@ -138,15 +140,7 @@ function formatShortTime(value: unknown) {
     return text.slice(0, 5);
   }
 
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) {
-    return text;
-  }
-
-  return new Intl.DateTimeFormat("en-MY", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatMalaysiaTime(text);
 }
 
 function formatShortDateTime(value: unknown) {
@@ -159,12 +153,8 @@ function formatShortDateTime(value: unknown) {
     return "";
   }
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hour}:${minute}`;
+  const parts = getMalaysiaDateTimeParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function parseIso(value: unknown, referenceDate?: Date | null) {
@@ -1596,8 +1586,8 @@ export function AttendancePage({
                     <StatusBadge value={String(row.status ?? "pending")} />
                   </div>
                   <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
-                    <p><span className="font-semibold">Requested check in:</span> {formatDateTime(row.requested_check_in_at)}</p>
-                    <p><span className="font-semibold">Requested check out:</span> {formatDateTime(row.requested_check_out_at)}</p>
+                    <p><span className="font-semibold">Requested check in:</span> {formatMalaysiaDateTime(row.requested_check_in_at)}</p>
+                    <p><span className="font-semibold">Requested check out:</span> {formatMalaysiaDateTime(row.requested_check_out_at)}</p>
                     <p><span className="font-semibold">Reason:</span> {String(row.reason ?? "-")}</p>
                   </div>
                   {canReviewAdjustments ? (

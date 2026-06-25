@@ -115,6 +115,51 @@ export function formatDateTime(value: unknown) {
   }).format(date);
 }
 
+export function formatMalaysiaDateTime(value: unknown) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("en-MY", {
+    timeZone: "Asia/Kuala_Lumpur",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
+export function formatMalaysiaTime(value: unknown) {
+  if (!value) {
+    return "-";
+  }
+
+  const text = String(value).trim();
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
+    return text.slice(0, 5);
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return new Intl.DateTimeFormat("en-MY", {
+    timeZone: "Asia/Kuala_Lumpur",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
 export function formatDateInput(value: unknown) {
   if (!value) {
     return "";
