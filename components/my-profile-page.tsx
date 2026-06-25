@@ -43,15 +43,11 @@ function buildFormState(profile: Profile, staff: TableRow | null) {
   };
 }
 
-function normalizeProfileFromDatabase(
-  profile: Profile,
-  fallbackEmail?: string | null,
-  fallbackRole?: UserRole,
-): Profile {
+function normalizeProfileFromDatabase(profile: Profile, fallbackProfile?: Profile): Profile {
   return {
     ...profile,
-    email: fallbackEmail ?? profile.email ?? null,
-    role: String(profile.role ?? fallbackRole ?? "staff") as UserRole,
+    email: profile.email ?? fallbackProfile?.email ?? null,
+    role: String(profile.role ?? fallbackProfile?.role ?? "staff") as UserRole,
   };
 }
 
@@ -142,12 +138,10 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     const profilePayload = {
       full_name: form.full_name,
       email: form.email || null,
-      role: canManageExtended ? form.role : currentProfile.role,
       avatar_url: avatarPath,
     };
 
     const staffPayload = {
-      profile_id: currentProfile.id,
       full_name: form.full_name,
       ic_no: form.ic_no || null,
       phone: form.phone || null,
@@ -155,138 +149,43 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       address: form.address || null,
       emergency_contact_name: form.emergency_contact_name || null,
       emergency_contact_phone: form.emergency_contact_phone || null,
-      branch_id: canManageExtended ? form.branch_id || null : operationalBranchId || null,
-      position: canManageExtended ? form.position || null : currentStaff?.position ?? null,
-      department: canManageExtended ? form.department || null : currentStaff?.department ?? null,
-      status: canManageExtended ? form.status : currentStaff?.status ?? "active",
     };
-
-    const profileResult = await supabase
-      .from("profiles")
-      .update(profilePayload)
-      .eq("id", currentProfile.id)
-      .select("*")
-      .maybeSingle();
-
-    if (profileResult.error || !profileResult.data) {
-      setIsSubmitting(false);
-      showFriendlyProfileError(profileResult.error ?? "Profile row was not updated.", "profiles update failed");
-      return;
-    }
-
-    let staffResult: { data: TableRow | null; error: { message: string } | null };
-
-    if (String(currentStaff?.id ?? "").trim()) {
-      const { data, error } = await supabase
-        .from("staff")
-        .update(staffPayload)
-        .eq("id", String(currentStaff?.id ?? ""))
-        .select("*")
-        .maybeSingle();
-      staffResult = {
-        data: (data as TableRow | null) ?? null,
-        error: error ? { message: error.message } : null,
-      };
-    } else {
-      const existingLinkedStaff = await supabase
-        .from("staff")
-        .select("*")
-        .eq("profile_id", currentProfile.id)
-        .order("updated_at", { ascending: false })
-        .limit(20);
-
-      if (existingLinkedStaff.error) {
-        setIsSubmitting(false);
-        showFriendlyProfileError(existingLinkedStaff.error, "staff lookup by profile_id failed");
-        return;
-      }
-
-      const preferredLinkedStaff = choosePreferredStaffRow((existingLinkedStaff.data ?? []) as TableRow[]);
-
-      if (preferredLinkedStaff) {
-        const linkedStaffId = String(preferredLinkedStaff.id ?? "").trim();
-        const { data, error } = await supabase
-          .from("staff")
-          .update(staffPayload)
-          .eq("id", linkedStaffId)
-          .select("*")
-          .maybeSingle();
-        staffResult = {
-          data: (data as TableRow | null) ?? null,
-          error: error ? { message: error.message } : null,
-        };
-      } else {
-        const { data, error } = await supabase
-          .from("staff")
-          .insert({
-            ...staffPayload,
-            date_joined: new Date().toISOString().slice(0, 10),
-          })
-          .select("*")
-          .maybeSingle();
-        staffResult = {
-          data: (data as TableRow | null) ?? null,
-          error: error ? { message: error.message } : null,
-        };
-      }
-    }
-
-    if (staffResult.error || !staffResult.data) {
-      setIsSubmitting(false);
-      showFriendlyProfileError(staffResult.error ?? "Staff row was not updated.", "staff upsert failed");
-      return;
-    }
-
-    const savedStaffId = String(staffResult.data?.id ?? currentStaff?.id ?? "").trim();
-
-    if (canManageExtended && savedStaffId) {
-      const syncResponse = await fetch("/api/staff/branch-sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          staffId: savedStaffId,
-          branchId: form.branch_id || null,
-        }),
-      });
-
-      const syncResult = await syncResponse.json().catch(() => null);
-      if (!syncResponse.ok) {
-        setIsSubmitting(false);
-        setMessage(String(syncResult?.error ?? "Branch sync failed."));
-        return;
-      }
-    }
-
-    const [refetchedProfileResult, refetchedStaffResult] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", currentProfile.id).maybeSingle(),
-      supabase.from("staff").select("*").eq("profile_id", currentProfile.id).order("updated_at", { ascending: false }).limit(20),
-    ]);
-
-    if (refetchedProfileResult.error) {
-      console.error("[MyProfilePage] refetch profile failed", refetchedProfileResult.error);
-    }
-
-    if (refetchedStaffResult.error) {
-      console.error("[MyProfilePage] refetch staff failed", refetchedStaffResult.error);
-    }
-
-    const refreshedProfile = normalizeProfileFromDatabase(
-      ((refetchedProfileResult.data as Profile | null) ?? (profileResult.data as Profile)),
-      form.email || currentProfile.email || null,
-      currentProfile.role,
-    );
-    const refreshedStaff = choosePreferredStaffRow((refetchedStaffResult.data ?? []) as TableRow[]) ?? currentStaff;
-
-    console.log("[MyProfilePage] verified persisted profile values", {
-      profileId: refreshedProfile.id,
-      staffId: String(refreshedStaff?.id ?? ""),
-      emergency_contact_name: String(refreshedStaff?.emergency_contact_name ?? ""),
-      emergency_contact_phone: String(refreshedStaff?.emergency_contact_phone ?? ""),
-      address: String(refreshedStaff?.address ?? ""),
-      avatar_url: String(refreshedProfile.avatar_url ?? ""),
+    const updateResponse = await fetch("/api/profile/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...profilePayload,
+        ...staffPayload,
+        ...(canManageExtended
+          ? {
+              branch_id: form.branch_id || null,
+              position: form.position || null,
+              department: form.department || null,
+              status: form.status || null,
+              role: form.role || null,
+            }
+          : {}),
+      }),
     });
+
+    const updateResult = (await updateResponse.json().catch(() => null)) as {
+      error?: string;
+      profile?: Profile | null;
+      staff?: TableRow | null;
+    } | null;
+
+    if (!updateResponse.ok || !updateResult?.profile) {
+      setIsSubmitting(false);
+      showFriendlyProfileError(updateResult?.error ?? "Profile update API failed.", "profile update route failed");
+      return;
+    }
+
+    const refreshedProfile = normalizeProfileFromDatabase(updateResult.profile, currentProfile);
+    const refreshedStaff = choosePreferredStaffRow(
+      updateResult.staff ? [updateResult.staff] : (currentStaff ? [currentStaff] : []),
+    ) ?? currentStaff;
 
     setCurrentProfile(refreshedProfile);
     setCurrentStaff(refreshedStaff);
