@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
@@ -9,8 +9,10 @@ interface StatCardProps {
   icon: LucideIcon;
   tone?: "neutral" | "alert" | "warning" | "success";
   href?: string;
-  ctaLabel?: string;
 }
+
+export const clickableMetricCardClassName =
+  "cursor-pointer transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_60px_rgba(18,42,44,0.1)] hover:border-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white";
 
 const toneClasses = {
   neutral: {
@@ -35,15 +37,15 @@ const toneClasses = {
   },
 };
 
-export function StatCard({ title, value, description, icon: Icon, tone = "neutral", href, ctaLabel = "View items" }: StatCardProps) {
+export function StatCard({ title, value, description, icon: Icon, tone = "neutral", href }: StatCardProps) {
   const styles = toneClasses[tone];
 
   const content = (
     <div
       className={cn(
-        "rounded-[28px] border p-5 shadow-[0_18px_45px_rgba(18,42,44,0.06)] transition duration-200",
+        "h-full rounded-[28px] border p-5 shadow-[0_18px_45px_rgba(18,42,44,0.06)]",
         styles.card,
-        href ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_22px_52px_rgba(18,42,44,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]" : "",
+        href ? clickableMetricCardClassName : "",
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -58,12 +60,6 @@ export function StatCard({ title, value, description, icon: Icon, tone = "neutra
         </div>
       </div>
       <p className="mt-4 text-sm text-[var(--muted-foreground)]">{description}</p>
-      {href ? (
-        <div className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[var(--accent)]">
-          <span>{ctaLabel}</span>
-          <ChevronRight className="h-4 w-4" />
-        </div>
-      ) : null}
     </div>
   );
 
@@ -72,7 +68,7 @@ export function StatCard({ title, value, description, icon: Icon, tone = "neutra
   }
 
   return (
-    <Link href={href} className="block">
+    <Link href={href} className="block h-full rounded-[28px] focus-visible:outline-none">
       {content}
     </Link>
   );

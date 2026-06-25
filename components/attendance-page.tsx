@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
+import { clickableMetricCardClassName } from "@/components/stat-card";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import {
@@ -730,7 +731,8 @@ export function AttendancePage({
         type="button"
         onClick={() => handleSummaryCardClick(filter)}
         className={cn(
-          "flex h-full min-h-[132px] cursor-pointer flex-col justify-between rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_45px_rgba(18,42,44,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(18,42,44,0.08)]",
+          "flex h-full min-h-[132px] flex-col justify-between rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_45px_rgba(18,42,44,0.04)]",
+          clickableMetricCardClassName,
           toneClasses,
           isSelected ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white" : "",
         )}
