@@ -624,7 +624,6 @@ function TodayAttendanceSnapshot({
   branches,
   selectedBranchId = "all",
   selectedDate = getMalaysiaDateString(),
-  activeFilter = "all",
   pendingCorrectionsCount = 0,
   interactive = false,
 }: {
@@ -634,7 +633,6 @@ function TodayAttendanceSnapshot({
   branches?: BranchOption[];
   selectedBranchId?: string;
   selectedDate?: string;
-  activeFilter?: string;
   pendingCorrectionsCount?: number;
   interactive?: boolean;
 }) {
@@ -646,25 +644,6 @@ function TodayAttendanceSnapshot({
     notPunchedIn: rows.filter((row) => row.status === "not_punched_in").length,
     outsideLocation: rows.filter((row) => row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location").length,
   };
-  const filteredRows = rows.filter((row) => {
-    if (activeFilter === "present") {
-      return row.status === "present";
-    }
-    if (activeFilter === "late") {
-      return row.status === "late" || row.lateMinutes > 0;
-    }
-    if (activeFilter === "absent") {
-      return row.status === "absent";
-    }
-    if (activeFilter === "incomplete") {
-      return row.status === "incomplete";
-    }
-    if (activeFilter === "outside_location") {
-      return row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location";
-    }
-    return true;
-  });
-
   const urgentRows = rows
     .filter((row) => ["late", "absent", "incomplete"].includes(normalizeString(row.status)))
     .sort((left, right) => {
@@ -673,36 +652,21 @@ function TodayAttendanceSnapshot({
     })
     .slice(0, 5);
 
-  function buildDashboardHref(filter?: string) {
+  function buildAttendanceHref(filter?: string) {
     const params = new URLSearchParams();
     if (selectedBranchId && selectedBranchId !== "all") {
-      params.set("attendance_branch", selectedBranchId);
+      params.set("branch", selectedBranchId);
     }
     if (selectedDate) {
-      params.set("attendance_date", selectedDate);
+      params.set("date", selectedDate);
     }
-    if (filter && filter !== "all") {
-      params.set("attendance_filter", filter);
+    if (filter === "pending_corrections") {
+      params.set("section", "pending_corrections");
+    } else if (filter && filter !== "all") {
+      params.set("filter", filter);
     }
     const query = params.toString();
-    return query ? `/dashboard?${query}` : "/dashboard";
-  }
-
-  function getFilterLabel(filter: string) {
-    switch (filter) {
-      case "present":
-        return "Present Today";
-      case "late":
-        return "Late Today";
-      case "absent":
-        return "Absent Today";
-      case "incomplete":
-        return "Incomplete Punch";
-      case "outside_location":
-        return "Outside Location";
-      default:
-        return "All rostered staff";
-    }
+    return query ? `/attendance?${query}` : "/attendance";
   }
 
   function renderSnapshotCard({
@@ -716,12 +680,10 @@ function TodayAttendanceSnapshot({
     toneClass: string;
     filter: string;
   }) {
-    const selected = activeFilter === filter;
     const cardClass = cn(
       "h-full rounded-[24px] border px-4 py-4",
       toneClass,
       interactive ? "cursor-pointer transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_55px_rgba(18,42,44,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white" : "",
-      selected ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white" : "",
     );
 
     const content = (
@@ -736,7 +698,7 @@ function TodayAttendanceSnapshot({
     }
 
     return (
-      <Link href={buildDashboardHref(filter)} className="block rounded-[24px] focus-visible:outline-none">
+      <Link href={buildAttendanceHref(filter)} className="block rounded-[24px] focus-visible:outline-none">
         {content}
       </Link>
     );
@@ -762,11 +724,10 @@ function TodayAttendanceSnapshot({
           <div className="mt-6 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/45 p-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-sm font-semibold text-[var(--foreground)]">Today Attendance Board</p>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Review who is working today, who is late, absent, or needs follow-up.</p>
+                <p className="text-sm font-semibold text-[var(--foreground)]">Snapshot controls</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Adjust branch and date for the attendance snapshot, then open the detailed attendance board only when needed.</p>
               </div>
               <form className="grid gap-3 md:grid-cols-3" action="/dashboard">
-                <input type="hidden" name="attendance_filter" value={activeFilter === "all" ? "" : activeFilter} />
                 <label className="space-y-2">
                   <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</span>
                   <select name="attendance_branch" defaultValue={selectedBranchId} className="h-11 w-full rounded-2xl border border-[var(--border)] bg-white px-4 text-sm text-[var(--foreground)] outline-none">
@@ -786,51 +747,13 @@ function TodayAttendanceSnapshot({
               </form>
             </div>
 
-            {activeFilter !== "all" ? (
-              <div className="mt-4 flex flex-col gap-3 rounded-[20px] border border-[var(--border)] bg-white/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm font-semibold text-[var(--foreground)]">Showing: {getFilterLabel(activeFilter)}</p>
-                <Link href={buildDashboardHref("all")} className="inline-flex h-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)]">
-                  Clear filter
-                </Link>
-              </div>
-            ) : null}
-
-            <div className="mt-5 space-y-3">
-              {filteredRows.length ? (
-                filteredRows.map((row) => (
-                  <div key={row.id} className={cn("flex flex-col gap-4 rounded-[22px] border px-4 py-4", getAttendanceStatusTone(row.status))}>
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{row.staffName}</p>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{row.branchName}</p>
-                        <p className="mt-2 text-sm text-[var(--foreground)]">{row.shiftLabel}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <StatusBadge value={row.status} />
-                        {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
-                        {(row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location") ? <StatusBadge value="outside location" /> : null}
-                      </div>
-                    </div>
-                    <div className="grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2 xl:grid-cols-4">
-                      <p><span className="font-semibold">Check in:</span> {row.checkInAt ? formatDateTime(row.checkInAt) : "-"}</p>
-                      <p><span className="font-semibold">Check out:</span> {row.checkOutAt ? formatDateTime(row.checkOutAt) : "-"}</p>
-                      <p><span className="font-semibold">Location:</span> {row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location" ? "Outside Location" : "OK"}</p>
-                      <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes || 0}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <EmptyState title="No staff found for this attendance status." description="No staff found for this attendance status." />
-              )}
-            </div>
-
             <div id="hr-pending-corrections" className="mt-6 rounded-[22px] border border-[var(--border)] bg-white/80 px-4 py-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-[var(--foreground)]">Pending correction handling</p>
                   <p className="mt-1 text-sm text-[var(--muted-foreground)]">{pendingCorrectionsCount} correction request sedang menunggu semakan HR.</p>
                 </div>
-                <Link href="/attendance" className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white">
+                <Link href={buildAttendanceHref("pending_corrections")} className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white">
                   Open Attendance Board
                 </Link>
               </div>
@@ -1358,12 +1281,10 @@ async function loadHrDashboard(
   options?: {
     attendanceBranchId?: string;
     attendanceDate?: string;
-    attendanceFilter?: string;
   },
 ) {
   const attendanceDate = options?.attendanceDate || getMalaysiaDateString();
   const attendanceBranchId = options?.attendanceBranchId || "all";
-  const attendanceFilter = options?.attendanceFilter || "all";
   const [leaveRows, staffDocs, feedbackRows, staffRows, attendanceRows, rosterRows, attendanceSettingsRows, adjustmentRows] = await Promise.all([
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
@@ -1423,7 +1344,6 @@ async function loadHrDashboard(
         branches={branches}
         selectedBranchId={attendanceBranchId}
         selectedDate={attendanceDate}
-        activeFilter={attendanceFilter}
         pendingCorrectionsCount={pendingCorrections.length}
         interactive
       />
@@ -1705,7 +1625,6 @@ export default async function DashboardPage({
     content = await loadHrDashboard(context.supabase, context, branches, {
       attendanceBranchId: getSearchParamValue(resolvedSearchParams.attendance_branch) ?? "all",
       attendanceDate: getSearchParamValue(resolvedSearchParams.attendance_date) ?? getMalaysiaDateString(),
-      attendanceFilter: getSearchParamValue(resolvedSearchParams.attendance_filter) ?? "all",
     });
   } else if (context.role === "operation") {
     content = await loadOperationDashboard(context.supabase, context, branches);
