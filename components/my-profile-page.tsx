@@ -43,6 +43,18 @@ function buildFormState(profile: Profile, staff: TableRow | null) {
   };
 }
 
+function normalizeProfileFromDatabase(
+  profile: Profile,
+  fallbackEmail?: string | null,
+  fallbackRole?: UserRole,
+): Profile {
+  return {
+    ...profile,
+    email: fallbackEmail ?? profile.email ?? null,
+    role: String(profile.role ?? fallbackRole ?? "staff") as UserRole,
+  };
+}
+
 export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -149,33 +161,39 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       status: canManageExtended ? form.status : currentStaff?.status ?? "active",
     };
 
-    const profileResult = await supabase.from("profiles").update(profilePayload).eq("id", currentProfile.id);
+    const profileResult = await supabase
+      .from("profiles")
+      .update(profilePayload)
+      .eq("id", currentProfile.id)
+      .select("*")
+      .maybeSingle();
 
-    if (profileResult.error) {
+    if (profileResult.error || !profileResult.data) {
       setIsSubmitting(false);
-      showFriendlyProfileError(profileResult.error, "profiles update failed");
+      showFriendlyProfileError(profileResult.error ?? "Profile row was not updated.", "profiles update failed");
       return;
     }
 
-    let staffResult: { data: { id?: string } | null; error: { message: string } | null };
+    let staffResult: { data: TableRow | null; error: { message: string } | null };
 
     if (String(currentStaff?.id ?? "").trim()) {
       const { data, error } = await supabase
         .from("staff")
         .update(staffPayload)
         .eq("id", String(currentStaff?.id ?? ""))
-        .select("id")
+        .select("*")
         .maybeSingle();
       staffResult = {
-        data: (data as { id?: string } | null) ?? null,
+        data: (data as TableRow | null) ?? null,
         error: error ? { message: error.message } : null,
       };
     } else {
       const existingLinkedStaff = await supabase
         .from("staff")
-        .select("id, profile_id, email, status")
+        .select("*")
         .eq("profile_id", currentProfile.id)
-        .limit(2);
+        .order("updated_at", { ascending: false })
+        .limit(20);
 
       if (existingLinkedStaff.error) {
         setIsSubmitting(false);
@@ -191,10 +209,10 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
           .from("staff")
           .update(staffPayload)
           .eq("id", linkedStaffId)
-          .select("id")
+          .select("*")
           .maybeSingle();
         staffResult = {
-          data: (data as { id?: string } | null) ?? null,
+          data: (data as TableRow | null) ?? null,
           error: error ? { message: error.message } : null,
         };
       } else {
@@ -204,22 +222,22 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
             ...staffPayload,
             date_joined: new Date().toISOString().slice(0, 10),
           })
-          .select("id")
+          .select("*")
           .maybeSingle();
         staffResult = {
-          data: (data as { id?: string } | null) ?? null,
+          data: (data as TableRow | null) ?? null,
           error: error ? { message: error.message } : null,
         };
       }
     }
 
-    if (staffResult.error) {
+    if (staffResult.error || !staffResult.data) {
       setIsSubmitting(false);
-      showFriendlyProfileError(staffResult.error, "staff upsert failed");
+      showFriendlyProfileError(staffResult.error ?? "Staff row was not updated.", "staff upsert failed");
       return;
     }
 
-    const savedStaffId = String((staffResult.data as { id?: string } | null)?.id ?? currentStaff?.id ?? "").trim();
+    const savedStaffId = String(staffResult.data?.id ?? currentStaff?.id ?? "").trim();
 
     if (canManageExtended && savedStaffId) {
       const syncResponse = await fetch("/api/staff/branch-sync", {
@@ -243,7 +261,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     const [refetchedProfileResult, refetchedStaffResult] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", currentProfile.id).maybeSingle(),
-      supabase.from("staff").select("*").eq("profile_id", currentProfile.id).limit(5),
+      supabase.from("staff").select("*").eq("profile_id", currentProfile.id).order("updated_at", { ascending: false }).limit(20),
     ]);
 
     if (refetchedProfileResult.error) {
@@ -254,23 +272,25 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       console.error("[MyProfilePage] refetch staff failed", refetchedStaffResult.error);
     }
 
-    const refreshedProfile = (refetchedProfileResult.data as Profile | null) ?? currentProfile;
+    const refreshedProfile = normalizeProfileFromDatabase(
+      ((refetchedProfileResult.data as Profile | null) ?? (profileResult.data as Profile)),
+      form.email || currentProfile.email || null,
+      currentProfile.role,
+    );
     const refreshedStaff = choosePreferredStaffRow((refetchedStaffResult.data ?? []) as TableRow[]) ?? currentStaff;
 
-    setCurrentProfile({
-      ...refreshedProfile,
-      email: form.email || refreshedProfile.email || null,
-      role: String(refreshedProfile.role ?? currentProfile.role ?? "staff") as UserRole,
+    console.log("[MyProfilePage] verified persisted profile values", {
+      profileId: refreshedProfile.id,
+      staffId: String(refreshedStaff?.id ?? ""),
+      emergency_contact_name: String(refreshedStaff?.emergency_contact_name ?? ""),
+      emergency_contact_phone: String(refreshedStaff?.emergency_contact_phone ?? ""),
+      address: String(refreshedStaff?.address ?? ""),
+      avatar_url: String(refreshedProfile.avatar_url ?? ""),
     });
+
+    setCurrentProfile(refreshedProfile);
     setCurrentStaff(refreshedStaff);
-    setForm(buildFormState(
-      {
-        ...refreshedProfile,
-        email: form.email || refreshedProfile.email || null,
-        role: String(refreshedProfile.role ?? currentProfile.role ?? "staff") as UserRole,
-      },
-      refreshedStaff,
-    ));
+    setForm(buildFormState(refreshedProfile, refreshedStaff));
 
     setIsSubmitting(false);
 

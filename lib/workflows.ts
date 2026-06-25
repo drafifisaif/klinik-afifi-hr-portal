@@ -57,7 +57,8 @@ export async function getCurrentUserContext() {
     .from("staff")
     .select("*")
     .eq("profile_id", user.id)
-    .limit(2);
+    .order("updated_at", { ascending: false })
+    .limit(20);
 
   if (staffLookupError) {
     console.error("[workflows] staff lookup failed for current user", {
@@ -87,7 +88,7 @@ export async function getCurrentUserContext() {
 export async function fetchLinkedProfileAndStaff(supabase: SupabaseClient, profileId: string) {
   const [{ data: profileData }, staffResult] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", profileId).maybeSingle(),
-    supabase.from("staff").select("*").eq("profile_id", profileId).limit(2),
+    supabase.from("staff").select("*").eq("profile_id", profileId).order("updated_at", { ascending: false }).limit(20),
   ]);
 
   if (staffResult.error) {
