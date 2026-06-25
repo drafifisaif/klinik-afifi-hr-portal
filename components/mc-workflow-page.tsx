@@ -142,7 +142,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load MC records" description={error} /> : null}
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className={canUpload ? "grid gap-6 xl:grid-cols-[1.2fr_0.8fr]" : "space-y-6"}>
         <FormSection title="MC submissions" description="Medical certificate requests are tracked as `medical_leave` leave requests with a private attachment path.">
           {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
           {filteredRows.length ? (
@@ -233,9 +233,9 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
           )}
         </FormSection>
 
-        <FormSection title="Upload my MC" description={canUpload ? "Only staff and branch PIC can submit their own MC in this batch." : "This role can review MC records but cannot upload on behalf of staff."}>
-          {canUpload ? (
-            currentStaff ? (
+        {canUpload ? (
+          <FormSection title="Upload my MC" description="Only staff and branch PIC can submit their own MC in this batch.">
+            {currentStaff ? (
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <FileUploadField label="MC file" file={file} onChange={setFile} helperText="The uploaded file remains private in the `mc-uploads` bucket." />
                 <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Optional note for the reviewer" className={textareaClass} />
@@ -247,11 +247,9 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
               </form>
             ) : (
               <EmptyState title="Complete your staff profile first" description="A linked staff row is required before you can upload MC documents." />
-            )
-          ) : (
-            <EmptyState title="MC upload not available" description="HR and super admin can review MC records here, but staff and branch PIC upload their own documents." />
-          )}
-        </FormSection>
+            )}
+          </FormSection>
+        ) : null}
       </div>
     </div>
   );
