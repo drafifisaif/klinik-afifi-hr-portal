@@ -730,17 +730,14 @@ export function AttendancePage({
         type="button"
         onClick={() => handleSummaryCardClick(filter)}
         className={cn(
-          "cursor-pointer rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_45px_rgba(18,42,44,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(18,42,44,0.08)]",
+          "flex h-full min-h-[132px] cursor-pointer flex-col justify-between rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_45px_rgba(18,42,44,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(18,42,44,0.08)]",
           toneClasses,
           isSelected ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white" : "",
         )}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em]">{label}</p>
-            <p className="mt-2 text-3xl font-semibold tracking-tight">{count}</p>
-          </div>
-          <span className="text-xs font-semibold opacity-75">{filter === "pending_corrections" ? "Open" : "View"}</span>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em]">{label}</p>
+          <p className="mt-3 text-3xl font-semibold tracking-tight">{count}</p>
         </div>
       </button>
     );
@@ -1871,7 +1868,7 @@ export function AttendancePage({
             title="Attendance Summary"
             description="Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance."
           >
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
               {renderSummaryCard({
                 label: "Present Today",
                 count: boardCounts.present,
