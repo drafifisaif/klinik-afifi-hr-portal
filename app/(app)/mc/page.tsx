@@ -23,9 +23,11 @@ export default async function McPage({ searchParams }: { searchParams?: Promise<
     );
   }
 
-  const [leaveRows, staffRows] = await Promise.all([
+  const [leaveRows, staffRows, branchRows, profileRows] = await Promise.all([
     fetchRows(context.supabase, "leave_requests", 200),
     fetchRows(context.supabase, "staff", 200),
+    fetchRows(context.supabase, "branches", 100),
+    fetchRows(context.supabase, "profiles", 300),
   ]);
   const initialStatusFilter = getSearchParamValue(resolvedSearchParams.status);
 
@@ -41,8 +43,10 @@ export default async function McPage({ searchParams }: { searchParams?: Promise<
         profile={context.profile}
         role={context.role}
         staffRows={staffRows.rows}
+        branchRows={branchRows.rows}
+        profileRows={profileRows.rows}
         initialStatusFilter={initialStatusFilter}
-        error={leaveRows.error ?? staffRows.error}
+        error={leaveRows.error ?? staffRows.error ?? branchRows.error ?? profileRows.error}
       />
     </div>
   );
