@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeRole } from "@/lib/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
-import { buildLeaveBalanceSummary } from "@/lib/data";
+import { buildLeaveBalanceSummary, choosePreferredStaffRow } from "@/lib/data";
 
 export async function getCurrentUserContext() {
   const supabase = await createClient();
@@ -73,13 +73,13 @@ export async function getCurrentUserContext() {
     });
   }
 
-  const staffData = (staffRows ?? [])[0] ?? null;
+  const staffData = choosePreferredStaffRow((staffRows ?? []) as TableRow[]);
 
   return {
     supabase,
     user,
     profile,
-    staff: (staffData as TableRow | null) ?? null,
+    staff: staffData,
     role: normalizeRole(profile.role),
   };
 }
@@ -106,7 +106,7 @@ export async function fetchLinkedProfileAndStaff(supabase: SupabaseClient, profi
 
   return {
     profile: (profileData as Profile | null) ?? null,
-    staff: ((staffResult.data ?? [])[0] as TableRow | null) ?? null,
+    staff: choosePreferredStaffRow((staffResult.data ?? []) as TableRow[]),
   };
 }
 

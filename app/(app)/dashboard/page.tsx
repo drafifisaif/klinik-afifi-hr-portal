@@ -30,12 +30,14 @@ import { StatusBadge } from "@/components/status-badge";
 import { requireRouteAccess } from "@/lib/auth";
 import {
   buildLeaveBalanceSummary,
+  getMissingStaffEditableProfileFields,
   countExpiringRows,
   countUnreadNotifications,
   filterExpiringRows,
   getNextHoliday,
   getExpiryStatus,
   getOperationVisibleFeedback,
+  isStaffEditableProfileIncomplete,
 } from "@/lib/data";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { cn, daysUntil, formatCountdown, formatDate, formatDateTime, getMalaysiaDateString, getMalaysiaHour, normalizeString } from "@/lib/utils";
@@ -109,24 +111,6 @@ function toBranchOptions(rows: TableRow[]) {
 
 function getBranchName(branches: BranchOption[], branchId?: string | null) {
   return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "Cawangan belum ditetapkan";
-}
-
-function isProfileIncomplete(profile: Profile | null, staff: TableRow | null) {
-  if (!profile || !staff) {
-    return true;
-  }
-
-  const personalFields = [
-    staff.full_name,
-    staff.ic_no,
-    staff.phone,
-    staff.email ?? profile.email,
-    staff.address,
-    staff.emergency_contact_name,
-    staff.emergency_contact_phone,
-  ];
-
-  return personalFields.some((value) => !String(value ?? "").trim()) || !String(profile.avatar_url ?? "").trim();
 }
 
 function isStaffRecordIncomplete(row: TableRow) {
@@ -1087,6 +1071,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const latestEntitlement = entitlementRows.rows[0] ?? null;
   const leaveBalance = buildLeaveBalanceSummary(latestEntitlement, leaveRows.rows);
   const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
+  const missingProfileFields = getMissingStaffEditableProfileFields(context.profile, context.staff);
   const nextApprovedAnnualLeave = [...leaveRows.rows]
     .filter((row) => normalizeString(row.status) === "approved" && normalizeString(row.leave_type) === "annual_leave" && String(row.start_date ?? "").slice(0, 10) >= today)
     .sort((left, right) => String(left.start_date ?? "").localeCompare(String(right.start_date ?? "")))[0] ?? null;
@@ -1103,14 +1088,16 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
         avatarUrl={avatarUrl}
       />
 
-      {isProfileIncomplete(context.profile, context.staff) ? (
+      {isStaffEditableProfileIncomplete(context.profile, context.staff) ? (
         <FormSection title="Profil Belum Lengkap" description="Lengkapkan maklumat peribadi supaya urusan cuti, MC, dan komunikasi HR berjalan lebih lancar.">
           <div className="flex flex-col gap-4 rounded-3xl border border-rose-200 bg-rose-50 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
               <span className="inline-flex w-fit rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">
                 Action needed
               </span>
-              <p className="text-sm text-rose-900">Beberapa maklumat wajib masih belum diisi. Sila upload gambar profil untuk melengkapkan profil anda jika belum dibuat.</p>
+              <p className="text-sm text-rose-900">
+                Maklumat belum lengkap: {missingProfileFields.join(", ")}.
+              </p>
             </div>
             <Link href="/settings" className="inline-flex items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[var(--accent-foreground)]">
               Buka My Profile

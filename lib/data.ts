@@ -220,6 +220,135 @@ export function isStaffRecordIncomplete(row: TableRow) {
   return required.some((value) => !String(value ?? "").trim());
 }
 
+function countCompletedFields(values: unknown[]) {
+  return values.filter((value) => String(value ?? "").trim()).length;
+}
+
+function compareDateLikeDesc(left: unknown, right: unknown) {
+  const leftValue = String(left ?? "").trim();
+  const rightValue = String(right ?? "").trim();
+
+  if (!leftValue && !rightValue) {
+    return 0;
+  }
+
+  if (!leftValue) {
+    return 1;
+  }
+
+  if (!rightValue) {
+    return -1;
+  }
+
+  return rightValue.localeCompare(leftValue);
+}
+
+export function choosePreferredStaffRow(rows: TableRow[]) {
+  if (!rows.length) {
+    return null;
+  }
+
+  return [...rows].sort((left, right) => {
+    const leftActive = normalizeString(left.status) === "active" ? 1 : 0;
+    const rightActive = normalizeString(right.status) === "active" ? 1 : 0;
+    if (leftActive !== rightActive) {
+      return rightActive - leftActive;
+    }
+
+    const leftScore = countCompletedFields([
+      left.full_name,
+      left.ic_no,
+      left.phone,
+      left.email,
+      left.address,
+      left.emergency_contact_name,
+      left.emergency_contact_phone,
+      left.branch_id,
+      left.position,
+      left.department,
+    ]);
+    const rightScore = countCompletedFields([
+      right.full_name,
+      right.ic_no,
+      right.phone,
+      right.email,
+      right.address,
+      right.emergency_contact_name,
+      right.emergency_contact_phone,
+      right.branch_id,
+      right.position,
+      right.department,
+    ]);
+
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+
+    const updatedOrder = compareDateLikeDesc(left.updated_at, right.updated_at);
+    if (updatedOrder !== 0) {
+      return updatedOrder;
+    }
+
+    const createdOrder = compareDateLikeDesc(left.created_at, right.created_at);
+    if (createdOrder !== 0) {
+      return createdOrder;
+    }
+
+    return String(right.id ?? "").localeCompare(String(left.id ?? ""));
+  })[0] ?? null;
+}
+
+export function getMissingStaffEditableProfileFields(
+  profile: Profile | null,
+  staff: TableRow | null,
+) {
+  const missing: string[] = [];
+  const fullName = String(staff?.full_name ?? profile?.full_name ?? "").trim();
+  const phone = String(staff?.phone ?? "").trim();
+  const icNo = String(staff?.ic_no ?? "").trim();
+  const emergencyContactName = String(staff?.emergency_contact_name ?? "").trim();
+  const emergencyContactPhone = String(staff?.emergency_contact_phone ?? "").trim();
+  const address = String(staff?.address ?? "").trim();
+  const avatarUrl = String(profile?.avatar_url ?? "").trim();
+
+  if (!avatarUrl) {
+    missing.push("Profile picture");
+  }
+
+  if (!fullName) {
+    missing.push("Full name");
+  }
+
+  if (!phone) {
+    missing.push("Phone number");
+  }
+
+  if (!icNo) {
+    missing.push("IC / NRIC");
+  }
+
+  if (!emergencyContactName) {
+    missing.push("Emergency contact name");
+  }
+
+  if (!emergencyContactPhone) {
+    missing.push("Emergency contact phone");
+  }
+
+  if (!address) {
+    missing.push("Address");
+  }
+
+  return missing;
+}
+
+export function isStaffEditableProfileIncomplete(
+  profile: Profile | null,
+  staff: TableRow | null,
+) {
+  return getMissingStaffEditableProfileFields(profile, staff).length > 0;
+}
+
 export function countTodayRoster(rows: TableRow[]) {
   const today = getMalaysiaDateString();
   return rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today).length;

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { FileUploadField } from "@/components/file-upload-field";
 import { FormSection } from "@/components/form-section";
+import { choosePreferredStaffRow } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { sanitizeFilename } from "@/lib/utils";
@@ -23,16 +24,10 @@ const inputClass =
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 
-export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageProps) {
-  const router = useRouter();
-  const supabase = createClient();
+function buildFormState(profile: Profile, staff: TableRow | null) {
   const operationalBranchId = String(staff?.branch_id ?? profile.branch_id ?? "");
-  const [message, setMessage] = useState<string | null>(null);
-  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-  const [form, setForm] = useState({
+
+  return {
     full_name: String(staff?.full_name ?? profile.full_name ?? ""),
     ic_no: String(staff?.ic_no ?? ""),
     phone: String(staff?.phone ?? ""),
@@ -45,19 +40,39 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     department: String(staff?.department ?? ""),
     status: String(staff?.status ?? "active"),
     role: String(profile.role ?? "staff"),
-  });
+  };
+}
+
+export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageProps) {
+  const router = useRouter();
+  const supabase = createClient();
+  const [currentProfile, setCurrentProfile] = useState<Profile>(profile);
+  const [currentStaff, setCurrentStaff] = useState<TableRow | null>(staff);
+  const operationalBranchId = String(currentStaff?.branch_id ?? currentProfile.branch_id ?? "");
+  const [message, setMessage] = useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [form, setForm] = useState(() => buildFormState(profile, staff));
   const [passwordForm, setPasswordForm] = useState({
     newPassword: "",
     confirmPassword: "",
   });
 
   const canManageExtended = role === "hr" || role === "super_admin";
-  const hasAvatar = Boolean(String(profile.avatar_url ?? "").trim());
+  const hasAvatar = Boolean(String(currentProfile.avatar_url ?? "").trim());
   const hasBranchMismatch =
     canManageExtended &&
-    String(staff?.branch_id ?? "").trim() &&
-    String(profile.branch_id ?? "").trim() &&
-    String(staff?.branch_id ?? "") !== String(profile.branch_id ?? "");
+    String(currentStaff?.branch_id ?? "").trim() &&
+    String(currentProfile.branch_id ?? "").trim() &&
+    String(currentStaff?.branch_id ?? "") !== String(currentProfile.branch_id ?? "");
+
+  useEffect(() => {
+    setCurrentProfile(profile);
+    setCurrentStaff(staff);
+    setForm(buildFormState(profile, staff));
+  }, [profile, staff]);
 
   useEffect(() => {
     if (!canManageExtended) {
@@ -65,7 +80,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     }
 
     setForm((current) => {
-      const nextBranchId = String(staff?.branch_id ?? profile.branch_id ?? "");
+      const nextBranchId = String(currentStaff?.branch_id ?? currentProfile.branch_id ?? "");
       if (current.branch_id === nextBranchId) {
         return current;
       }
@@ -75,7 +90,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
         branch_id: nextBranchId,
       };
     });
-  }, [canManageExtended, profile.branch_id, staff?.branch_id]);
+  }, [canManageExtended, currentProfile.branch_id, currentStaff?.branch_id]);
 
   function showFriendlyProfileError(error: unknown, contextLabel: string) {
     console.error(`[MyProfilePage] ${contextLabel}`, error);
@@ -92,13 +107,13 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     setIsSubmitting(true);
     setMessage(null);
-    const hadLinkedStaff = Boolean(String(staff?.id ?? "").trim());
+    const hadLinkedStaff = Boolean(String(currentStaff?.id ?? "").trim());
 
-    let avatarPath = String(profile.avatar_url ?? "") || null;
+    let avatarPath = String(currentProfile.avatar_url ?? "") || null;
 
     if (avatarFile) {
       const safeName = sanitizeFilename(avatarFile.name);
-      avatarPath = `profiles/${profile.id}/${new Date().toISOString().slice(0, 10)}-${safeName}`;
+      avatarPath = `profiles/${currentProfile.id}/${new Date().toISOString().slice(0, 10)}-${safeName}`;
 
       const uploadResult = await supabase.storage.from("profile-pictures").upload(avatarPath, avatarFile, {
         upsert: true,
@@ -115,12 +130,12 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     const profilePayload = {
       full_name: form.full_name,
       email: form.email || null,
-      role: canManageExtended ? form.role : profile.role,
+      role: canManageExtended ? form.role : currentProfile.role,
       avatar_url: avatarPath,
     };
 
     const staffPayload = {
-      profile_id: profile.id,
+      profile_id: currentProfile.id,
       full_name: form.full_name,
       ic_no: form.ic_no || null,
       phone: form.phone || null,
@@ -129,12 +144,12 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       emergency_contact_name: form.emergency_contact_name || null,
       emergency_contact_phone: form.emergency_contact_phone || null,
       branch_id: canManageExtended ? form.branch_id || null : operationalBranchId || null,
-      position: canManageExtended ? form.position || null : staff?.position ?? null,
-      department: canManageExtended ? form.department || null : staff?.department ?? null,
-      status: canManageExtended ? form.status : staff?.status ?? "active",
+      position: canManageExtended ? form.position || null : currentStaff?.position ?? null,
+      department: canManageExtended ? form.department || null : currentStaff?.department ?? null,
+      status: canManageExtended ? form.status : currentStaff?.status ?? "active",
     };
 
-    const profileResult = await supabase.from("profiles").update(profilePayload).eq("id", profile.id);
+    const profileResult = await supabase.from("profiles").update(profilePayload).eq("id", currentProfile.id);
 
     if (profileResult.error) {
       setIsSubmitting(false);
@@ -144,11 +159,11 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     let staffResult: { data: { id?: string } | null; error: { message: string } | null };
 
-    if (String(staff?.id ?? "").trim()) {
+    if (String(currentStaff?.id ?? "").trim()) {
       const { data, error } = await supabase
         .from("staff")
         .update(staffPayload)
-        .eq("id", String(staff?.id ?? ""))
+        .eq("id", String(currentStaff?.id ?? ""))
         .select("id")
         .maybeSingle();
       staffResult = {
@@ -159,7 +174,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       const existingLinkedStaff = await supabase
         .from("staff")
         .select("id, profile_id, email, status")
-        .eq("profile_id", profile.id)
+        .eq("profile_id", currentProfile.id)
         .limit(2);
 
       if (existingLinkedStaff.error) {
@@ -168,14 +183,10 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
         return;
       }
 
-      if ((existingLinkedStaff.data ?? []).length > 1) {
-        setIsSubmitting(false);
-        showFriendlyProfileError(existingLinkedStaff.data, "duplicate staff rows detected for profile");
-        return;
-      }
+      const preferredLinkedStaff = choosePreferredStaffRow((existingLinkedStaff.data ?? []) as TableRow[]);
 
-      if ((existingLinkedStaff.data ?? []).length === 1) {
-        const linkedStaffId = String(existingLinkedStaff.data?.[0]?.id ?? "").trim();
+      if (preferredLinkedStaff) {
+        const linkedStaffId = String(preferredLinkedStaff.id ?? "").trim();
         const { data, error } = await supabase
           .from("staff")
           .update(staffPayload)
@@ -208,7 +219,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       return;
     }
 
-    const savedStaffId = String((staffResult.data as { id?: string } | null)?.id ?? staff?.id ?? "").trim();
+    const savedStaffId = String((staffResult.data as { id?: string } | null)?.id ?? currentStaff?.id ?? "").trim();
 
     if (canManageExtended && savedStaffId) {
       const syncResponse = await fetch("/api/staff/branch-sync", {
@@ -229,6 +240,37 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
         return;
       }
     }
+
+    const [refetchedProfileResult, refetchedStaffResult] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", currentProfile.id).maybeSingle(),
+      supabase.from("staff").select("*").eq("profile_id", currentProfile.id).limit(5),
+    ]);
+
+    if (refetchedProfileResult.error) {
+      console.error("[MyProfilePage] refetch profile failed", refetchedProfileResult.error);
+    }
+
+    if (refetchedStaffResult.error) {
+      console.error("[MyProfilePage] refetch staff failed", refetchedStaffResult.error);
+    }
+
+    const refreshedProfile = (refetchedProfileResult.data as Profile | null) ?? currentProfile;
+    const refreshedStaff = choosePreferredStaffRow((refetchedStaffResult.data ?? []) as TableRow[]) ?? currentStaff;
+
+    setCurrentProfile({
+      ...refreshedProfile,
+      email: form.email || refreshedProfile.email || null,
+      role: String(refreshedProfile.role ?? currentProfile.role ?? "staff") as UserRole,
+    });
+    setCurrentStaff(refreshedStaff);
+    setForm(buildFormState(
+      {
+        ...refreshedProfile,
+        email: form.email || refreshedProfile.email || null,
+        role: String(refreshedProfile.role ?? currentProfile.role ?? "staff") as UserRole,
+      },
+      refreshedStaff,
+    ));
 
     setIsSubmitting(false);
 
@@ -278,7 +320,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
   return (
     <div className="space-y-6">
-      {!staff ? (
+      {!currentStaff ? (
         <EmptyState
           title="Complete Staff Profile"
           description="Your account exists, but your linked staff row is still missing. Complete the form below to activate HR workflows like leave, MC, and compliance uploads."
@@ -286,7 +328,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
       ) : null}
 
       <FormSection
-        title={staff ? "My Profile" : "Complete Staff Profile"}
+        title={currentStaff ? "My Profile" : "Complete Staff Profile"}
         description="You can update your personal staff information here. Branch, role, and organizational fields remain controlled by HR unless your role allows more access."
       >
         <form className="space-y-5" onSubmit={handleSubmit}>
@@ -304,7 +346,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
           <FileUploadField
             label="Profile Picture"
             file={avatarFile}
-            storedPath={String(profile.avatar_url ?? "") || null}
+            storedPath={String(currentProfile.avatar_url ?? "") || null}
             helperText="Upload your latest profile photo to the private `profile-pictures` bucket."
             onChange={setAvatarFile}
           />
@@ -349,16 +391,16 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Branch: {branches.find((branch) => branch.id === operationalBranchId)?.name ?? "Not set"}</div>
-              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Position: {String(staff?.position ?? "Not set")}</div>
-              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Department: {String(staff?.department ?? "Not set")}</div>
-              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Status: {String(staff?.status ?? "active")}</div>
+              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Position: {String(currentStaff?.position ?? "Not set")}</div>
+              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Department: {String(currentStaff?.department ?? "Not set")}</div>
+              <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">Status: {String(currentStaff?.status ?? "active")}</div>
             </div>
           )}
 
           {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
           <button type="submit" disabled={isSubmitting} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
-            {staff ? <Save className="h-4 w-4" /> : <UserRoundPlus className="h-4 w-4" />}
-            {isSubmitting ? "Saving..." : staff ? "Update my profile" : "Complete profile"}
+            {currentStaff ? <Save className="h-4 w-4" /> : <UserRoundPlus className="h-4 w-4" />}
+            {isSubmitting ? "Saving..." : currentStaff ? "Update my profile" : "Complete profile"}
           </button>
         </form>
       </FormSection>
