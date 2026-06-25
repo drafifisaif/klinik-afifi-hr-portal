@@ -77,6 +77,11 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
     });
   }, [canManageExtended, profile.branch_id, staff?.branch_id]);
 
+  function showFriendlyProfileError(error: unknown, contextLabel: string) {
+    console.error(`[MyProfilePage] ${contextLabel}`, error);
+    setMessage("Profile could not be updated. Please contact HR/admin if this continues.");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -87,6 +92,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     setIsSubmitting(true);
     setMessage(null);
+    const hadLinkedStaff = Boolean(String(staff?.id ?? "").trim());
 
     let avatarPath = String(profile.avatar_url ?? "") || null;
 
@@ -100,7 +106,8 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
       if (uploadResult.error) {
         setIsSubmitting(false);
-        setMessage(uploadResult.error.message);
+        console.error("[MyProfilePage] profile picture upload failed", uploadResult.error);
+        setMessage("Profile picture could not be uploaded. Please try again.");
         return;
       }
     }
@@ -131,23 +138,73 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     if (profileResult.error) {
       setIsSubmitting(false);
-      setMessage(profileResult.error.message);
+      showFriendlyProfileError(profileResult.error, "profiles update failed");
       return;
     }
 
-    const hasLinkedStaff = Boolean(String(staff?.profile_id ?? "").trim() || String(staff?.id ?? "").trim());
-    const staffQuery = hasLinkedStaff
-      ? supabase.from("staff").update(staffPayload).eq("profile_id", profile.id).select("id").single()
-      : supabase.from("staff").insert({
-          ...staffPayload,
-          date_joined: new Date().toISOString().slice(0, 10),
-        }).select("id").single();
+    let staffResult: { data: { id?: string } | null; error: { message: string } | null };
 
-    const staffResult = await staffQuery;
+    if (String(staff?.id ?? "").trim()) {
+      const { data, error } = await supabase
+        .from("staff")
+        .update(staffPayload)
+        .eq("id", String(staff?.id ?? ""))
+        .select("id")
+        .maybeSingle();
+      staffResult = {
+        data: (data as { id?: string } | null) ?? null,
+        error: error ? { message: error.message } : null,
+      };
+    } else {
+      const existingLinkedStaff = await supabase
+        .from("staff")
+        .select("id, profile_id, email, status")
+        .eq("profile_id", profile.id)
+        .limit(2);
+
+      if (existingLinkedStaff.error) {
+        setIsSubmitting(false);
+        showFriendlyProfileError(existingLinkedStaff.error, "staff lookup by profile_id failed");
+        return;
+      }
+
+      if ((existingLinkedStaff.data ?? []).length > 1) {
+        setIsSubmitting(false);
+        showFriendlyProfileError(existingLinkedStaff.data, "duplicate staff rows detected for profile");
+        return;
+      }
+
+      if ((existingLinkedStaff.data ?? []).length === 1) {
+        const linkedStaffId = String(existingLinkedStaff.data?.[0]?.id ?? "").trim();
+        const { data, error } = await supabase
+          .from("staff")
+          .update(staffPayload)
+          .eq("id", linkedStaffId)
+          .select("id")
+          .maybeSingle();
+        staffResult = {
+          data: (data as { id?: string } | null) ?? null,
+          error: error ? { message: error.message } : null,
+        };
+      } else {
+        const { data, error } = await supabase
+          .from("staff")
+          .insert({
+            ...staffPayload,
+            date_joined: new Date().toISOString().slice(0, 10),
+          })
+          .select("id")
+          .maybeSingle();
+        staffResult = {
+          data: (data as { id?: string } | null) ?? null,
+          error: error ? { message: error.message } : null,
+        };
+      }
+    }
 
     if (staffResult.error) {
       setIsSubmitting(false);
-      setMessage(staffResult.error.message);
+      showFriendlyProfileError(staffResult.error, "staff upsert failed");
       return;
     }
 
@@ -175,7 +232,7 @@ export function MyProfilePage({ profile, staff, branches, role }: MyProfilePageP
 
     setIsSubmitting(false);
 
-    setMessage(avatarPath ? (hasLinkedStaff ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
+    setMessage(avatarPath ? (hadLinkedStaff ? "My profile updated." : "Staff profile completed.") : "Profil disimpan, tetapi sila upload gambar profil untuk melengkapkan profil anda.");
     setAvatarFile(null);
     router.refresh();
   }

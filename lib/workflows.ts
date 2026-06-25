@@ -53,11 +53,27 @@ export async function getCurrentUserContext() {
         role: "staff",
       } as Profile);
 
-  const { data: staffData } = await supabase
+  const { data: staffRows, error: staffLookupError } = await supabase
     .from("staff")
     .select("*")
     .eq("profile_id", user.id)
-    .maybeSingle();
+    .limit(2);
+
+  if (staffLookupError) {
+    console.error("[workflows] staff lookup failed for current user", {
+      userId: user.id,
+      error: staffLookupError,
+    });
+  }
+
+  if ((staffRows ?? []).length > 1) {
+    console.error("[workflows] duplicate staff rows detected for current user profile", {
+      userId: user.id,
+      staffIds: (staffRows ?? []).map((row) => row.id),
+    });
+  }
+
+  const staffData = (staffRows ?? [])[0] ?? null;
 
   return {
     supabase,
@@ -69,14 +85,28 @@ export async function getCurrentUserContext() {
 }
 
 export async function fetchLinkedProfileAndStaff(supabase: SupabaseClient, profileId: string) {
-  const [{ data: profileData }, { data: staffData }] = await Promise.all([
+  const [{ data: profileData }, staffResult] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", profileId).maybeSingle(),
-    supabase.from("staff").select("*").eq("profile_id", profileId).maybeSingle(),
+    supabase.from("staff").select("*").eq("profile_id", profileId).limit(2),
   ]);
+
+  if (staffResult.error) {
+    console.error("[workflows] linked staff lookup failed", {
+      profileId,
+      error: staffResult.error,
+    });
+  }
+
+  if ((staffResult.data ?? []).length > 1) {
+    console.error("[workflows] duplicate linked staff rows detected", {
+      profileId,
+      staffIds: (staffResult.data ?? []).map((row) => row.id),
+    });
+  }
 
   return {
     profile: (profileData as Profile | null) ?? null,
-    staff: (staffData as TableRow | null) ?? null,
+    staff: ((staffResult.data ?? [])[0] as TableRow | null) ?? null,
   };
 }
 
