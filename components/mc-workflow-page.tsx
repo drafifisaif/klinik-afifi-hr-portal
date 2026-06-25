@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { CheckCircle2, FileUp, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileUp, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
@@ -34,6 +34,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
   const [message, setMessage] = useState<string | null>(null);
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [openingFileId, setOpeningFileId] = useState<string | null>(null);
 
   const canUpload = role === "staff" || role === "branch_pic";
   const canReview = role === "super_admin" || role === "hr" || role === "branch_pic";
@@ -57,6 +58,42 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
 
     return scopedRows.filter((row) => String(row.status ?? "").trim().toLowerCase() === normalizedStatusFilter);
   }, [initialStatusFilter, scopedRows]);
+
+  function canViewMcFile(row: TableRow) {
+    if (role === "hr" || role === "super_admin") {
+      return true;
+    }
+
+    return (
+      String(row.profile_id ?? "") === String(profile?.id ?? "") ||
+      String(row.staff_id ?? "") === String(currentStaff?.id ?? "")
+    );
+  }
+
+  async function handleViewMc(rowId: string) {
+    setReviewMessage(null);
+    setMessage(null);
+    setOpeningFileId(rowId);
+
+    try {
+      const response = await fetch(`/api/mc/file?id=${encodeURIComponent(rowId)}`, {
+        method: "GET",
+      });
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result?.url) {
+        setReviewMessage(String(result?.error ?? "Unable to open MC file."));
+        setOpeningFileId(null);
+        return;
+      }
+
+      window.open(String(result.url), "_blank", "noopener,noreferrer");
+    } catch {
+      setReviewMessage("Unable to open MC file.");
+    } finally {
+      setOpeningFileId(null);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,6 +199,12 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                       <p className="whitespace-pre-line text-xs text-[var(--muted-foreground)]"><span className="font-semibold text-[var(--foreground)]">Reviewed:</span> {row.reviewed_at ? `${formatDateTime(row.reviewed_at)}${row.review_note ? `\n${String(row.review_note)}` : ""}` : "-"}</p>
                     </div>
                     <div className="mt-4 flex flex-col gap-2">
+                      {canViewMcFile(row) ? (
+                        <button type="button" onClick={() => handleViewMc(String(row.id))} disabled={openingFileId === String(row.id)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm font-semibold text-[var(--foreground)] disabled:opacity-70">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          {openingFileId === String(row.id) ? "Opening..." : "View MC"}
+                        </button>
+                      ) : null}
                       {canReview ? (
                         <>
                           <button type="button" onClick={() => handleReview(String(row.id), "approved")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700">
@@ -185,14 +228,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                 <table className="min-w-full divide-y divide-[var(--border)] text-left">
                   <thead className="bg-[var(--card-muted)]/70">
                     <tr>
-                      {[
-                        "Staff",
-                        "Date",
-                        "File",
-                        "Status",
-                        "Reviewed",
-                        "Action",
-                      ].map((label) => (
+                      {["Staff", "Date", "File", "Status", "Reviewed", "Action"].map((label) => (
                         <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
                       ))}
                     </tr>
@@ -208,6 +244,12 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                         <td className="px-4 py-4 text-sm">
                           {canReview ? (
                             <div className="flex flex-wrap gap-2">
+                              {canViewMcFile(row) ? (
+                                <button type="button" onClick={() => handleViewMc(String(row.id))} disabled={openingFileId === String(row.id)} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)] disabled:opacity-70">
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  {openingFileId === String(row.id) ? "Opening..." : "View MC"}
+                                </button>
+                              ) : null}
                               <button type="button" onClick={() => handleReview(String(row.id), "approved")} className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Approve
@@ -217,6 +259,11 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                                 Reject
                               </button>
                             </div>
+                          ) : canViewMcFile(row) ? (
+                            <button type="button" onClick={() => handleViewMc(String(row.id))} disabled={openingFileId === String(row.id)} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)] disabled:opacity-70">
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              {openingFileId === String(row.id) ? "Opening..." : "View MC"}
+                            </button>
                           ) : (
                             <span className="text-xs text-[var(--muted-foreground)]">View only</span>
                           )}
