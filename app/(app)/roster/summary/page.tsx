@@ -4,7 +4,11 @@ import { RosterSummaryPage } from "@/components/roster-summary-page";
 import { requireRouteAccess } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { BranchOption, Profile, TableRow } from "@/lib/types";
-import { getMalaysiaDateString, normalizeString } from "@/lib/utils";
+import {
+  calculateNetScheduledMinutesDetails,
+  getMalaysiaDateString,
+  normalizeString,
+} from "@/lib/utils";
 
 type PageSearchParams = Record<string, string | string[] | undefined>;
 
@@ -41,41 +45,13 @@ function toBranchOptions(rows: TableRow[]) {
     .map((row) => ({
       id: String(row.id ?? ""),
       name: String(row.name ?? row.branch_name ?? row.id),
+      code: String(row.code ?? ""),
     }))
     .filter((row) => row.id) as BranchOption[];
 }
 
 function resolveOperationalBranchId(staff: TableRow | null, profile: Profile | null) {
   return String(staff?.branch_id ?? profile?.branch_id ?? "");
-}
-
-function parseTimeToMinutes(value: unknown) {
-  const raw = String(value ?? "").trim().slice(0, 8);
-  if (!raw) {
-    return null;
-  }
-
-  const parts = raw.split(":").map(Number);
-  if (parts.length < 2 || parts.some((part) => Number.isNaN(part))) {
-    return null;
-  }
-
-  return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
-}
-
-function calculateScheduledMinutes(start: unknown, end: unknown) {
-  const startMinutes = parseTimeToMinutes(start);
-  const endMinutes = parseTimeToMinutes(end);
-
-  if (startMinutes === null || endMinutes === null) {
-    return 0;
-  }
-
-  if (endMinutes >= startMinutes) {
-    return endMinutes - startMinutes;
-  }
-
-  return (24 * 60) - startMinutes + endMinutes;
 }
 
 function formatTimeLabel(value: unknown) {
@@ -311,6 +287,8 @@ export default async function RosterSummaryRoute({ searchParams }: { searchParam
       date: string;
       shiftLabel: string;
       scheduledMinutes: number;
+      grossMinutes: number;
+      breakMinutes: number;
       countedWorkedMinutes: number;
       status: string;
       checkInAt: string | null;
@@ -335,7 +313,17 @@ export default async function RosterSummaryRoute({ searchParams }: { searchParam
     const attendanceRow = attendanceMap.get(`${staffId}:${rosterDate}`) ?? null;
     const startTime = rosterRow.custom_start_time ?? rosterRow.start_time ?? null;
     const endTime = rosterRow.custom_end_time ?? rosterRow.end_time ?? null;
-    const scheduledMinutes = calculateScheduledMinutes(startTime, endTime);
+    const branchCode = String(
+      branches.find((branch) => branch.id === branchId)?.code
+      ?? "",
+    );
+    const scheduleDetails = calculateNetScheduledMinutesDetails({
+      branchCode,
+      rosterDate,
+      startTime,
+      endTime,
+    });
+    const scheduledMinutes = scheduleDetails.netMinutes;
     const isFuture = rosterDate > today;
     const status = resolveDailyStatus(attendanceRow, isFuture);
     const countedWorkedMinutes = shouldCountWorkedStatus(status) ? scheduledMinutes : 0;
@@ -391,6 +379,8 @@ export default async function RosterSummaryRoute({ searchParams }: { searchParam
       date: rosterDate,
       shiftLabel: formatShiftLabel(startTime, endTime),
       scheduledMinutes,
+      grossMinutes: scheduleDetails.grossMinutes,
+      breakMinutes: scheduleDetails.breakMinutes,
       countedWorkedMinutes,
       status,
       checkInAt: attendanceRow?.check_in_at ? String(attendanceRow.check_in_at) : null,

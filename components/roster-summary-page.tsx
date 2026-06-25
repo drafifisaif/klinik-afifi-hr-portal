@@ -2,12 +2,14 @@ import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import type { BranchOption, UserRole } from "@/lib/types";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime, formatMinutesAsHours } from "@/lib/utils";
 
 interface SummaryDayRow {
   date: string;
   shiftLabel: string;
   scheduledMinutes: number;
+  grossMinutes: number;
+  breakMinutes: number;
   countedWorkedMinutes: number;
   status: string;
   checkInAt: string | null;
@@ -48,21 +50,6 @@ interface RosterSummaryPageProps {
   emptyTitle?: string;
   emptyDescription?: string;
   error?: string | null;
-}
-
-function formatMinutesAsHours(minutes: number) {
-  if (minutes <= 0) {
-    return "0h";
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-
-  if (!remainder) {
-    return `${hours}h`;
-  }
-
-  return `${hours}h ${remainder}m`;
 }
 
 function toRoleLabel(value: string) {
@@ -249,7 +236,9 @@ export function RosterSummaryPage({
                           </div>
                         </div>
                         <div className="mt-4 grid gap-3 text-sm text-[var(--foreground)] md:grid-cols-2 xl:grid-cols-3">
-                          <p><span className="font-semibold">Scheduled Hours:</span> {formatMinutesAsHours(day.scheduledMinutes)}</p>
+                          <p><span className="font-semibold">Gross Hours:</span> {formatMinutesAsHours(day.grossMinutes)}</p>
+                          <p><span className="font-semibold">Break Deducted:</span> {formatMinutesAsHours(day.breakMinutes)}</p>
+                          <p><span className="font-semibold">Net Scheduled Hours:</span> {formatMinutesAsHours(day.scheduledMinutes)}</p>
                           <p><span className="font-semibold">Counted Worked Hours:</span> {formatMinutesAsHours(day.countedWorkedMinutes)}</p>
                           <p><span className="font-semibold">Late Minutes:</span> {day.lateMinutes}</p>
                           <p><span className="font-semibold">Check In:</span> {day.checkInAt ? formatDateTime(day.checkInAt) : "-"}</p>

@@ -68,6 +68,7 @@ export default async function AttendanceRoute() {
       return {
         id: String(row.id ?? ""),
         name: String(row.name ?? row.branch_name ?? row.id),
+        code: String(row.code ?? ""),
         latitude: Number.isFinite(latitude) ? latitude : null,
         longitude: Number.isFinite(longitude) ? longitude : null,
         gps_radius_meters: Number.isFinite(radius) ? radius : null,

@@ -10,7 +10,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import {
+  calculateNetScheduledMinutesDetails,
   cn,
+  formatMinutesAsHours,
   formatDate,
   formatDateTime,
   getMalaysiaDateString,
@@ -327,6 +329,10 @@ function MinuteAlertBadge({ tone, text }: { tone: "late" | "early"; text: string
   );
 }
 
+function getBranchCode(branchRows: BranchOption[], branchId: string) {
+  return String(branchRows.find((branch) => branch.id === branchId)?.code ?? "");
+}
+
 export function AttendancePage({
   attendanceRows,
   adjustmentRows,
@@ -456,6 +462,12 @@ export function AttendancePage({
 
   const todayScheduledStart = buildScheduledDateTime(todayRoster, activeShiftTemplate, "start");
   const todayScheduledEnd = buildScheduledDateTime(todayRoster, activeShiftTemplate, "end");
+  const todayScheduleDetails = calculateNetScheduledMinutesDetails({
+    branchCode: getBranchCode(branchRows, operationalBranchId),
+    rosterDate: String(todayRoster?.roster_date ?? today),
+    startTime: todayRoster?.custom_start_time ?? activeShiftTemplate?.start_time ?? null,
+    endTime: todayRoster?.custom_end_time ?? activeShiftTemplate?.end_time ?? null,
+  });
   const todayStatus = computeAttendanceStatus(todayAttendance, graceMinutes);
   const todayLateMinutes = Number(todayAttendance?.late_minutes ?? computeLateMinutes(todayAttendance?.check_in_at, todayAttendance?.scheduled_start ?? todayScheduledStart, graceMinutes));
   const todayEarlyLeaveGraceMinutes = Number(scopedTodaySetting?.early_leave_grace_minutes ?? 10) || 10;
@@ -481,6 +493,13 @@ export function AttendancePage({
             String(row.created_at ?? "").slice(0, 10) === date),
       ) ?? null;
 
+      const scheduleDetails = calculateNetScheduledMinutesDetails({
+        branchCode: getBranchCode(branchRows, operationalBranchId),
+        rosterDate: date,
+        startTime: rosterRow?.custom_start_time ?? template?.start_time ?? null,
+        endTime: rosterRow?.custom_end_time ?? template?.end_time ?? null,
+      });
+
       return {
         date,
         attendanceRow,
@@ -488,6 +507,7 @@ export function AttendancePage({
         template,
         correction,
         earlyLeaveMinutes: Number(attendanceRow?.early_leave_minutes ?? computeEarlyLeaveMinutes(attendanceRow?.check_out_at, attendanceRow?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end"), todayEarlyLeaveGraceMinutes)),
+        scheduledNetMinutes: scheduleDetails.netMinutes,
       };
     })
     .filter((row) => row.attendanceRow || row.rosterRow || row.correction);
@@ -552,6 +572,12 @@ export function AttendancePage({
       : computeAttendanceStatus(record, rowGraceMinutes);
     const scheduledStart = record?.scheduled_start ?? buildScheduledDateTime(rosterRow, template, "start");
     const scheduledEnd = record?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end");
+    const scheduleDetails = calculateNetScheduledMinutesDetails({
+      branchCode: getBranchCode(branchRows, branchId),
+      rosterDate: selectedBoardDate,
+      startTime: rosterRow?.custom_start_time ?? template?.start_time ?? null,
+      endTime: rosterRow?.custom_end_time ?? template?.end_time ?? null,
+    });
     const lateMinutes = Number(record?.late_minutes ?? computeLateMinutes(record?.check_in_at, scheduledStart, rowGraceMinutes));
     const earlyLeaveMinutes = Number(record?.early_leave_minutes ?? computeEarlyLeaveMinutes(record?.check_out_at, scheduledEnd, rowEarlyLeaveGraceMinutes));
     const autoAbsentAfterMinutes = Number(branchSetting?.auto_absent_after_minutes ?? 60) || 60;
@@ -578,6 +604,7 @@ export function AttendancePage({
       lateMinutes,
       scheduledStart,
       scheduledEnd,
+      scheduledNetMinutes: scheduleDetails.netMinutes,
       earlyLeaveMinutes,
       checkInIp: String(record?.check_in_ip ?? ""),
       checkOutIp: String(record?.check_out_ip ?? ""),
@@ -1194,7 +1221,8 @@ export function AttendancePage({
                 </div>
                 <div className="rounded-3xl bg-white/85 px-5 py-5">
                   <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Scheduled hours</p>
-                  <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">
+                  <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{formatMinutesAsHours(todayScheduleDetails.netMinutes)}</p>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                     {formatShortTime(todayAttendance?.scheduled_start ?? todayScheduledStart)} - {formatShortTime(todayAttendance?.scheduled_end ?? todayScheduledEnd)}
                   </p>
                 </div>
@@ -1339,6 +1367,7 @@ export function AttendancePage({
                         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                           {getShiftName(entry.rosterRow, entry.template)} · {formatShortTime(entry.attendanceRow?.scheduled_start ?? buildScheduledDateTime(entry.rosterRow, entry.template, "start"))} - {formatShortTime(entry.attendanceRow?.scheduled_end ?? buildScheduledDateTime(entry.rosterRow, entry.template, "end"))}
                         </p>
+                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">Scheduled hours: {formatMinutesAsHours(entry.scheduledNetMinutes)}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <StatusBadge value={status} />
@@ -1351,6 +1380,7 @@ export function AttendancePage({
                       <p><span className="font-semibold">Check out:</span> {formatShortTime(entry.attendanceRow?.check_out_at)}</p>
                       <p><span className="font-semibold">Late minutes:</span> {String(entry.attendanceRow?.late_minutes ?? computeLateMinutes(entry.attendanceRow?.check_in_at, entry.attendanceRow?.scheduled_start, graceMinutes))}</p>
                       <p><span className="font-semibold">Early leave:</span> {entry.earlyLeaveMinutes > 0 ? `${entry.earlyLeaveMinutes} min` : "-"}</p>
+                      <p><span className="font-semibold">Scheduled hours:</span> {formatMinutesAsHours(entry.scheduledNetMinutes)}</p>
                       <p><span className="font-semibold">Correction status:</span> {String(entry.correction?.status ?? "-")}</p>
                     </div>
                   </article>
@@ -1446,7 +1476,7 @@ export function AttendancePage({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-base font-semibold text-[var(--foreground)]">{String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
-                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)} · {getShiftName(row.rosterRow, row.template)} · {formatShortTime(row.scheduledStart)} - {formatShortTime(row.scheduledEnd)}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)} · {getShiftName(row.rosterRow, row.template)} · {formatShortTime(row.scheduledStart)} - {formatShortTime(row.scheduledEnd)} · {formatMinutesAsHours(row.scheduledNetMinutes)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge value={row.status} />
