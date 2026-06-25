@@ -78,6 +78,9 @@ interface AttendanceSnapshotRow {
   lateMinutes: number;
   checkInLocationStatus: string;
   checkOutLocationStatus: string;
+  shiftLabel: string;
+  checkInAt: string | null;
+  checkOutAt: string | null;
 }
 
 function greetingByTime() {
@@ -356,6 +359,7 @@ function buildAttendanceSnapshotRows({
   attendanceRows,
   settingRows,
   staffRows,
+  shiftTemplateRows,
   leaveRows,
   branches,
   date,
@@ -365,6 +369,7 @@ function buildAttendanceSnapshotRows({
   attendanceRows: TableRow[];
   settingRows: TableRow[];
   staffRows: TableRow[];
+  shiftTemplateRows: TableRow[];
   leaveRows: TableRow[];
   branches: BranchOption[];
   date: string;
@@ -431,6 +436,9 @@ function buildAttendanceSnapshotRows({
         lateMinutes,
         checkInLocationStatus: String(attendanceRow?.check_in_location_status ?? "location_unavailable"),
         checkOutLocationStatus: String(attendanceRow?.check_out_location_status ?? "location_unavailable"),
+        shiftLabel: `${getShiftName(rosterRow, shiftTemplateRows)} · ${getTimeRange(rosterRow, shiftTemplateRows)}`,
+        checkInAt: attendanceRow?.check_in_at ? String(attendanceRow.check_in_at) : null,
+        checkOutAt: attendanceRow?.check_out_at ? String(attendanceRow.check_out_at) : null,
       };
     });
 }
@@ -613,10 +621,22 @@ function TodayAttendanceSnapshot({
   title,
   description,
   rows,
+  branches,
+  selectedBranchId = "all",
+  selectedDate = getMalaysiaDateString(),
+  activeFilter = "all",
+  pendingCorrectionsCount = 0,
+  interactive = false,
 }: {
   title: string;
   description: string;
   rows: AttendanceSnapshotRow[];
+  branches?: BranchOption[];
+  selectedBranchId?: string;
+  selectedDate?: string;
+  activeFilter?: string;
+  pendingCorrectionsCount?: number;
+  interactive?: boolean;
 }) {
   const counters = {
     present: rows.filter((row) => row.status === "present").length,
@@ -626,6 +646,24 @@ function TodayAttendanceSnapshot({
     notPunchedIn: rows.filter((row) => row.status === "not_punched_in").length,
     outsideLocation: rows.filter((row) => row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location").length,
   };
+  const filteredRows = rows.filter((row) => {
+    if (activeFilter === "present") {
+      return row.status === "present";
+    }
+    if (activeFilter === "late") {
+      return row.status === "late" || row.lateMinutes > 0;
+    }
+    if (activeFilter === "absent") {
+      return row.status === "absent";
+    }
+    if (activeFilter === "incomplete") {
+      return row.status === "incomplete";
+    }
+    if (activeFilter === "outside_location") {
+      return row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location";
+    }
+    return true;
+  });
 
   const urgentRows = rows
     .filter((row) => ["late", "absent", "incomplete"].includes(normalizeString(row.status)))
@@ -635,72 +673,234 @@ function TodayAttendanceSnapshot({
     })
     .slice(0, 5);
 
+  function buildDashboardHref(filter?: string) {
+    const params = new URLSearchParams();
+    if (selectedBranchId && selectedBranchId !== "all") {
+      params.set("attendance_branch", selectedBranchId);
+    }
+    if (selectedDate) {
+      params.set("attendance_date", selectedDate);
+    }
+    if (filter && filter !== "all") {
+      params.set("attendance_filter", filter);
+    }
+    const query = params.toString();
+    return query ? `/dashboard?${query}` : "/dashboard";
+  }
+
+  function getFilterLabel(filter: string) {
+    switch (filter) {
+      case "present":
+        return "Present Today";
+      case "late":
+        return "Late Today";
+      case "absent":
+        return "Absent Today";
+      case "incomplete":
+        return "Incomplete Punch";
+      case "outside_location":
+        return "Outside Location";
+      default:
+        return "All rostered staff";
+    }
+  }
+
+  function renderSnapshotCard({
+    label,
+    count,
+    toneClass,
+    filter,
+  }: {
+    label: string;
+    count: number;
+    toneClass: string;
+    filter: string;
+  }) {
+    const selected = activeFilter === filter;
+    const cardClass = cn(
+      "h-full rounded-[24px] border px-4 py-4",
+      toneClass,
+      interactive ? "cursor-pointer transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_55px_rgba(18,42,44,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white" : "",
+      selected ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white" : "",
+    );
+
+    const content = (
+      <div className={cardClass}>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em]">{label}</p>
+        <p className="mt-2 text-3xl font-semibold tracking-tight">{count}</p>
+      </div>
+    );
+
+    if (!interactive) {
+      return content;
+    }
+
+    return (
+      <Link href={buildDashboardHref(filter)} className="block rounded-[24px] focus-visible:outline-none">
+        {content}
+      </Link>
+    );
+  }
+
   return (
     <FormSection
       title={title}
       description={description}
       className="overflow-visible"
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{counters.present}</p>
-        </div>
-        <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.late}</p>
-        </div>
-        <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{counters.absent}</p>
-        </div>
-        <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{counters.incomplete}</p>
-        </div>
-        <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Not Punched In</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{counters.notPunchedIn}</p>
-        </div>
-        <div className="rounded-[24px] border border-orange-200 bg-orange-50/75 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Outside Location Punches</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.outsideLocation}</p>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/45 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-[var(--foreground)]">Urgent alerts</p>
-            <p className="mt-1 text-sm text-[var(--muted-foreground)]">Lewat, absent, dan punch tidak lengkap untuk tindakan cepat hari ini.</p>
+      {interactive ? (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {renderSnapshotCard({ label: "Present Today", count: counters.present, toneClass: "border-emerald-200 bg-emerald-50/70 text-emerald-800", filter: "present" })}
+            {renderSnapshotCard({ label: "Late Today", count: counters.late, toneClass: "border-orange-200 bg-orange-50/80 text-orange-800", filter: "late" })}
+            {renderSnapshotCard({ label: "Absent Today", count: counters.absent, toneClass: "border-rose-200 bg-rose-50/80 text-rose-800", filter: "absent" })}
+            {renderSnapshotCard({ label: "Incomplete Punch", count: counters.incomplete, toneClass: "border-amber-200 bg-amber-50/80 text-amber-800", filter: "incomplete" })}
+            {renderSnapshotCard({ label: "Outside Location", count: counters.outsideLocation, toneClass: "border-orange-200 bg-orange-50/75 text-orange-800", filter: "outside_location" })}
+            {renderSnapshotCard({ label: "Pending Corrections", count: pendingCorrectionsCount, toneClass: "border-slate-200 bg-slate-50/85 text-slate-800", filter: "pending_corrections" })}
           </div>
-          <Link href="/attendance" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white sm:w-auto">
-            <Clock3 className="h-4 w-4" />
-            Open Attendance Board
-          </Link>
-        </div>
 
-        <div className="mt-4 space-y-3">
-          {urgentRows.length ? (
-            urgentRows.map((row) => (
-              <div key={row.id} className={cn("flex flex-col gap-3 rounded-[22px] border px-4 py-4 sm:flex-row sm:items-center sm:justify-between", getAttendanceStatusTone(row.status))}>
-                <div>
-                  <p className="text-sm font-semibold text-[var(--foreground)]">{row.staffName}</p>
-                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">{row.branchName}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge value={row.status} />
-                  {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
-                </div>
+          <div className="mt-6 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/45 p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[var(--foreground)]">Today Attendance Board</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Review who is working today, who is late, absent, or needs follow-up.</p>
               </div>
-            ))
-          ) : (
-            <div className="rounded-[22px] border border-dashed border-[var(--border)] bg-white/80 px-4 py-5 text-sm text-[var(--muted-foreground)]">
-              Tiada alert attendance yang mendesak untuk hari ini.
+              <form className="grid gap-3 md:grid-cols-3" action="/dashboard">
+                <input type="hidden" name="attendance_filter" value={activeFilter === "all" ? "" : activeFilter} />
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</span>
+                  <select name="attendance_branch" defaultValue={selectedBranchId} className="h-11 w-full rounded-2xl border border-[var(--border)] bg-white px-4 text-sm text-[var(--foreground)] outline-none">
+                    <option value="all">All branches</option>
+                    {branches?.map((branch) => (
+                      <option key={branch.id} value={branch.id}>{branch.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Date</span>
+                  <input type="date" name="attendance_date" defaultValue={selectedDate} className="h-11 w-full rounded-2xl border border-[var(--border)] bg-white px-4 text-sm text-[var(--foreground)] outline-none" />
+                </label>
+                <button type="submit" className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white">
+                  Apply
+                </button>
+              </form>
             </div>
-          )}
-        </div>
-      </div>
+
+            {activeFilter !== "all" ? (
+              <div className="mt-4 flex flex-col gap-3 rounded-[20px] border border-[var(--border)] bg-white/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-semibold text-[var(--foreground)]">Showing: {getFilterLabel(activeFilter)}</p>
+                <Link href={buildDashboardHref("all")} className="inline-flex h-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)]">
+                  Clear filter
+                </Link>
+              </div>
+            ) : null}
+
+            <div className="mt-5 space-y-3">
+              {filteredRows.length ? (
+                filteredRows.map((row) => (
+                  <div key={row.id} className={cn("flex flex-col gap-4 rounded-[22px] border px-4 py-4", getAttendanceStatusTone(row.status))}>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{row.staffName}</p>
+                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{row.branchName}</p>
+                        <p className="mt-2 text-sm text-[var(--foreground)]">{row.shiftLabel}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge value={row.status} />
+                        {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
+                        {(row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location") ? <StatusBadge value="outside location" /> : null}
+                      </div>
+                    </div>
+                    <div className="grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2 xl:grid-cols-4">
+                      <p><span className="font-semibold">Check in:</span> {row.checkInAt ? formatDateTime(row.checkInAt) : "-"}</p>
+                      <p><span className="font-semibold">Check out:</span> {row.checkOutAt ? formatDateTime(row.checkOutAt) : "-"}</p>
+                      <p><span className="font-semibold">Location:</span> {row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location" ? "Outside Location" : "OK"}</p>
+                      <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes || 0}</p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState title="No staff found for this attendance status." description="No staff found for this attendance status." />
+              )}
+            </div>
+
+            <div id="hr-pending-corrections" className="mt-6 rounded-[22px] border border-[var(--border)] bg-white/80 px-4 py-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">Pending correction handling</p>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">{pendingCorrectionsCount} correction request sedang menunggu semakan HR.</p>
+                </div>
+                <Link href="/attendance" className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white">
+                  Open Attendance Board
+                </Link>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{counters.present}</p>
+            </div>
+            <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.late}</p>
+            </div>
+            <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{counters.absent}</p>
+            </div>
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{counters.incomplete}</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Not Punched In</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{counters.notPunchedIn}</p>
+            </div>
+            <div className="rounded-[24px] border border-orange-200 bg-orange-50/75 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Outside Location Punches</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{counters.outsideLocation}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/45 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[var(--foreground)]">Urgent alerts</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Lewat, absent, dan punch tidak lengkap untuk tindakan cepat hari ini.</p>
+              </div>
+              <Link href="/attendance" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white sm:w-auto">
+                <Clock3 className="h-4 w-4" />
+                Open Attendance Board
+              </Link>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {urgentRows.length ? (
+                urgentRows.map((row) => (
+                  <div key={row.id} className={cn("flex flex-col gap-3 rounded-[22px] border px-4 py-4 sm:flex-row sm:items-center sm:justify-between", getAttendanceStatusTone(row.status))}>
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--foreground)]">{row.staffName}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{row.branchName}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge value={row.status} />
+                      {row.lateMinutes > 0 ? <StatusBadge value={`${row.lateMinutes} min late`} /> : null}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-[22px] border border-dashed border-[var(--border)] bg-white/80 px-4 py-5 text-sm text-[var(--muted-foreground)]">
+                  Tiada alert attendance yang mendesak untuk hari ini.
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </FormSection>
   );
 }
@@ -930,31 +1130,6 @@ function renderFeedbackItem(
   );
 }
 
-function renderStaffProfileItem(row: TableRow, branches: BranchOption[]) {
-  return (
-    <div key={String(row.id ?? row.profile_id ?? row.created_at)} className="rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/55 px-5 py-4">
-      <p className="text-sm font-semibold text-[var(--foreground)]">{String(row.full_name ?? row.email ?? row.id ?? "Staff")}</p>
-      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(branches, String(row.branch_id ?? ""))} · {String(row.position ?? "Jawatan belum ditetapkan")}</p>
-    </div>
-  );
-}
-
-function renderComplianceItem(row: TableRow, staffRows: TableRow[]) {
-  const staff = staffRows.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
-  const expiryStatus = getExpiryStatus(row);
-  return (
-    <div key={String(row.id ?? `${row.staff_id}-${row.document_name}`)} className="rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/55 px-5 py-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-[var(--foreground)]">{String(row.document_name ?? "Dokumen")}</p>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(staff?.full_name ?? row.staff_id ?? "-")} · {formatDate(row.expiry_date)}</p>
-        </div>
-        <StatusBadge value={expiryStatus.label.replaceAll("_", " ")} />
-      </div>
-    </div>
-  );
-}
-
 async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
   const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const staffId = String(context.staff?.id ?? "");
@@ -1082,6 +1257,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     attendanceRows: attendanceRows.rows,
     settingRows: attendanceSettingsRows.rows,
     staffRows: branchStaffRows.rows,
+    shiftTemplateRows: shiftTemplates.rows,
     leaveRows: branchLeaveScopeRows.rows,
     branches,
     date: today,
@@ -1175,17 +1351,28 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   );
 }
 
-async function loadHrDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
-  const profileId = String(context.profile?.id ?? context.user?.id ?? "");
-  const [notifications, leaveRows, staffDocs, feedbackRows, staffRows, attendanceRows, rosterRows, attendanceSettingsRows] = await Promise.all([
-    queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
+async function loadHrDashboard(
+  supabase: SupabaseClient,
+  context: DashboardContextLike,
+  branches: BranchOption[],
+  options?: {
+    attendanceBranchId?: string;
+    attendanceDate?: string;
+    attendanceFilter?: string;
+  },
+) {
+  const attendanceDate = options?.attendanceDate || getMalaysiaDateString();
+  const attendanceBranchId = options?.attendanceBranchId || "all";
+  const attendanceFilter = options?.attendanceFilter || "all";
+  const [leaveRows, staffDocs, feedbackRows, staffRows, attendanceRows, rosterRows, attendanceSettingsRows, adjustmentRows] = await Promise.all([
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
     queryRows(() => supabase.from("feedbacks").select("*").limit(250)),
     queryRows(() => supabase.from("staff").select("*").limit(300)),
-    queryRows(() => supabase.from("attendance_records").select("*").gte("attendance_date", getMalaysiaDateString()).limit(300)),
-    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", getMalaysiaDateString()).limit(300)),
+    queryRows(() => supabase.from("attendance_records").select("*").eq("attendance_date", attendanceDate).limit(300)),
+    queryRows(() => supabase.from("rosters").select("*").eq("roster_date", attendanceDate).limit(300)),
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
+    queryRows(() => supabase.from("attendance_adjustments").select("*").eq("status", "pending").limit(120)),
   ]);
 
   const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus);
@@ -1209,67 +1396,62 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
     const docText = `${normalizeString(row.document_name)} ${normalizeString(row.document_type)}`;
     return docText.includes("juruxray") || docText.includes("cme") || docText.includes("medical checkup");
   });
-  const completedProfiles = staffRows.rows.filter((row) => !isStaffRecordIncomplete(row)).slice(0, 5);
   const attendanceSnapshotRows = buildAttendanceSnapshotRows({
     rosterRows: rosterRows.rows,
     attendanceRows: attendanceRows.rows,
     settingRows: attendanceSettingsRows.rows,
     staffRows: staffRows.rows,
+    shiftTemplateRows: [],
     leaveRows: leaveRows.rows,
     branches,
-    date: getMalaysiaDateString(),
-    branchScope: "all",
+    date: attendanceDate,
+    branchScope: attendanceBranchId,
   });
+  const pendingCorrections = adjustmentRows.rows.filter((row) =>
+    attendanceBranchId === "all" ? true : String(row.branch_id ?? "") === attendanceBranchId,
+  );
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, leaveRows.error, staffDocs.error, feedbackRows.error, staffRows.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error]} />
-      <PageHeader title="HR Dashboard" description="Action queue yang jelas untuk approval, compliance, dan staff profile supaya pasukan HR boleh bergerak ikut keutamaan harian." />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Pending Leave" value={pendingLeave.length} description="Permohonan cuti menunggu semakan." icon={ClipboardList} tone={pendingLeave.length > 0 ? "alert" : "neutral"} href="/leave?status=pending" />
-        <StatCard title="Pending MC Review" value={pendingMc.length} description="MC atau medical leave yang belum ditutup." icon={Upload} tone={pendingMc.length > 0 ? "alert" : "neutral"} href="/mc?status=pending" />
-        <StatCard title="Pending Staff Doc Review" value={pendingDocReview.length} description="Dokumen staff yang masih perlu review." icon={FileBadge} tone={pendingDocReview.length > 0 ? "alert" : "neutral"} href="/staff-compliance?status=pending" />
-        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff yang masih belum lengkap." icon={UserRound} tone={incompleteProfiles.length > 0 ? "alert" : "neutral"} href="/staff?profile=incomplete" />
-        <StatCard title="New HR Feedback" value={hrFeedback.length} description="Feedback baru yang perlukan perhatian HR." icon={MessageSquareMore} tone={hrFeedback.length > 0 ? "alert" : "neutral"} href="/feedback/manage?status=new&department=hr" />
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Staff Docs Expiring Soon" value={expiringSoonDocs.length} description="Dokumen staff hampir tamat tempoh." icon={FileSearch} tone={expiringSoonDocs.length > 0 ? "warning" : "neutral"} href="/staff-compliance?filter=expiring_soon" />
-        <StatCard title="Expired Staff Docs" value={expiredDocs.length} description="Dokumen staff yang telah tamat tempoh." icon={ShieldAlert} tone={expiredDocs.length > 0 ? "alert" : "neutral"} href="/staff-compliance?filter=expired" />
-        <StatCard title="Doctor APC/MMC Risk" value={doctorApc.length} description="Dokumen APC atau MMC doktor yang hampir tamat tempoh." icon={Stethoscope} tone={doctorApc.length > 0 ? "warning" : "neutral"} href="/staff-compliance?filter=doctor_apc_mmc_risk" />
-        <StatCard title="Juruxray / CME Risk" value={juruxrayDocs.length} description="Juruxray, CME, atau medical checkup yang hampir tamat tempoh." icon={ShieldCheck} tone={juruxrayDocs.length > 0 ? "warning" : "neutral"} href="/staff-compliance?filter=juruxray_cme_risk" />
-      </section>
-
-      <QuickActions
-        title="Quick Actions"
-        actions={[
-          { href: "/leave", label: "Review Leave", helper: "Semak queue cuti dan MC" },
-          { href: "/mc", label: "Review MC", helper: "Lihat MC yang baru dihantar" },
-          { href: "/attendance", label: "Open Attendance Board", helper: "Pantau hadir, lewat, dan absent hari ini" },
-          { href: "/roster/summary", label: "Weekly Roster Hours", helper: "Lihat ringkasan jam roster mingguan" },
-          { href: "/staff-compliance", label: "Staff Compliance", helper: "Review dokumen staff" },
-          { href: "/clinic-compliance", label: "Clinic Compliance", helper: "Semak dokumen klinik" },
-          { href: "/feedback/manage", label: "Feedback Manage", helper: "Tangani isu yang masuk ke HR" },
-        ]}
-      />
+      <PartialDataNotice errors={[leaveRows.error, staffDocs.error, feedbackRows.error, staffRows.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error, adjustmentRows.error]} />
+      <PageHeader title="HR Operations Dashboard" description="Operational command centre for attendance, approvals, staff compliance and daily HR activities." />
 
       <TodayAttendanceSnapshot
-        title="Today Attendance Snapshot"
-        description="Paparan cepat kehadiran semua cawangan hari ini untuk kenal pasti kelewatan, absent, dan punch tidak lengkap."
+        title="Today's Attendance Snapshot"
+        description="See who is working today, who is absent, who is late, and drill into the attendance list without leaving the dashboard."
         rows={attendanceSnapshotRows}
+        branches={branches}
+        selectedBranchId={attendanceBranchId}
+        selectedDate={attendanceDate}
+        activeFilter={attendanceFilter}
+        pendingCorrectionsCount={pendingCorrections.length}
+        interactive
       />
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <DashboardList title="Leave Approval Queue" description="Permohonan terkini yang perlu diputuskan." items={pendingLeave.slice(0, 5).map((row) => renderLeaveQueueItem(row, staffRows.rows))} emptyTitle="Tiada cuti pending" emptyDescription="Semua permohonan cuti sudah clear buat masa ini." />
-        <DashboardList title="Compliance Expiry Queue" description="Dokumen staff yang hampir tamat tempoh atau telah expired." items={expiringDocs.slice(0, 5).map((row) => renderComplianceItem(row, staffRows.rows))} emptyTitle="Tiada dokumen hampir tamat tempoh" emptyDescription="Bagus, tiada dokumen staff yang mendesak sekarang." />
-        <DashboardList title="Recent Feedback" description="Isu atau feedback yang baru masuk ke aliran kerja HR." items={hrFeedback.slice(0, 5).map((row) => renderFeedbackItem(row, staffRows.rows))} emptyTitle="Tiada feedback baru" emptyDescription="Tiada feedback baru yang menunggu HR sekarang." />
-        <DashboardList title="Recently Completed Staff Profiles" description="Rekod staff yang lengkap dan sedia digunakan dalam workflow portal." items={completedProfiles.map((row) => renderStaffProfileItem(row, branches))} emptyTitle="Profil belum lengkap" emptyDescription="Belum ada profil lengkap yang baru diselesaikan untuk dipaparkan." />
-      </div>
+      <FormSection title="HR Action Queue" description="Approvals and people tasks that need immediate HR attention today.">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <StatCard title="Pending Leave" value={pendingLeave.length} description="Permohonan cuti menunggu semakan." icon={ClipboardList} tone={pendingLeave.length > 0 ? "alert" : "success"} href="/leave?status=pending" />
+          <StatCard title="Pending MC Review" value={pendingMc.length} description="MC atau medical leave yang belum ditutup." icon={Upload} tone={pendingMc.length > 0 ? "alert" : "success"} href="/mc?status=pending" />
+          <StatCard title="Pending Staff Document Review" value={pendingDocReview.length} description="Dokumen staff yang masih perlu review." icon={FileBadge} tone={pendingDocReview.length > 0 ? "alert" : "success"} href="/staff-compliance?status=pending" />
+          <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff yang masih belum lengkap." icon={UserRound} tone={incompleteProfiles.length > 0 ? "alert" : "success"} href="/staff?profile=incomplete" />
+          <StatCard title="New HR Feedback" value={hrFeedback.length} description="Feedback baru yang perlukan perhatian HR." icon={MessageSquareMore} tone={hrFeedback.length > 0 ? "alert" : "success"} href="/feedback/manage?status=new&department=hr" />
+        </div>
+      </FormSection>
 
-      <NotificationWidget rows={notifications.rows.slice(0, 5)} unreadCount={countUnreadNotifications(notifications.rows, profileId)} error={notifications.error} />
+      <FormSection title="Compliance Monitoring" description="Monitor staff and clinic compliance documents before they expire.">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard title="Staff Docs Expiring Soon" value={expiringSoonDocs.length} description="Dokumen staff hampir tamat tempoh." icon={FileSearch} tone={expiringSoonDocs.length > 0 ? "alert" : "success"} href="/staff-compliance?filter=expiring_soon" />
+          <StatCard title="Expired Staff Docs" value={expiredDocs.length} description="Dokumen staff yang telah tamat tempoh." icon={ShieldAlert} tone={expiredDocs.length > 0 ? "alert" : "success"} href="/staff-compliance?filter=expired" />
+          <StatCard title="Doctor APC/MMC Risk" value={doctorApc.length} description="Dokumen APC atau MMC doktor yang hampir tamat tempoh." icon={Stethoscope} tone={doctorApc.length > 0 ? "alert" : "success"} href="/staff-compliance?filter=doctor_apc_mmc_risk" />
+          <StatCard title="Jururxay / CME Risk" value={juruxrayDocs.length} description="Jururxay, CME, atau medical checkup yang hampir tamat tempoh." icon={ShieldCheck} tone={juruxrayDocs.length > 0 ? "alert" : "success"} href="/staff-compliance?filter=juruxray_cme_risk" />
+        </div>
+      </FormSection>
     </div>
   );
+}
+
+function getSearchParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
 async function loadOperationDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
@@ -1305,6 +1487,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
     attendanceRows: attendanceRows.rows,
     settingRows: attendanceSettingsRows.rows,
     staffRows: staffRows.rows,
+    shiftTemplateRows: [],
     leaveRows: leaveRows.rows,
     branches,
     date: getMalaysiaDateString(),
@@ -1390,6 +1573,7 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
     attendanceRows: attendanceRows.rows,
     settingRows: attendanceSettingsRows.rows,
     staffRows: staffRows.rows,
+    shiftTemplateRows: [],
     leaveRows: leaveRows.rows,
     branches,
     date: getMalaysiaDateString(),
@@ -1491,7 +1675,11 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const context = await requireRouteAccess("dashboard");
 
   if (!context.user || context.unauthorized || !context.supabase) {
@@ -1503,6 +1691,7 @@ export default async function DashboardPage() {
     );
   }
 
+  const resolvedSearchParams = (await searchParams) ?? {};
   const branchRows = await queryRows(() => context.supabase!.from("branches").select("*").limit(100));
   const branches = toBranchOptions(branchRows.rows);
 
@@ -1513,7 +1702,11 @@ export default async function DashboardPage() {
   } else if (context.role === "branch_pic") {
     content = await loadBranchPicDashboard(context.supabase, context, branches);
   } else if (context.role === "hr") {
-    content = await loadHrDashboard(context.supabase, context, branches);
+    content = await loadHrDashboard(context.supabase, context, branches, {
+      attendanceBranchId: getSearchParamValue(resolvedSearchParams.attendance_branch) ?? "all",
+      attendanceDate: getSearchParamValue(resolvedSearchParams.attendance_date) ?? getMalaysiaDateString(),
+      attendanceFilter: getSearchParamValue(resolvedSearchParams.attendance_filter) ?? "all",
+    });
   } else if (context.role === "operation") {
     content = await loadOperationDashboard(context.supabase, context, branches);
   } else {
