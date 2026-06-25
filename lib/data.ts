@@ -313,14 +313,14 @@ export function buildLeaveBalanceSummary(
       used: annualOpening + usage.annual + usage.emergency,
       openingUsed: annualOpening,
       portalUsed: usage.annual,
-      remaining: annualTotal - annualOpening - usage.annual - usage.emergency,
+      remaining: Math.max(annualTotal - annualOpening - usage.annual - usage.emergency, 0),
     },
     medical: {
       total: medicalTotal,
       used: medicalOpening + usage.medical,
       openingUsed: medicalOpening,
       portalUsed: usage.medical,
-      remaining: medicalTotal - medicalOpening - usage.medical,
+      remaining: Math.max(medicalTotal - medicalOpening - usage.medical, 0),
     },
     emergency: {
       total: usage.emergency,

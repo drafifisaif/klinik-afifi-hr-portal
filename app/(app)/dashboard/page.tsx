@@ -1120,17 +1120,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
         </FormSection>
       ) : null}
 
-      <RosterPreview
-        title="Upcoming Roster"
-        description="Paparan 7 hari terdekat untuk cawangan anda, dengan shift anda sendiri ditanda supaya lebih mudah merancang cuti."
-        rows={rosters.rows}
-        staffRows={branchStaffRows.rows}
-        shiftTemplates={shiftTemplates.rows}
-        focusStaffId={staffId}
-        branches={branches}
-      />
-
-      <div className="grid gap-6 xl:grid-cols-3">
+      <div className="space-y-6">
         <FormSection title="Next Shift" description="Shift seterusnya yang telah dijadualkan untuk anda.">
           {nextShift ? (
             <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">

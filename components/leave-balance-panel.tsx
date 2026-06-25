@@ -54,27 +54,19 @@ export function LeaveBalancePanel({ summary, title = "Leave Balance" }: LeaveBal
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
           <h4 className="text-base font-semibold text-[var(--foreground)]">Emergency Leave</h4>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Total</p>
-              <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{summary.emergency.total}</p>
-            </div>
+          <div className="mt-4">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used</p>
-              <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{summary.emergency.used}</p>
+              <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{summary.emergency.used}</p>
             </div>
           </div>
         </div>
         <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
           <h4 className="text-base font-semibold text-[var(--foreground)]">Unpaid Leave</h4>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Total</p>
-              <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{summary.unpaid.total}</p>
-            </div>
+          <div className="mt-4">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Used</p>
-              <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{summary.unpaid.used}</p>
+              <p className="mt-1 text-xl font-semibold text-[var(--foreground)]">{summary.unpaid.used}</p>
             </div>
           </div>
         </div>
