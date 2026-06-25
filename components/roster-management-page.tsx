@@ -637,7 +637,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
           return (
             <div key={String(row.id ?? `${row.staff_id}-${row.shift_template_id}-${row.roster_date}`)} className="rounded-2xl border border-[var(--border)] bg-white px-4 py-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-2">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold text-[var(--foreground)]">{String(member?.full_name ?? row.staff_id ?? "Unknown staff")}</p>
@@ -645,7 +645,6 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
                   </div>
                   <p className="text-xs text-[var(--muted-foreground)]">{getRosterRoleLabel(row, member)}</p>
                 </div>
-                <StatusBadge value={String(row.is_published === true ? "published" : row.status ?? "draft")} />
               </div>
               <div className="mt-3 grid gap-2 text-sm text-[var(--muted-foreground)] sm:grid-cols-2 xl:grid-cols-3">
                 <p>Branch: {branchName}</p>
