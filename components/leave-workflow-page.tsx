@@ -431,6 +431,7 @@ export function LeaveWorkflowPage({
                   <option value="annual_leave">Annual Leave</option>
                   <option value="medical_leave">Medical Leave</option>
                   <option value="emergency_leave">Emergency Leave</option>
+                  <option value="unpaid_leave">Unpaid Leave</option>
                 </select>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <input type="date" value={form.start_date} onChange={(event) => setForm((current) => ({ ...current, start_date: event.target.value }))} className={inputClass} required />
