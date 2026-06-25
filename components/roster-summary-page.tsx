@@ -29,6 +29,7 @@ interface StaffWeeklySummaryRow {
   presentDays: number;
   workedMinutes: number;
   missedScheduledMinutes: number;
+  otMinutes: number;
   notPunchedIn: number;
   incompletePunch: number;
   lateCount: number;
@@ -142,6 +143,12 @@ export function RosterSummaryPage({
               Apply Filters
             </button>
             <a
+              href={`/roster/summary/export?branch=${encodeURIComponent(filters.branchId)}&role=${encodeURIComponent(filters.roleFilter)}&start=${encodeURIComponent(filters.startDate)}&end=${encodeURIComponent(filters.endDate)}`}
+              className="inline-flex h-12 items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--foreground)]"
+            >
+              Export CSV
+            </a>
+            <a
               href="/roster/summary"
               className="inline-flex h-12 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]"
             >
@@ -157,7 +164,7 @@ export function RosterSummaryPage({
       >
         {summaries.length ? (
           <div className="space-y-4">
-            <div className="hidden rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 px-5 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)] lg:grid lg:grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.9fr_0.9fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr] lg:gap-3">
+            <div className="hidden rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 px-5 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)] lg:grid lg:grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.9fr_0.9fr_1fr_0.8fr_0.9fr_0.8fr_0.8fr_0.8fr] lg:gap-3">
               <span>Staff</span>
               <span>Branch</span>
               <span>Role</span>
@@ -165,6 +172,7 @@ export function RosterSummaryPage({
               <span>Scheduled Hours</span>
               <span>Present Days</span>
               <span>Worked Hours</span>
+              <span>OT Hours</span>
               <span>Missed Hours</span>
               <span>Not Punched In</span>
               <span>Incomplete</span>
@@ -177,7 +185,7 @@ export function RosterSummaryPage({
                 className="group overflow-hidden rounded-[28px] border border-[var(--border)] bg-white shadow-[0_18px_45px_rgba(18,42,44,0.04)]"
               >
                 <summary className="list-none cursor-pointer px-5 py-5">
-                  <div className="space-y-4 lg:grid lg:grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.9fr_0.9fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr] lg:items-center lg:gap-3 lg:space-y-0">
+                  <div className="space-y-4 lg:grid lg:grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.9fr_0.9fr_1fr_0.8fr_0.9fr_0.8fr_0.8fr_0.8fr] lg:items-center lg:gap-3 lg:space-y-0">
                     <div>
                       <p className="font-semibold text-[var(--foreground)]">{row.staffName}</p>
                       <p className="mt-1 text-xs text-[var(--muted-foreground)]">Click to view daily breakdown</p>
@@ -188,6 +196,7 @@ export function RosterSummaryPage({
                     <p className="text-sm text-[var(--foreground)]">{formatMinutesAsHours(row.scheduledMinutes)}</p>
                     <p className="text-sm text-[var(--foreground)]">{row.presentDays}</p>
                     <p className="text-sm font-semibold text-emerald-700">{formatMinutesAsHours(row.workedMinutes)}</p>
+                    <p className={row.otMinutes > 0 ? "text-sm font-semibold text-orange-700" : "text-sm text-[var(--foreground)]"}>{formatMinutesAsHours(row.otMinutes)}</p>
                     <p className="text-sm font-semibold text-rose-700">{formatMinutesAsHours(row.missedScheduledMinutes)}</p>
                     <p className="text-sm text-[var(--foreground)]">{row.notPunchedIn}</p>
                     <p className="text-sm text-[var(--foreground)]">{row.incompletePunch}</p>
@@ -196,7 +205,7 @@ export function RosterSummaryPage({
                 </summary>
 
                 <div className="border-t border-[var(--border)] bg-[var(--card-muted)]/35 px-5 py-5">
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="rounded-2xl bg-white px-4 py-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Scheduled Hours</p>
                       <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{formatMinutesAsHours(row.scheduledMinutes)}</p>
@@ -211,6 +220,11 @@ export function RosterSummaryPage({
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Missed Scheduled Hours</p>
                       <p className="mt-2 text-lg font-semibold text-rose-700">{formatMinutesAsHours(row.missedScheduledMinutes)}</p>
                       <p className="mt-1 text-xs text-[var(--muted-foreground)]">Future shifts are not counted as missed yet.</p>
+                    </div>
+                    <div className="rounded-2xl bg-white px-4 py-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">OT Hours / Excess Hours</p>
+                      <p className={row.otMinutes > 0 ? "mt-2 text-lg font-semibold text-orange-700" : "mt-2 text-lg font-semibold text-[var(--foreground)]"}>{formatMinutesAsHours(row.otMinutes)}</p>
+                      <p className="mt-1 text-xs text-[var(--muted-foreground)]">Preview only. Final payroll approval remains subject to HR review.</p>
                     </div>
                     <div className="rounded-2xl bg-white px-4 py-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Attendance Alerts</p>
@@ -256,6 +270,9 @@ export function RosterSummaryPage({
           <EmptyState title={emptyTitle} description={emptyDescription} />
         )}
       </FormSection>
+      <p className="text-sm text-[var(--muted-foreground)]">
+        OT preview is calculated from counted worked hours above 45 hours per week. Final payroll approval remains subject to HR review.
+      </p>
     </div>
   );
 }
