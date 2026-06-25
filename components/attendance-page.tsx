@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronUp, Edit3, LogIn, LogOut, RefreshCw, Save, TriangleAlert, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -37,6 +37,14 @@ interface AttendancePageProps {
   role: UserRole;
   error?: string | null;
 }
+
+type AttendanceSummaryFilter =
+  | "all"
+  | "present"
+  | "late"
+  | "absent"
+  | "incomplete"
+  | "outside_location";
 
 const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
@@ -340,6 +348,7 @@ export function AttendancePage({
 }: AttendancePageProps) {
   const router = useRouter();
   const supabase = createClient();
+  const pendingCorrectionsRef = useRef<HTMLDivElement | null>(null);
   const today = toDateInput();
   const operationalBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
   const [selectedBoardDate, setSelectedBoardDate] = useState(today);
@@ -353,6 +362,7 @@ export function AttendancePage({
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [networkMessage, setNetworkMessage] = useState<string | null>(null);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [selectedSummaryFilter, setSelectedSummaryFilter] = useState<AttendanceSummaryFilter>("all");
   const [isPunching, setIsPunching] = useState(false);
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -639,6 +649,33 @@ export function AttendancePage({
     notPunchedIn: boardRows.filter((row) => row.status === "not_punched_in").length,
     outsideLocation: boardRows.filter((row) => row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location").length,
   };
+  const filteredBoardRows = boardRows.filter((row) => {
+    if (selectedSummaryFilter === "all") {
+      return true;
+    }
+
+    if (selectedSummaryFilter === "present") {
+      return row.status === "present";
+    }
+
+    if (selectedSummaryFilter === "late") {
+      return row.status === "late" || row.lateMinutes > 0;
+    }
+
+    if (selectedSummaryFilter === "absent") {
+      return row.status === "absent";
+    }
+
+    if (selectedSummaryFilter === "incomplete") {
+      return row.status === "incomplete" || Boolean(row.record?.check_in_at && !row.record?.check_out_at);
+    }
+
+    if (selectedSummaryFilter === "outside_location") {
+      return row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location";
+    }
+
+    return true;
+  });
 
   function getStaffName(staffId: unknown) {
     const row = staffDirectory.find((item) => String(item.id ?? "") === String(staffId ?? ""));
@@ -647,6 +684,66 @@ export function AttendancePage({
 
   function getBranchName(branchId: unknown) {
     return branchRows.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
+  }
+
+  function getSummaryFilterLabel(filter: AttendanceSummaryFilter) {
+    switch (filter) {
+      case "present":
+        return "Present Today";
+      case "late":
+        return "Late Today";
+      case "absent":
+        return "Absent Today";
+      case "incomplete":
+        return "Incomplete Punch";
+      case "outside_location":
+        return "Outside Location";
+      default:
+        return "All rostered staff";
+    }
+  }
+
+  function handleSummaryCardClick(filter: AttendanceSummaryFilter | "pending_corrections") {
+    if (filter === "pending_corrections") {
+      pendingCorrectionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    setSelectedSummaryFilter(filter);
+  }
+
+  function renderSummaryCard({
+    label,
+    count,
+    toneClasses,
+    filter,
+  }: {
+    label: string;
+    count: number;
+    toneClasses: string;
+    filter: AttendanceSummaryFilter | "pending_corrections";
+  }) {
+    const isSelected = filter !== "pending_corrections" && selectedSummaryFilter === filter;
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleSummaryCardClick(filter)}
+        className={cn(
+          "cursor-pointer rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_45px_rgba(18,42,44,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(18,42,44,0.08)]",
+          toneClasses,
+          isSelected ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white" : "",
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em]">{label}</p>
+            <p className="mt-2 text-3xl font-semibold tracking-tight">{count}</p>
+          </div>
+          <span className="text-xs font-semibold opacity-75">{filter === "pending_corrections" ? "Open" : "View"}</span>
+        </div>
+      </button>
+    );
   }
 
   function loadSettings(branchId: string) {
@@ -1203,12 +1300,25 @@ export function AttendancePage({
           </div>
           <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
             <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{showInlineSummary ? "Today summary" : "Summary"}</p>
-            <p className="mt-2 font-semibold">{boardRows.length} rostered staff</p>
+            <p className="mt-2 font-semibold">{filteredBoardRows.length} of {boardRows.length} rostered staff</p>
             <p className="mt-1 text-[var(--muted-foreground)]">
               {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in · {boardCounts.outsideLocation} outside location
             </p>
           </div>
         </div>
+
+        {selectedSummaryFilter !== "all" ? (
+          <div className="mt-5 flex flex-col gap-3 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-[var(--foreground)]">Showing: {getSummaryFilterLabel(selectedSummaryFilter)}</p>
+            <button
+              type="button"
+              onClick={() => setSelectedSummaryFilter("all")}
+              className="inline-flex h-10 w-full items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto"
+            >
+              Clear filter
+            </button>
+          </div>
+        ) : null}
 
         {!showInlineSummary && (role === "branch_pic" || role === "hr" || role === "super_admin" || role === "operation") ? (
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -1236,8 +1346,8 @@ export function AttendancePage({
         ) : null}
 
         <div className="mt-5 space-y-3">
-          {boardRows.length ? (
-            boardRows.map((row) => {
+          {filteredBoardRows.length ? (
+            filteredBoardRows.map((row) => {
               const adminRecordId = String(row.record?.id ?? "").trim();
 
               return (
@@ -1345,7 +1455,10 @@ export function AttendancePage({
               );
             })
           ) : (
-            <EmptyState title="Roster belum diset" description="Tiada staff roster untuk tarikh dan cawangan yang dipilih." />
+            <EmptyState
+              title={selectedSummaryFilter === "all" ? "Roster belum diset" : "No staff found for this attendance status."}
+              description={selectedSummaryFilter === "all" ? "Tiada staff roster untuk tarikh dan cawangan yang dipilih." : "No staff found for this attendance status."}
+            />
           )}
         </div>
       </FormSection>
@@ -1354,6 +1467,7 @@ export function AttendancePage({
 
   function renderPendingCorrections() {
     return (
+      <div ref={pendingCorrectionsRef}>
       <FormSection title="Pending Corrections" description="Review correction requests for missed or incorrect punches.">
         {pendingAdjustments.length ? (
           <div className="space-y-3">
@@ -1391,6 +1505,7 @@ export function AttendancePage({
         )}
         {adjustmentMessage ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
       </FormSection>
+      </div>
     );
   }
 
@@ -1757,30 +1872,42 @@ export function AttendancePage({
             description="Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance."
           >
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{boardCounts.present}</p>
-              </div>
-              <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{boardCounts.late}</p>
-              </div>
-              <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{boardCounts.absent}</p>
-              </div>
-              <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
-              </div>
-              <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Outside Location</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{boardCounts.outsideLocation}</p>
-              </div>
-              <div className="rounded-[24px] border border-sky-200 bg-sky-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Pending Corrections</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-sky-800">{pendingAdjustments.length}</p>
-              </div>
+              {renderSummaryCard({
+                label: "Present Today",
+                count: boardCounts.present,
+                toneClasses: "border-emerald-200 bg-emerald-50/70 text-emerald-800",
+                filter: "present",
+              })}
+              {renderSummaryCard({
+                label: "Late Today",
+                count: boardCounts.late,
+                toneClasses: "border-orange-200 bg-orange-50/80 text-orange-800",
+                filter: "late",
+              })}
+              {renderSummaryCard({
+                label: "Absent Today",
+                count: boardCounts.absent,
+                toneClasses: "border-rose-200 bg-rose-50/80 text-rose-800",
+                filter: "absent",
+              })}
+              {renderSummaryCard({
+                label: "Incomplete Punch",
+                count: boardCounts.incomplete,
+                toneClasses: "border-amber-200 bg-amber-50/80 text-amber-800",
+                filter: "incomplete",
+              })}
+              {renderSummaryCard({
+                label: "Outside Location",
+                count: boardCounts.outsideLocation,
+                toneClasses: "border-slate-200 bg-slate-50/85 text-slate-800",
+                filter: "outside_location",
+              })}
+              {renderSummaryCard({
+                label: "Pending Corrections",
+                count: pendingAdjustments.length,
+                toneClasses: "border-sky-200 bg-sky-50/85 text-sky-800",
+                filter: "pending_corrections",
+              })}
             </div>
           </FormSection>
 
