@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { CheckCircle2, Edit3, LogIn, LogOut, RefreshCw, Save, TriangleAlert, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Edit3, LogIn, LogOut, RefreshCw, Save, TriangleAlert, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
@@ -352,6 +352,7 @@ export function AttendancePage({
   const [manualMessage, setManualMessage] = useState<string | null>(null);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [networkMessage, setNetworkMessage] = useState<string | null>(null);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [isPunching, setIsPunching] = useState(false);
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -388,6 +389,7 @@ export function AttendancePage({
   const canManageNetworkIps = role === "super_admin" || role === "hr";
   const canViewNetworkIps = canManageNetworkIps || role === "operation";
   const canViewAllBranches = role === "super_admin" || role === "hr" || role === "operation";
+  const isHrAdmin = role === "hr" || role === "super_admin";
   const canUsePersonalPunch = Boolean(currentStaff?.id && profile?.id);
   const showPersonalAttendanceSection =
     role === "staff" ||
@@ -1174,10 +1176,622 @@ export function AttendancePage({
     router.refresh();
   }
 
+  function renderAttendanceBoard(showInlineSummary = false) {
+    return (
+      <FormSection
+        title={role === "branch_pic" ? "Today Attendance Board" : role === "super_admin" || role === "hr" ? "Today Attendance Board" : "Attendance Board"}
+        description="Review roster attendance by date, identify late or missing punches, and monitor correction requests."
+      >
+        <div className={showInlineSummary ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]" : "grid gap-4 md:grid-cols-2 xl:grid-cols-3"}>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
+            <select
+              value={boardBranchId}
+              onChange={(event) => setSelectedBranchId(event.target.value)}
+              className={inputClass}
+              disabled={role === "staff" || role === "branch_pic"}
+            >
+              {canViewAllBranches ? <option value="all">All visible branches</option> : null}
+              {selectedBranchOptions.map((branch) => (
+                <option key={branch.id} value={branch.id}>{branch.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Date</label>
+            <input type="date" value={selectedBoardDate} onChange={(event) => setSelectedBoardDate(event.target.value)} className={inputClass} />
+          </div>
+          <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{showInlineSummary ? "Today summary" : "Summary"}</p>
+            <p className="mt-2 font-semibold">{boardRows.length} rostered staff</p>
+            <p className="mt-1 text-[var(--muted-foreground)]">
+              {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in · {boardCounts.outsideLocation} outside location
+            </p>
+          </div>
+        </div>
+
+        {!showInlineSummary && (role === "branch_pic" || role === "hr" || role === "super_admin" || role === "operation") ? (
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{boardCounts.present}</p>
+            </div>
+            <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{boardCounts.late}</p>
+            </div>
+            <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{boardCounts.absent}</p>
+            </div>
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Outside Location Punches</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{boardCounts.outsideLocation}</p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-5 space-y-3">
+          {boardRows.length ? (
+            boardRows.map((row) => {
+              const adminRecordId = String(row.record?.id ?? "").trim();
+
+              return (
+                <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className={cn("rounded-[24px] border px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getBoardStatusTone(row.status))}>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-base font-semibold text-[var(--foreground)]">{String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)} · {getShiftName(row.rosterRow, row.template)} · {formatShortTime(row.scheduledStart)} - {formatShortTime(row.scheduledEnd)} · {formatMinutesAsHours(row.scheduledNetMinutes)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge value={row.status} />
+                      {row.lateMinutes > 0 ? <MinuteAlertBadge tone="late" text={`${row.lateMinutes} min late`} /> : null}
+                      {row.earlyLeaveMinutes > 0 ? <MinuteAlertBadge tone="early" text={`${row.earlyLeaveMinutes} min early leave`} /> : null}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                    <p><span className="font-semibold">Check in:</span> {formatShortTime(row.record?.check_in_at)}</p>
+                    <p><span className="font-semibold">Check out:</span> {formatShortTime(row.record?.check_out_at)}</p>
+                    <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
+                    <p><span className="font-semibold">Late minutes:</span> {row.lateMinutes}</p>
+                    <p><span className="font-semibold">Early leave minutes:</span> {row.earlyLeaveMinutes || "-"}</p>
+                    <p><span className="font-semibold">Check in distance:</span> {row.checkInDistanceMeters > 0 ? `${Math.round(row.checkInDistanceMeters)}m` : "-"}</p>
+                    <p><span className="font-semibold">Check out distance:</span> {row.checkOutDistanceMeters > 0 ? `${Math.round(row.checkOutDistanceMeters)}m` : "-"}</p>
+                    <p><span className="font-semibold">Check in IP:</span> {row.checkInIp || "-"}</p>
+                    <p><span className="font-semibold">Check out IP:</span> {row.checkOutIp || "-"}</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--foreground)]">Check In:</span>
+                      <StatusBadge value={getLocationStatusLabel(row.checkInLocationStatus)} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--foreground)]">Check Out:</span>
+                      <StatusBadge value={getLocationStatusLabel(row.checkOutLocationStatus)} />
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-[var(--muted-foreground)]">
+                    <p>Check in GPS: {row.checkInLatitude && row.checkInLongitude ? `${row.checkInLatitude}, ${row.checkInLongitude}` : "-"}</p>
+                    <p>Check out GPS: {row.checkOutLatitude && row.checkOutLongitude ? `${row.checkOutLatitude}, ${row.checkOutLongitude}` : "-"}</p>
+                    <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
+                  </div>
+
+                  {false ? (
+                    <div className="mt-4 space-y-3 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-4 py-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">Manual attendance update</p>
+                        <button type="button" onClick={() => startManualUpdate(row)} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                          <Edit3 className="h-4 w-4" />
+                          Edit record
+                        </button>
+                      </div>
+                      <p className="text-xs text-[var(--muted-foreground)]">Admin reset/delete tools are for testing or correction only.</p>
+
+                      {adminRecordId ? (
+                        <div className="rounded-2xl border border-[var(--border)] bg-white/80 px-4 py-4">
+                          <p className="text-sm font-semibold text-[var(--foreground)]">Admin actions</p>
+                          <p className="mt-1 text-xs text-[var(--muted-foreground)]">Gunakan dengan berhati-hati untuk correction atau testing sahaja.</p>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                            <button type="button" onClick={() => handleAdminRecordAction(row, "reset")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 sm:w-auto">
+                              <RefreshCw className="h-4 w-4" />
+                              Reset Punch Record
+                            </button>
+                            <button type="button" onClick={() => handleAdminRecordAction(row, "delete")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                              <XCircle className="h-4 w-4" />
+                              Delete Test Record
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {activeManualRecordId === String(row.record?.id ?? row.rosterRow.id ?? row.member?.id ?? "") ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <input type="datetime-local" value={manualAttendanceForm.check_in_at} onChange={(event) => setManualAttendanceForm((current) => ({ ...current, check_in_at: event.target.value }))} className={inputClass} />
+                          <input type="datetime-local" value={manualAttendanceForm.check_out_at} onChange={(event) => setManualAttendanceForm((current) => ({ ...current, check_out_at: event.target.value }))} className={inputClass} />
+                          {manualMessage ? <p className="rounded-2xl bg-white px-4 py-3 text-sm text-[var(--foreground)] md:col-span-2">{manualMessage}</p> : null}
+                          <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                            <button type="button" onClick={() => saveManualAttendance(row)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white sm:w-auto">
+                              <Save className="h-4 w-4" />
+                              Save attendance
+                            </button>
+                            <button type="button" onClick={() => { setActiveManualRecordId(null); setManualAttendanceForm(emptyManualAttendanceForm); }} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                              Cancel
+                            </button>
+                          </div>
+                          {adminRecordId ? (
+                            <div className="md:col-span-2 rounded-2xl border border-[var(--border)] bg-white px-4 py-4">
+                              <p className="text-sm font-semibold text-[var(--foreground)]">Admin actions</p>
+                              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                                <button type="button" onClick={() => handleAdminRecordAction(row, "reset")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 sm:w-auto">
+                                  <RefreshCw className="h-4 w-4" />
+                                  Reset Punch Record
+                                </button>
+                                <button type="button" onClick={() => handleAdminRecordAction(row, "delete")} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                                  <XCircle className="h-4 w-4" />
+                                  Delete Test Record
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })
+          ) : (
+            <EmptyState title="Roster belum diset" description="Tiada staff roster untuk tarikh dan cawangan yang dipilih." />
+          )}
+        </div>
+      </FormSection>
+    );
+  }
+
+  function renderPendingCorrections() {
+    return (
+      <FormSection title="Pending Corrections" description="Review correction requests for missed or incorrect punches.">
+        {pendingAdjustments.length ? (
+          <div className="space-y-3">
+            {pendingAdjustments.map((row) => (
+              <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-base font-semibold text-[var(--foreground)]">{getStaffName(row.staff_id)}</p>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{String(row.request_type ?? "correction").replaceAll("_", " ")} · {getBranchName(row.branch_id)}</p>
+                  </div>
+                  <StatusBadge value={String(row.status ?? "pending")} />
+                </div>
+                <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
+                  <p><span className="font-semibold">Requested check in:</span> {formatMalaysiaDateTime(row.requested_check_in_at)}</p>
+                  <p><span className="font-semibold">Requested check out:</span> {formatMalaysiaDateTime(row.requested_check_out_at)}</p>
+                  <p><span className="font-semibold">Reason:</span> {String(row.reason ?? "-")}</p>
+                </div>
+                {canReviewAdjustments ? (
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                    <button type="button" onClick={() => handleAdjustmentDecision(row, "approved")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 sm:w-auto">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Approve
+                    </button>
+                    <button type="button" onClick={() => handleAdjustmentDecision(row, "rejected")} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                      <XCircle className="h-4 w-4" />
+                      Reject
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="Tiada pembetulan pending" description="Attendance correction requests that need review will appear here." />
+        )}
+        {adjustmentMessage ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
+      </FormSection>
+    );
+  }
+
+  function renderHrSettingsPanel() {
+    return (
+      <FormSection title="Attendance Settings" description="Attendance settings stay collapsed by default so the daily review workflow remains the focus.">
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-[24px] border border-[var(--border)] bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-base font-semibold text-[var(--foreground)]">Show Attendance Settings</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Branch rules, GPS verification, and legacy IP audit settings are tucked away here.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSettingsPanel((current) => !current)}
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto"
+            >
+              {showSettingsPanel ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              {showSettingsPanel ? "Hide Attendance Settings" : "Show Attendance Settings"}
+            </button>
+          </div>
+
+          {showSettingsPanel ? (
+            <div className="space-y-6">
+              <div className="rounded-[24px] border border-[var(--border)] bg-white px-5 py-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Attendance Rules</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Set branch grace periods and simple attendance guardrails.</p>
+                <form className="mt-5 space-y-4" onSubmit={saveSettings}>
+                  <label className="block space-y-2">
+                    <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                    <select
+                      value={settingsForm.branch_id}
+                      onChange={(event) => {
+                        setSettingsForm((current) => ({ ...current, branch_id: event.target.value }));
+                        loadSettings(event.target.value);
+                      }}
+                      className={inputClass}
+                    >
+                      <option value="">Global default</option>
+                      {branchRows.map((branch) => (
+                        <option key={branch.id} value={branch.id}>{branch.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Grace Minutes</span>
+                      <input value={settingsForm.grace_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, grace_minutes: event.target.value }))} placeholder="10" className={inputClass} />
+                      <p className="text-xs text-[var(--muted-foreground)]">Late status starts after scheduled check-in plus this grace period.</p>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Allow Early Check-In Minutes</span>
+                      <input value={settingsForm.allow_early_check_in_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, allow_early_check_in_minutes: event.target.value }))} placeholder="0" className={inputClass} />
+                      <p className="text-xs text-[var(--muted-foreground)]">How many minutes before shift start staff may punch in early.</p>
+                    </label>
+                    <label className="space-y-2 md:col-span-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Auto Absent After Minutes</span>
+                      <input value={settingsForm.auto_absent_after_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, auto_absent_after_minutes: event.target.value }))} placeholder="60" className={inputClass} />
+                      <p className="text-xs text-[var(--muted-foreground)]">If roster exists and there is still no punch after this threshold, status becomes absent.</p>
+                    </label>
+                    <label className="space-y-2 md:col-span-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Early Leave Grace Minutes</span>
+                      <input value={settingsForm.early_leave_grace_minutes} onChange={(event) => setSettingsForm((current) => ({ ...current, early_leave_grace_minutes: event.target.value }))} placeholder="10" className={inputClass} />
+                      <p className="text-xs text-[var(--muted-foreground)]">Staff will be flagged as early leave if punch out is earlier than scheduled end minus this grace period.</p>
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
+                    <input type="checkbox" checked={settingsForm.require_note_for_late} onChange={(event) => setSettingsForm((current) => ({ ...current, require_note_for_late: event.target.checked }))} />
+                    Require note for late
+                  </label>
+                  <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
+                    <input type="checkbox" checked={settingsForm.require_note_for_adjustment} onChange={(event) => setSettingsForm((current) => ({ ...current, require_note_for_adjustment: event.target.checked }))} />
+                    Require note for adjustment
+                  </label>
+                  {branchSettingsSelection ? (
+                    <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                      Editing existing settings for {getBranchName(branchSettingsSelection.branch_id)}.
+                    </div>
+                  ) : null}
+                  {settingsMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{settingsMessage}</p> : null}
+                  <button type="submit" disabled={isSavingSettings} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                    <Save className="h-4 w-4" />
+                    {isSavingSettings ? "Saving..." : "Save settings"}
+                  </button>
+                </form>
+              </div>
+
+              <div className="rounded-[24px] border border-[var(--border)] bg-white px-5 py-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Branch GPS Settings</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">GPS verification checks whether staff punch in/out within the branch radius.</p>
+                <div className="mt-5 space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                      <select
+                        value={locationFilterBranchId}
+                        onChange={(event) => setLocationFilterBranchId(event.target.value)}
+                        className={inputClass}
+                      >
+                        <option value="all">All branches</option>
+                        {branchRows.map((branch) => (
+                          <option key={branch.id} value={branch.id}>{branch.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Configured branches</p>
+                      <p className="mt-2 text-2xl font-semibold">{filteredBranchLocationRows.filter((row) => row.latitude !== null && row.longitude !== null).length}</p>
+                    </div>
+                  </div>
+
+                  <form className="space-y-4 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 p-4" onSubmit={saveBranchLocation}>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                        <select
+                          value={locationForm.branch_id}
+                          onChange={(event) => setLocationForm((current) => ({ ...current, branch_id: event.target.value }))}
+                          className={inputClass}
+                          required
+                        >
+                          <option value="">Select branch</option>
+                          {branchRows.map((branch) => (
+                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Radius in meters</span>
+                        <input
+                          value={locationForm.gps_radius_meters}
+                          onChange={(event) => setLocationForm((current) => ({ ...current, gps_radius_meters: event.target.value }))}
+                          placeholder="30"
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Latitude</span>
+                        <input
+                          value={locationForm.latitude}
+                          onChange={(event) => setLocationForm((current) => ({ ...current, latitude: event.target.value }))}
+                          placeholder="5.123456"
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Longitude</span>
+                        <input
+                          value={locationForm.longitude}
+                          onChange={(event) => setLocationForm((current) => ({ ...current, longitude: event.target.value }))}
+                          placeholder="116.123456"
+                          className={inputClass}
+                        />
+                      </label>
+                    </div>
+                    <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-sm text-[var(--foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={locationForm.is_active}
+                        onChange={(event) => setLocationForm((current) => ({ ...current, is_active: event.target.checked }))}
+                      />
+                      Active
+                    </label>
+                    {locationMessage ? <p className="rounded-2xl bg-white px-4 py-3 text-sm text-[var(--foreground)]">{locationMessage}</p> : null}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                      <button type="submit" disabled={isSavingLocation} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                        <Save className="h-4 w-4" />
+                        {isSavingLocation ? "Saving..." : "Save GPS Settings"}
+                      </button>
+                      {locationForm.branch_id ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocationForm(emptyLocationForm);
+                            setLocationMessage(null);
+                          }}
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"
+                        >
+                          Cancel Edit
+                        </button>
+                      ) : null}
+                    </div>
+                  </form>
+
+                  <div className="space-y-3">
+                    {filteredBranchLocationRows.map((branch) => (
+                      <article key={branch.id} className="rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/30 px-4 py-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-base font-semibold text-[var(--foreground)]">{branch.name}</p>
+                            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                              {branch.latitude !== null && branch.longitude !== null
+                                ? `${branch.latitude}, ${branch.longitude}`
+                                : "GPS belum diset"}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <StatusBadge value={branch.latitude !== null && branch.longitude !== null ? "verified_location" : "location_unavailable"} />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-sm text-[var(--muted-foreground)]">Radius: {Number(branch.gps_radius_meters ?? 30) || 30}m</p>
+                        <div className="mt-4">
+                          <button type="button" onClick={() => startEditBranchLocation(branch)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                            <Edit3 className="h-4 w-4" />
+                            Edit GPS
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-[var(--border)] bg-white px-5 py-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Legacy IP Audit Settings</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">IP disimpan untuk audit lama sahaja. GPS location verification kini menjadi verifikasi utama attendance.</p>
+                <div className="mt-5 space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                      <select
+                        value={networkFilterBranchId}
+                        onChange={(event) => setNetworkFilterBranchId(event.target.value)}
+                        className={inputClass}
+                      >
+                        <option value="all">All branches</option>
+                        {branchRows.map((branch) => (
+                          <option key={branch.id} value={branch.id}>{branch.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Active networks</p>
+                      <p className="mt-2 text-2xl font-semibold">{filteredNetworkRows.filter((row) => row.is_active !== false && normalizeString(row.status) !== "inactive").length}</p>
+                    </div>
+                  </div>
+
+                  <form className="space-y-4 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 p-4" onSubmit={saveNetworkRow}>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Branch</span>
+                        <select
+                          value={networkForm.branch_id}
+                          onChange={(event) => setNetworkForm((current) => ({ ...current, branch_id: event.target.value }))}
+                          className={inputClass}
+                          required
+                        >
+                          <option value="">Select branch</option>
+                          {branchRows.map((branch) => (
+                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">IP Address</span>
+                        <input
+                          value={networkForm.ip_address}
+                          onChange={(event) => setNetworkForm((current) => ({ ...current, ip_address: event.target.value }))}
+                          placeholder="203.0.113.10"
+                          className={inputClass}
+                          required
+                        />
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Label</span>
+                        <input
+                          value={networkForm.label}
+                          onChange={(event) => setNetworkForm((current) => ({ ...current, label: event.target.value }))}
+                          placeholder="Main clinic WiFi"
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-[var(--foreground)]">Notes</span>
+                        <input
+                          value={networkForm.notes}
+                          onChange={(event) => setNetworkForm((current) => ({ ...current, notes: event.target.value }))}
+                          placeholder="Reception counter network"
+                          className={inputClass}
+                        />
+                      </label>
+                    </div>
+                    <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-sm text-[var(--foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={networkForm.is_active}
+                        onChange={(event) => setNetworkForm((current) => ({ ...current, is_active: event.target.checked }))}
+                      />
+                      Active network IP
+                    </label>
+                    {networkMessage ? <p className="rounded-2xl bg-white px-4 py-3 text-sm text-[var(--foreground)]">{networkMessage}</p> : null}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                      <button type="submit" disabled={isSavingNetwork} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                        <Save className="h-4 w-4" />
+                        {isSavingNetwork ? "Saving..." : networkForm.id ? "Update IP" : "Add IP"}
+                      </button>
+                      {networkForm.id ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNetworkForm(emptyNetworkForm);
+                            setNetworkMessage(null);
+                          }}
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"
+                        >
+                          Cancel Edit
+                        </button>
+                      ) : null}
+                    </div>
+                  </form>
+
+                  <div className="space-y-3">
+                    {filteredNetworkRows.length ? (
+                      filteredNetworkRows.map((row) => {
+                        const isActive = row.is_active !== false && normalizeString(row.status) !== "inactive";
+                        return (
+                          <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/30 px-4 py-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-base font-semibold text-[var(--foreground)]">{String(row.label ?? row.ip_address ?? "Clinic network")}</p>
+                                <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.branch_id)} · {String(row.ip_address ?? "-")}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <StatusBadge value={isActive ? "active" : "closed"} />
+                              </div>
+                            </div>
+                            <p className="mt-3 text-sm text-[var(--muted-foreground)]">{String(row.notes ?? "No notes")}</p>
+                            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                              <button type="button" onClick={() => startEditNetworkRow(row)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] sm:w-auto">
+                                <Edit3 className="h-4 w-4" />
+                                Edit
+                              </button>
+                              {isActive ? (
+                                <button type="button" onClick={() => deactivateNetworkRow(row)} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 sm:w-auto">
+                                  <XCircle className="h-4 w-4" />
+                                  Deactivate
+                                </button>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <EmptyState title="Tiada IP rangkaian diset" description="Tambah IP rangkaian klinik untuk mula semak punch secara soft verification." />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </FormSection>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load attendance data" description={error} /> : null}
 
+      {isHrAdmin ? (
+        <>
+          <FormSection
+            title="Attendance Summary"
+            description="Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance."
+          >
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-800">{boardCounts.present}</p>
+              </div>
+              <div className="rounded-[24px] border border-orange-200 bg-orange-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Late Today</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-orange-800">{boardCounts.late}</p>
+              </div>
+              <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Absent Today</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-800">{boardCounts.absent}</p>
+              </div>
+              <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Incomplete Punch</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-800">{boardCounts.incomplete}</p>
+              </div>
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Outside Location</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-800">{boardCounts.outsideLocation}</p>
+              </div>
+              <div className="rounded-[24px] border border-sky-200 bg-sky-50/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Pending Corrections</p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight text-sky-800">{pendingAdjustments.length}</p>
+              </div>
+            </div>
+          </FormSection>
+
+          {renderAttendanceBoard(true)}
+          {renderPendingCorrections()}
+          {renderHrSettingsPanel()}
+        </>
+      ) : null}
+
+      {isHrAdmin ? null : (
+      <>
       {showPersonalAttendanceSection ? (
         <FormSection
           title="Today attendance"
@@ -1387,11 +2001,9 @@ export function AttendancePage({
               <div className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <p className="text-sm font-semibold text-[var(--foreground)]">Today attendance scope</p>
                 <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-                  {role === "hr"
-                    ? "HR boleh memantau semua cawangan, semak pembetulan, dan kemas kini rekod attendance bila perlu."
-                    : role === "operation"
-                      ? "Operation melihat attendance snapshot dan board secara read-only, dengan punch peribadi hanya jika akaun mempunyai linked staff row."
-                      : "Super admin boleh melihat gambaran global attendance, kelewatan, punch tidak lengkap, dan risiko absent."}
+                  {role === "operation"
+                    ? "Operation melihat attendance snapshot dan board secara read-only, dengan punch peribadi hanya jika akaun mempunyai linked staff row."
+                    : "Attendance overview tersedia mengikut akses semasa untuk pemantauan harian."}
                 </p>
               </div>
               <div className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
@@ -1402,7 +2014,7 @@ export function AttendancePage({
           </FormSection>
         )}
 
-        <FormSection title={role === "branch_pic" ? "Today attendance board" : role === "super_admin" || role === "hr" ? "Today attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
+        <FormSection title={role === "branch_pic" ? "Today attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
@@ -1431,7 +2043,7 @@ export function AttendancePage({
             </div>
           </div>
 
-          {(role === "branch_pic" || role === "hr" || role === "super_admin" || role === "operation") ? (
+          {(role === "branch_pic" || role === "operation") ? (
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
@@ -1501,7 +2113,7 @@ export function AttendancePage({
                     <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
                   </div>
 
-                  {role === "super_admin" || role === "hr" ? (
+                  {false ? (
                     <div className="mt-4 space-y-3 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-4 py-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm font-semibold text-[var(--foreground)]">Manual attendance update</p>
@@ -1960,6 +2572,8 @@ export function AttendancePage({
           </FormSection>
         ) : null}
       </div>
+      </>
+      )}
     </div>
   );
 }
