@@ -8,9 +8,10 @@ import { EmptyState } from "@/components/empty-state";
 import { ExpiryBadge } from "@/components/expiry-badge";
 import { FileUploadField } from "@/components/file-upload-field";
 import { FormSection } from "@/components/form-section";
+import { getExpiryStatus } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { getFilename, mapRowsWithId, sanitizeFilename } from "@/lib/utils";
+import { getFilename, mapRowsWithId, normalizeString, sanitizeFilename } from "@/lib/utils";
 
 interface StaffCompliancePageProps {
   documents: TableRow[];
@@ -19,6 +20,8 @@ interface StaffCompliancePageProps {
   role: UserRole;
   profile: Profile | null;
   currentStaff: TableRow | null;
+  initialStatusFilter?: string | null;
+  initialFilter?: string | null;
   error?: string | null;
 }
 
@@ -27,7 +30,7 @@ const inputClass =
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 
-export function StaffCompliancePage({ documents, staff, branches, role, profile, currentStaff, error }: StaffCompliancePageProps) {
+export function StaffCompliancePage({ documents, staff, branches, role, profile, currentStaff, initialStatusFilter, initialFilter, error }: StaffCompliancePageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [file, setFile] = useState<File | null>(null);
@@ -57,6 +60,39 @@ export function StaffCompliancePage({ documents, staff, branches, role, profile,
 
     return mapped.filter((row) => String(row.staff_id ?? "") === String(currentStaff?.id ?? ""));
   }, [canManageAll, currentStaff?.id, documents]);
+  const filteredRows = useMemo(() => {
+    let nextRows = rows;
+    const normalizedStatusFilter = normalizeString(initialStatusFilter);
+    const normalizedFilter = normalizeString(initialFilter);
+
+    if (normalizedStatusFilter === "pending") {
+      nextRows = nextRows.filter((row) => normalizeString(row.status) === "pending_review");
+    }
+
+    if (normalizedFilter === "expiring_soon") {
+      nextRows = nextRows.filter((row) => getExpiryStatus(row).label === "expiring_soon");
+    }
+
+    if (normalizedFilter === "expired") {
+      nextRows = nextRows.filter((row) => getExpiryStatus(row).label === "expired");
+    }
+
+    if (normalizedFilter === "doctor_apc_mmc_risk") {
+      nextRows = nextRows.filter((row) => {
+        const docText = `${normalizeString(row.document_name)} ${normalizeString(row.document_type)}`;
+        return (docText.includes("apc") || docText.includes("mmc")) && ["expiring_soon", "expired"].includes(getExpiryStatus(row).label);
+      });
+    }
+
+    if (normalizedFilter === "juruxray_cme_risk") {
+      nextRows = nextRows.filter((row) => {
+        const docText = `${normalizeString(row.document_name)} ${normalizeString(row.document_type)}`;
+        return (docText.includes("juruxray") || docText.includes("cme") || docText.includes("medical checkup")) && ["expiring_soon", "expired"].includes(getExpiryStatus(row).label);
+      });
+    }
+
+    return nextRows;
+  }, [initialFilter, initialStatusFilter, rows]);
 
   const availableStaff = canManageAll
     ? staff
@@ -142,7 +178,7 @@ export function StaffCompliancePage({ documents, staff, branches, role, profile,
       {error ? <EmptyState title="Unable to load staff compliance data" description={error} /> : null}
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <FormSection title="Uploaded staff documents" description="Files remain private. This view shows metadata, filenames, expiry, and review status.">
-          {rows.length ? (
+          {filteredRows.length ? (
             <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-[var(--border)] text-left">
@@ -154,7 +190,7 @@ export function StaffCompliancePage({ documents, staff, branches, role, profile,
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)] bg-white">
-                    {rows.map((row) => (
+                    {filteredRows.map((row) => (
                       <tr key={String(row.id)}>
                         <td className="px-4 py-4 text-sm text-[var(--foreground)]">{staff.find((member) => String(member.id ?? "") === String(row.staff_id ?? ""))?.full_name as string ?? String(row.staff_id ?? "-")}</td>
                         <td className="px-4 py-4 text-sm"><p className="font-semibold text-[var(--foreground)]">{String(row.document_name ?? "-")}</p><p className="text-xs text-[var(--muted-foreground)]">{branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-")}</p></td>
@@ -185,7 +221,7 @@ export function StaffCompliancePage({ documents, staff, branches, role, profile,
               </div>
             </div>
           ) : (
-            <EmptyState title="No staff documents uploaded yet" description="Upload the first compliance file to start tracking expiry and review status." />
+            <EmptyState title={initialStatusFilter || initialFilter ? "No items found for this filter." : "No staff documents uploaded yet"} description={initialStatusFilter || initialFilter ? "No items found for this filter." : "Upload the first compliance file to start tracking expiry and review status."} />
           )}
         </FormSection>
 

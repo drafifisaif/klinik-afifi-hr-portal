@@ -21,6 +21,7 @@ interface LeaveWorkflowPageProps {
   role: UserRole;
   profile: Profile | null;
   currentStaff: TableRow | null;
+  initialStatusFilter?: string | null;
   error?: string | null;
 }
 
@@ -55,6 +56,7 @@ export function LeaveWorkflowPage({
   role,
   profile,
   currentStaff,
+  initialStatusFilter,
   error,
 }: LeaveWorkflowPageProps) {
   const router = useRouter();
@@ -107,6 +109,10 @@ export function LeaveWorkflowPage({
   const reviewQueueRows = isBranchPicView
     ? scopedRows.filter((row) => String(row.staff_id ?? "") !== String(currentStaff?.id ?? ""))
     : scopedRows;
+  const normalizedStatusFilter = normalizeString(initialStatusFilter);
+  const filteredReviewRows = normalizedStatusFilter
+    ? (isBranchPicView ? reviewQueueRows : scopedRows).filter((row) => normalizeString(row.status) === normalizedStatusFilter)
+    : (isBranchPicView ? reviewQueueRows : scopedRows);
 
   function getBranchName(branchId: unknown) {
     return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
@@ -403,9 +409,9 @@ export function LeaveWorkflowPage({
           >
             {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
             {renderLeaveCards(
-              isBranchPicView ? reviewQueueRows : scopedRows,
-              "No leave requests yet",
-              "Submitted leave requests will appear here automatically.",
+              filteredReviewRows,
+              normalizedStatusFilter ? "No items found for this filter." : "No leave requests yet",
+              normalizedStatusFilter ? "No items found for this filter." : "Submitted leave requests will appear here automatically.",
             )}
           </FormSection>
 

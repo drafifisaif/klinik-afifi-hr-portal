@@ -5,8 +5,15 @@ import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
 import type { BranchOption } from "@/lib/types";
 
-export default async function LeavePage() {
+type PageSearchParams = Record<string, string | string[] | undefined>;
+
+function getSearchParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export default async function LeavePage({ searchParams }: { searchParams?: Promise<PageSearchParams> }) {
   const context = await requireRouteAccess("leave");
+  const resolvedSearchParams = (await searchParams) ?? {};
 
   if (!context.user || context.unauthorized) {
     return (
@@ -24,6 +31,8 @@ export default async function LeavePage() {
     fetchRows(context.supabase, "branches", 100),
   ]);
 
+  const initialStatusFilter = getSearchParamValue(resolvedSearchParams.status);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -38,6 +47,7 @@ export default async function LeavePage() {
         role={context.role}
         profile={context.profile}
         currentStaff={context.staff}
+        initialStatusFilter={initialStatusFilter}
         error={leaveRows.error ?? entitlementRows.error ?? staffRows.error ?? branchRows.error}
       />
     </div>

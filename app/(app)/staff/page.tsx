@@ -4,8 +4,15 @@ import { StaffManagementPage } from "@/components/staff-management-page";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
 
-export default async function StaffPage() {
+type PageSearchParams = Record<string, string | string[] | undefined>;
+
+function getSearchParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export default async function StaffPage({ searchParams }: { searchParams?: Promise<PageSearchParams> }) {
   const context = await requireRouteAccess("staff");
+  const resolvedSearchParams = (await searchParams) ?? {};
 
   if (!context.user || context.unauthorized) {
     return (
@@ -23,6 +30,7 @@ export default async function StaffPage() {
     fetchRows(context.supabase, "leave_requests", 200),
     fetchRows(context.supabase, "profiles", 300),
   ]);
+  const initialProfileFilter = getSearchParamValue(resolvedSearchParams.profile);
 
   return (
     <div className="space-y-6">
@@ -41,6 +49,7 @@ export default async function StaffPage() {
         entitlements={entitlementRows.rows}
         leaveRequests={leaveRows.rows}
         profileRows={profileRows.rows}
+        initialProfileFilter={initialProfileFilter}
         error={staffRows.error ?? branchRows.error ?? entitlementRows.error ?? leaveRows.error ?? profileRows.error}
       />
     </div>

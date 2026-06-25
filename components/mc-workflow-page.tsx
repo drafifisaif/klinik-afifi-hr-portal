@@ -19,13 +19,14 @@ interface McWorkflowPageProps {
   profile: Profile | null;
   role: UserRole;
   staffRows: TableRow[];
+  initialStatusFilter?: string | null;
   error?: string | null;
 }
 
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 
-export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, staffRows, error }: McWorkflowPageProps) {
+export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, staffRows, initialStatusFilter, error }: McWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [file, setFile] = useState<File | null>(null);
@@ -48,6 +49,14 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
       ),
     [leaveRequests, role, profile, currentStaff?.id, currentStaff?.branch_id],
   );
+  const filteredRows = useMemo(() => {
+    const normalizedStatusFilter = String(initialStatusFilter ?? "").trim().toLowerCase();
+    if (!normalizedStatusFilter) {
+      return scopedRows;
+    }
+
+    return scopedRows.filter((row) => String(row.status ?? "").trim().toLowerCase() === normalizedStatusFilter);
+  }, [initialStatusFilter, scopedRows]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -136,10 +145,10 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <FormSection title="MC submissions" description="Medical certificate requests are tracked as `medical_leave` leave requests with a private attachment path.">
           {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
-          {scopedRows.length ? (
+          {filteredRows.length ? (
             <>
               <div className="space-y-3 md:hidden">
-                {scopedRows.map((row) => (
+                {filteredRows.map((row) => (
                   <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -189,7 +198,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)] bg-white">
-                    {scopedRows.map((row) => (
+                    {filteredRows.map((row) => (
                       <tr key={String(row.id)}>
                         <td className="px-4 py-4 text-sm text-[var(--foreground)]">{staffRows.find((staffRow) => String(staffRow.id ?? "") === String(row.staff_id ?? ""))?.full_name as string ?? String(row.staff_id ?? "-")}</td>
                         <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.start_date)}</td>
@@ -220,7 +229,7 @@ export function McWorkflowPage({ leaveRequests, currentStaff, profile, role, sta
               </div>
             </>
           ) : (
-            <EmptyState title="No MC submissions yet" description="Uploaded medical certificate requests will appear here once submitted." />
+            <EmptyState title={initialStatusFilter ? "No items found for this filter." : "No MC submissions yet"} description={initialStatusFilter ? "No items found for this filter." : "Uploaded medical certificate requests will appear here once submitted."} />
           )}
         </FormSection>
 

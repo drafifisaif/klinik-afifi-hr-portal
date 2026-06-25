@@ -4,8 +4,15 @@ import { PageHeader } from "@/components/page-header";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
 
-export default async function McPage() {
+type PageSearchParams = Record<string, string | string[] | undefined>;
+
+function getSearchParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export default async function McPage({ searchParams }: { searchParams?: Promise<PageSearchParams> }) {
   const context = await requireRouteAccess("mc");
+  const resolvedSearchParams = (await searchParams) ?? {};
 
   if (!context.user || context.unauthorized) {
     return (
@@ -20,6 +27,7 @@ export default async function McPage() {
     fetchRows(context.supabase, "leave_requests", 200),
     fetchRows(context.supabase, "staff", 200),
   ]);
+  const initialStatusFilter = getSearchParamValue(resolvedSearchParams.status);
 
   return (
     <div className="space-y-6">
@@ -33,6 +41,7 @@ export default async function McPage() {
         profile={context.profile}
         role={context.role}
         staffRows={staffRows.rows}
+        initialStatusFilter={initialStatusFilter}
         error={leaveRows.error ?? staffRows.error}
       />
     </div>

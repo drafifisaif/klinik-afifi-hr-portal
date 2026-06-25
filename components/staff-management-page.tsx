@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { LeaveBalancePanel } from "@/components/leave-balance-panel";
 import { StatusBadge } from "@/components/status-badge";
-import { buildLeaveBalanceSummary } from "@/lib/data";
+import { buildLeaveBalanceSummary, isStaffRecordIncomplete } from "@/lib/data";
 import type { BulkImportPreviewRow } from "@/lib/staff-import";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
@@ -23,6 +23,7 @@ interface StaffManagementPageProps {
   entitlements: TableRow[];
   leaveRequests: TableRow[];
   profileRows: TableRow[];
+  initialProfileFilter?: string | null;
   error?: string | null;
 }
 
@@ -62,6 +63,7 @@ export function StaffManagementPage({
   entitlements,
   leaveRequests,
   profileRows,
+  initialProfileFilter,
   error,
 }: StaffManagementPageProps) {
   const router = useRouter();
@@ -94,7 +96,18 @@ export function StaffManagementPage({
     return staffRows;
   }, [currentStaff, profile?.branch_id, role, staffRows]);
 
-  const selectedStaff = scopedRows.find((row) => String(row.id ?? "") === editingId) ?? scopedRows[0] ?? currentStaff;
+  const filteredRows = useMemo(() => {
+    if (String(initialProfileFilter ?? "").trim().toLowerCase() !== "incomplete") {
+      return scopedRows;
+    }
+
+    return scopedRows.filter(isStaffRecordIncomplete);
+  }, [initialProfileFilter, scopedRows]);
+
+  const selectedStaff =
+    filteredRows.find((row) => String(row.id ?? "") === editingId) ??
+    filteredRows[0] ??
+    (String(initialProfileFilter ?? "").trim().toLowerCase() ? null : currentStaff);
   const selectedEntitlement = getEntitlementForStaff(entitlements, String(selectedStaff?.id ?? ""));
   const selectedLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === String(selectedStaff?.id ?? ""));
   const balanceSummary = buildLeaveBalanceSummary(selectedEntitlement, selectedLeaveRows);
@@ -382,10 +395,10 @@ export function StaffManagementPage({
         title="Staff directory"
         description="Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."
       >
-        {scopedRows.length ? (
+        {filteredRows.length ? (
           <>
             <div className="space-y-3 md:hidden">
-              {scopedRows.map((row) => (
+              {filteredRows.map((row) => (
                 <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -418,7 +431,7 @@ export function StaffManagementPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)] bg-white">
-                  {scopedRows.map((row) => (
+                  {filteredRows.map((row) => (
                     <tr key={String(row.id)}>
                       <td className="px-4 py-4 text-sm">
                         <p className="font-semibold text-[var(--foreground)]">{String(row.full_name ?? "-")}</p>
@@ -443,7 +456,7 @@ export function StaffManagementPage({
             </div>
           </>
         ) : (
-          <EmptyState title="No staff records available" description="Staff records will appear here once the linked staff rows exist in Supabase." />
+          <EmptyState title={String(initialProfileFilter ?? "").trim().toLowerCase() === "incomplete" ? "No items found for this filter." : "No staff records available"} description={String(initialProfileFilter ?? "").trim().toLowerCase() === "incomplete" ? "No items found for this filter." : "Staff records will appear here once the linked staff rows exist in Supabase."} />
         )}
       </FormSection>
 

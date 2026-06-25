@@ -4,8 +4,15 @@ import { StaffCompliancePage } from "@/components/staff-compliance-page";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
 
-export default async function StaffComplianceDocumentsPage() {
+type PageSearchParams = Record<string, string | string[] | undefined>;
+
+function getSearchParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export default async function StaffComplianceDocumentsPage({ searchParams }: { searchParams?: Promise<PageSearchParams> }) {
   const context = await requireRouteAccess("staffCompliance");
+  const resolvedSearchParams = (await searchParams) ?? {};
 
   if (!context.user || context.unauthorized) {
     return (
@@ -21,6 +28,8 @@ export default async function StaffComplianceDocumentsPage() {
     fetchRows(context.supabase, "staff", 200),
     fetchRows(context.supabase, "branches", 100),
   ]);
+  const initialStatusFilter = getSearchParamValue(resolvedSearchParams.status);
+  const initialFilter = getSearchParamValue(resolvedSearchParams.filter);
 
   return (
     <div className="space-y-6">
@@ -37,6 +46,8 @@ export default async function StaffComplianceDocumentsPage() {
         role={context.role}
         profile={context.profile}
         currentStaff={context.staff}
+        initialStatusFilter={initialStatusFilter}
+        initialFilter={initialFilter}
         error={documents.error ?? staffRows.error ?? branches.error}
       />
     </div>

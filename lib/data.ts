@@ -215,6 +215,11 @@ export function countExpiringRows(rows: TableRow[], field = "expiry_date") {
   return filterExpiringRows(rows, field).length;
 }
 
+export function isStaffRecordIncomplete(row: TableRow) {
+  const required = [row.full_name, row.phone, row.position, row.department, row.branch_id];
+  return required.some((value) => !String(value ?? "").trim());
+}
+
 export function countTodayRoster(rows: TableRow[]) {
   const today = getMalaysiaDateString();
   return rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today).length;

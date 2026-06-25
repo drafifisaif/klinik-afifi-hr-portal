@@ -1192,8 +1192,14 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
   const pendingMc = pendingLeave.filter((row) => normalizeString(row.leave_type) === "medical_leave" || Boolean(row.attachment_url));
   const pendingDocReview = staffDocs.rows.filter((row) => normalizeString(row.status) === "pending_review");
   const incompleteProfiles = staffRows.rows.filter(isStaffRecordIncomplete);
-  const hrFeedback = feedbackRows.rows.filter((row) => ["hr", "portal_system"].includes(normalizeString(row.target_type)) && ["new", "assigned", "in_progress", "need_more_info"].includes(normalizeString(row.status)));
+  const hrFeedback = feedbackRows.rows.filter((row) => {
+    const status = normalizeString(row.status);
+    const targetType = normalizeString(row.target_type);
+    const assignedDepartment = normalizeString(row.assigned_department);
+    return status === "new" && (targetType === "hr" || assignedDepartment === "hr");
+  });
   const expiringDocs = filterExpiringRows(staffDocs.rows);
+  const expiringSoonDocs = staffDocs.rows.filter((row) => getExpiryStatus(row).label === "expiring_soon");
   const expiredDocs = staffDocs.rows.filter((row) => getExpiryStatus(row).label === "expired");
   const doctorApc = expiringDocs.filter((row) => {
     const docText = `${normalizeString(row.document_name)} ${normalizeString(row.document_type)}`;
@@ -1221,18 +1227,18 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
       <PageHeader title="HR Dashboard" description="Action queue yang jelas untuk approval, compliance, dan staff profile supaya pasukan HR boleh bergerak ikut keutamaan harian." />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Pending Leave" value={pendingLeave.length} description="Permohonan cuti menunggu semakan." icon={ClipboardList} tone={pendingLeave.length > 0 ? "alert" : "neutral"} />
-        <StatCard title="Pending MC Review" value={pendingMc.length} description="MC atau medical leave yang belum ditutup." icon={Upload} tone={pendingMc.length > 0 ? "alert" : "neutral"} />
-        <StatCard title="Pending Staff Doc Review" value={pendingDocReview.length} description="Dokumen staff yang masih perlu review." icon={FileBadge} tone={pendingDocReview.length > 0 ? "alert" : "neutral"} />
-        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff yang masih belum lengkap." icon={UserRound} tone={incompleteProfiles.length > 0 ? "alert" : "neutral"} />
-        <StatCard title="New HR Feedback" value={hrFeedback.length} description="Feedback baru yang perlukan perhatian HR." icon={MessageSquareMore} tone={hrFeedback.length > 0 ? "alert" : "neutral"} />
+        <StatCard title="Pending Leave" value={pendingLeave.length} description="Permohonan cuti menunggu semakan." icon={ClipboardList} tone={pendingLeave.length > 0 ? "alert" : "neutral"} href="/leave?status=pending" />
+        <StatCard title="Pending MC Review" value={pendingMc.length} description="MC atau medical leave yang belum ditutup." icon={Upload} tone={pendingMc.length > 0 ? "alert" : "neutral"} href="/mc?status=pending" />
+        <StatCard title="Pending Staff Doc Review" value={pendingDocReview.length} description="Dokumen staff yang masih perlu review." icon={FileBadge} tone={pendingDocReview.length > 0 ? "alert" : "neutral"} href="/staff-compliance?status=pending" />
+        <StatCard title="Incomplete Staff Profiles" value={incompleteProfiles.length} description="Rekod staff yang masih belum lengkap." icon={UserRound} tone={incompleteProfiles.length > 0 ? "alert" : "neutral"} href="/staff?profile=incomplete" />
+        <StatCard title="New HR Feedback" value={hrFeedback.length} description="Feedback baru yang perlukan perhatian HR." icon={MessageSquareMore} tone={hrFeedback.length > 0 ? "alert" : "neutral"} href="/feedback/manage?status=new&department=hr" />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Staff Docs Expiring Soon" value={countExpiringRows(staffDocs.rows)} description="Dokumen staff hampir tamat tempoh." icon={FileSearch} tone={countExpiringRows(staffDocs.rows) > 0 ? "warning" : "neutral"} />
-        <StatCard title="Expired Staff Docs" value={expiredDocs.length} description="Dokumen staff yang telah tamat tempoh." icon={ShieldAlert} tone={expiredDocs.length > 0 ? "alert" : "neutral"} />
-        <StatCard title="Doctor APC/MMC Risk" value={doctorApc.length} description="Dokumen APC atau MMC doktor yang hampir tamat tempoh." icon={Stethoscope} tone={doctorApc.length > 0 ? "warning" : "neutral"} />
-        <StatCard title="Juruxray / CME Risk" value={juruxrayDocs.length} description="Juruxray, CME, atau medical checkup yang hampir tamat tempoh." icon={ShieldCheck} tone={juruxrayDocs.length > 0 ? "warning" : "neutral"} />
+        <StatCard title="Staff Docs Expiring Soon" value={expiringSoonDocs.length} description="Dokumen staff hampir tamat tempoh." icon={FileSearch} tone={expiringSoonDocs.length > 0 ? "warning" : "neutral"} href="/staff-compliance?filter=expiring_soon" />
+        <StatCard title="Expired Staff Docs" value={expiredDocs.length} description="Dokumen staff yang telah tamat tempoh." icon={ShieldAlert} tone={expiredDocs.length > 0 ? "alert" : "neutral"} href="/staff-compliance?filter=expired" />
+        <StatCard title="Doctor APC/MMC Risk" value={doctorApc.length} description="Dokumen APC atau MMC doktor yang hampir tamat tempoh." icon={Stethoscope} tone={doctorApc.length > 0 ? "warning" : "neutral"} href="/staff-compliance?filter=doctor_apc_mmc_risk" />
+        <StatCard title="Juruxray / CME Risk" value={juruxrayDocs.length} description="Juruxray, CME, atau medical checkup yang hampir tamat tempoh." icon={ShieldCheck} tone={juruxrayDocs.length > 0 ? "warning" : "neutral"} href="/staff-compliance?filter=juruxray_cme_risk" />
       </section>
 
       <QuickActions

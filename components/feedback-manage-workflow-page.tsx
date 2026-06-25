@@ -24,6 +24,8 @@ interface FeedbackManageWorkflowPageProps {
   role: UserRole;
   profile: Profile | null;
   currentStaff: TableRow | null;
+  emptyStateTitle?: string;
+  emptyStateDescription?: string;
   error?: string | null;
 }
 
@@ -72,7 +74,7 @@ function getCommentRoleTone(role: string) {
   return "border-slate-200 bg-slate-50/90";
 }
 
-export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, assignmentProfiles, branches, role, profile, currentStaff, error }: FeedbackManageWorkflowPageProps) {
+export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, assignmentProfiles, branches, role, profile, currentStaff, emptyStateTitle, emptyStateDescription, error }: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -459,7 +461,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
             })}
           </div>
         ) : (
-          <EmptyState title="No feedback items available" description="Relevant feedback assignments and targeted items will appear here automatically." />
+          <EmptyState title={emptyStateTitle ?? "No feedback items available"} description={emptyStateDescription ?? "Relevant feedback assignments and targeted items will appear here automatically."} />
         )}
       </FormSection>
     </div>
