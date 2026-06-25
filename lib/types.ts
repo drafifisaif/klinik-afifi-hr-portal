@@ -37,6 +37,7 @@ export type AppRouteKey =
   | "feedbackManage"
   | "notifications"
   | "roster"
+  | "rosterSummary"
   | "holidays"
   | "staffCompliance"
   | "staffComplianceRequirements"

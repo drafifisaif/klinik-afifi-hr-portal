@@ -1247,6 +1247,7 @@ async function loadHrDashboard(supabase: SupabaseClient, context: DashboardConte
           { href: "/leave", label: "Review Leave", helper: "Semak queue cuti dan MC" },
           { href: "/mc", label: "Review MC", helper: "Lihat MC yang baru dihantar" },
           { href: "/attendance", label: "Open Attendance Board", helper: "Pantau hadir, lewat, dan absent hari ini" },
+          { href: "/roster/summary", label: "Weekly Roster Hours", helper: "Lihat ringkasan jam roster mingguan" },
           { href: "/staff-compliance", label: "Staff Compliance", helper: "Review dokumen staff" },
           { href: "/clinic-compliance", label: "Clinic Compliance", helper: "Semak dokumen klinik" },
           { href: "/feedback/manage", label: "Feedback Manage", helper: "Tangani isu yang masuk ke HR" },
