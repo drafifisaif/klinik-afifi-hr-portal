@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bell, Menu, Search } from "lucide-react";
+import { Bell, Menu, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 
 import { LogoutButton } from "@/components/logout-button";
 import type { Profile } from "@/lib/types";
@@ -10,20 +10,39 @@ interface TopbarProps {
   profile: Profile | null;
   unreadCount: number;
   onOpenSidebar?: () => void;
+  desktopSidebarCollapsed?: boolean;
+  onToggleDesktopSidebar?: () => void;
 }
 
-export function Topbar({ currentPath, profile, unreadCount, onOpenSidebar }: TopbarProps) {
+export function Topbar({
+  currentPath,
+  profile,
+  unreadCount,
+  onOpenSidebar,
+  desktopSidebarCollapsed = false,
+  onToggleDesktopSidebar,
+}: TopbarProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-white/70 bg-white/75 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
+      <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-sm lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-sm md:hidden"
             aria-label="Open menu"
           >
             <Menu className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleDesktopSidebar}
+            aria-label={desktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!desktopSidebarCollapsed}
+            className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white md:inline-flex"
+            title={desktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {desktopSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
           <div className="min-w-0">
             <p className="hidden text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--accent)] sm:block">
