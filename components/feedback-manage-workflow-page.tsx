@@ -7,10 +7,10 @@ import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
-import { createClient } from "@/lib/supabase/client";
 import { filterFeedbackForManageView } from "@/lib/data";
 import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
+import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { cn, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
@@ -41,7 +41,11 @@ function getStatusPanelClass(status: string) {
     return "border-rose-200 bg-rose-50/70";
   }
 
-  if (["resolved", "closed"].includes(normalized)) {
+  if (normalized === "closed") {
+    return "border-emerald-200 bg-emerald-50/45";
+  }
+
+  if (normalized === "resolved") {
     return "border-emerald-200 bg-emerald-50/60";
   }
 
@@ -49,7 +53,7 @@ function getStatusPanelClass(status: string) {
     return "border-sky-200 bg-sky-50/70";
   }
 
-  if (["new", "pending", "assigned", "in_progress"].includes(normalized)) {
+  if (["new", "pending", "assigned", "in_progress", "open"].includes(normalized)) {
     return "border-amber-200 bg-amber-50/70";
   }
 
@@ -74,7 +78,24 @@ function getCommentRoleTone(role: string) {
   return "border-slate-200 bg-slate-50/90";
 }
 
-export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRows, profileRows, assignmentProfiles, branches, role, profile, currentStaff, emptyStateTitle, emptyStateDescription, error }: FeedbackManageWorkflowPageProps) {
+function getFeedbackSortValue(row: TableRow) {
+  return String(row.updated_at ?? row.reviewed_at ?? row.created_at ?? "");
+}
+
+export function FeedbackManageWorkflowPage({
+  feedbackRows,
+  commentRows,
+  staffRows,
+  profileRows,
+  assignmentProfiles,
+  branches,
+  role,
+  profile,
+  currentStaff,
+  emptyStateTitle,
+  emptyStateDescription,
+  error,
+}: FeedbackManageWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -96,6 +117,22 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
         String(currentStaff?.branch_id ?? profile?.branch_id ?? "") || undefined,
       ),
     [feedbackRows, role, profile, currentStaff?.id, currentStaff?.branch_id],
+  );
+
+  const actionRequiredFeedback = useMemo(
+    () =>
+      [...scopedFeedback]
+        .filter((row) => normalizeString(row.status) !== "closed")
+        .sort((left, right) => getFeedbackSortValue(right).localeCompare(getFeedbackSortValue(left))),
+    [scopedFeedback],
+  );
+
+  const closedFeedback = useMemo(
+    () =>
+      [...scopedFeedback]
+        .filter((row) => normalizeString(row.status) === "closed")
+        .sort((left, right) => getFeedbackSortValue(right).localeCompare(getFeedbackSortValue(left))),
+    [scopedFeedback],
   );
 
   const getBranchName = useCallback((branchId: unknown) => {
@@ -201,10 +238,7 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
       status: draft.status,
     };
 
-    const { error: updateError } = await supabase
-      .from("feedbacks")
-      .update(updatePayload)
-      .eq("id", feedback.id);
+    const { error: updateError } = await supabase.from("feedbacks").update(updatePayload).eq("id", feedback.id);
 
     if (updateError) {
       setMessage(updateError.message);
@@ -224,14 +258,16 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
       recipients.map((recipient) => ({
         recipient_profile_id: recipient.profile_id,
         recipient_email: recipient.email,
-        title: draft.status === "escalated"
-          ? `Feedback escalated: ${String(feedback.title ?? "Feedback")}`
-          : String(feedback.assigned_to ?? "") && String(feedback.assigned_to ?? "") !== draft.assigned_to
-            ? `Feedback reassigned: ${String(feedback.title ?? "Feedback")}`
-            : `Feedback assignment updated: ${String(feedback.title ?? "Feedback")}`,
-        message: draft.status === "escalated"
-          ? `Escalated to ${draft.assigned_department || "next team"}`
-          : `Status changed to ${draft.status.replaceAll("_", " ")}`,
+        title:
+          draft.status === "escalated"
+            ? `Feedback escalated: ${String(feedback.title ?? "Feedback")}`
+            : String(feedback.assigned_to ?? "") && String(feedback.assigned_to ?? "") !== draft.assigned_to
+              ? `Feedback reassigned: ${String(feedback.title ?? "Feedback")}`
+              : `Feedback assignment updated: ${String(feedback.title ?? "Feedback")}`,
+        message:
+          draft.status === "escalated"
+            ? `Escalated to ${draft.assigned_department || "next team"}`
+            : `Status changed to ${draft.status.replaceAll("_", " ")}`,
         type: "feedback_status_update",
         related_table: "feedbacks",
         related_id: feedback.id,
@@ -314,6 +350,185 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
     router.refresh();
   }
 
+  function renderFeedbackCard(feedback: TableRow, variant: "active" | "closed") {
+    const feedbackId = String(feedback.id ?? "");
+    const comments = getComments(feedbackId);
+    const submitter = getSubmitter(feedback);
+    const targetStaff = getTargetStaff(feedback);
+    const showIdentity = canShowSubmitterIdentity(feedback);
+    const submitterSummary = showIdentity
+      ? `${submitter.name}${submitter.role ? ` · ${submitter.role}` : ""} · ${getBranchName(submitter.branchId)}`
+      : "Anonymous · Hidden · Hidden";
+    const targetSummary = String(feedback.target_type ?? "") === "staff"
+      ? String(feedback.target_staff_id ?? "").trim()
+        ? `${String(targetStaff?.full_name ?? "Unknown User")} · ${getBranchName(targetStaff?.branch_id ?? feedback.branch_id)}`
+        : "Target staff not selected"
+      : String(feedback.target_type ?? "-").replaceAll("_", " ");
+    const draft = assignmentDrafts[feedbackId] ?? {
+      assigned_department: String(feedback.assigned_department ?? ""),
+      assigned_to: String(feedback.assigned_to ?? ""),
+      status: String(feedback.status ?? "new"),
+    };
+    const latestComment = comments[comments.length - 1] ?? null;
+    const assignedUserName = getAssignedUserName(feedback.assigned_to);
+    const lastUpdatedAt = String(latestComment?.created_at ?? feedback.updated_at ?? feedback.created_at ?? "");
+    const isExpanded = expandedFeedbackId === feedbackId;
+
+    return (
+      <article
+        key={feedbackId}
+        className={cn(
+          "rounded-[28px] border transition duration-300",
+          variant === "active" ? "shadow-[0_18px_45px_rgba(18,42,44,0.04)]" : "shadow-[0_10px_24px_rgba(18,42,44,0.03)]",
+          variant === "closed" ? "border-emerald-200 bg-emerald-50/45" : getStatusPanelClass(String(feedback.status ?? "new")),
+          isExpanded && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setExpandedFeedbackId((current) => (current === feedbackId ? null : feedbackId))}
+          aria-expanded={isExpanded}
+          className={cn(
+            "flex w-full items-start justify-between gap-4 rounded-[28px] px-5 text-left transition duration-300 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+            variant === "closed" ? "py-4 hover:shadow-[0_14px_30px_rgba(18,42,44,0.04)]" : "py-5 hover:shadow-[0_20px_48px_rgba(18,42,44,0.07)]",
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className={cn("font-semibold text-[var(--foreground)]", variant === "closed" ? "text-base" : "text-lg")}>
+                {String(feedback.title ?? feedback.subject ?? "Untitled feedback")}
+              </h3>
+              <StatusBadge value={String(feedback.status ?? "new")} />
+              {variant === "active" && normalizeString(feedback.priority) ? <StatusBadge value={String(feedback.priority ?? "normal")} /> : null}
+              {feedback.is_anonymous === true ? <StatusBadge value="Anonymous" /> : null}
+            </div>
+            {variant === "closed" ? (
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--muted-foreground)]">
+                <p><span className="font-semibold text-[var(--foreground)]">Closed:</span> {formatDateTime(lastUpdatedAt)}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Submitted:</span> {formatDateTime(feedback.created_at)}</p>
+                {showIdentity ? <p><span className="font-semibold text-[var(--foreground)]">Submitted by:</span> {submitter.name}</p> : null}
+                {comments.length ? <p><span className="font-semibold text-[var(--foreground)]">Replies:</span> {comments.length}</p> : null}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-2 text-sm text-[var(--muted-foreground)] md:grid-cols-2 xl:grid-cols-3">
+                <p><span className="font-semibold text-[var(--foreground)]">Submitted by:</span> {submitterSummary}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Target / department:</span> {String(feedback.target_type ?? "-").replaceAll("_", " ")}{String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ` · ${String(feedback.assigned_department ?? "-").replaceAll("_", " ")}`}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Assigned user:</span> {assignedUserName || "Unassigned"}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Branch:</span> {getBranchName(feedback.branch_id)}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Submitted:</span> {formatDateTime(feedback.created_at)}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Last updated:</span> {formatDateTime(lastUpdatedAt)}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Replies:</span> {comments.length}</p>
+              </div>
+            )}
+          </div>
+          <ChevronDown className={cn("mt-1 h-5 w-5 shrink-0 text-[var(--muted-foreground)] transition duration-300", isExpanded && "rotate-180")} />
+        </button>
+
+        {isExpanded ? (
+          <div className="border-t border-white/70 px-5 pb-5 pt-5">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-600">
+                  <p><span className="font-semibold text-slate-800">Submitted by:</span> {submitterSummary}</p>
+                  <p className="mt-1"><span className="font-semibold text-slate-800">Target:</span> {String(feedback.target_type ?? "-").replaceAll("_", " ")}{String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ""}</p>
+                  <p className="mt-1"><span className="font-semibold text-slate-800">Assigned department:</span> {String(feedback.assigned_department ?? "-").replaceAll("_", " ")}</p>
+                  <p className="mt-1"><span className="font-semibold text-slate-800">Assigned user:</span> {assignedUserName || "Unassigned"}</p>
+                  <p className="mt-1"><span className="font-semibold text-slate-800">Branch:</span> {getBranchName(feedback.branch_id)}</p>
+                  <p className="mt-1"><span className="font-semibold text-slate-800">Submitted:</span> {formatDateTime(feedback.created_at)}</p>
+                  <p className="mt-1"><span className="font-semibold text-slate-800">Last updated:</span> {formatDateTime(lastUpdatedAt)}</p>
+                </div>
+                <div className="mt-4 rounded-3xl border border-white/80 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(18,42,44,0.04)]">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Feedback Message</p>
+                  <p className="mt-3 text-base leading-7 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
+                </div>
+              </div>
+              <div className="grid gap-3 lg:min-w-[280px] lg:max-w-[300px]">
+                <select value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, assigned_department: event.target.value } }))} className={inputClass}>
+                  <option value="">Assigned department</option>
+                  {["staff", "branch_pic", "operation", "hr"].map((department) => (
+                    <option key={department} value={department}>{department.replaceAll("_", " ")}</option>
+                  ))}
+                </select>
+                <select value={draft.assigned_to} onChange={(event) => {
+                  const selectedProfileId = event.target.value;
+                  const selectedOption = assignmentOptions.find((option) => option.value === selectedProfileId);
+                  setAssignmentDrafts((current) => ({
+                    ...current,
+                    [feedbackId]: {
+                      ...draft,
+                      assigned_to: selectedProfileId,
+                      assigned_department: selectedOption?.role ?? draft.assigned_department,
+                    },
+                  }));
+                }} className={inputClass}>
+                  <option value="">Assign to user (optional)</option>
+                  {assignmentOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <select value={draft.status} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, status: event.target.value } }))} className={inputClass}>
+                  {["new", "assigned", "in_progress", "need_more_info", "resolved", "closed", "escalated"].map((status) => (
+                    <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => saveAssignment(feedback)} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/10">
+                  <ArrowRightCircle className="h-4 w-4" />
+                  Save workflow
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                  Comments {showIdentity ? `· ${submitter.name}` : "· Anonymous"}
+                </h4>
+                {comments.length ? (
+                  comments.map((comment) => {
+                    const commenter = getCommenter(comment);
+                    return (
+                      <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className={cn("rounded-2xl border px-4 py-4", getCommentRoleTone(commenter.role))}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-[var(--foreground)]">
+                            {commenter.role ? `${commenter.name} · ${commenter.role}` : commenter.name}
+                          </p>
+                          {commenter.role ? <StatusBadge value={commenter.role.replaceAll("_", " ")} /> : null}
+                          {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
+                        </div>
+                        <p className="mt-2 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
+                        <p className="mt-3 text-sm text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-sm text-[var(--muted-foreground)]">No comments yet.</p>
+                )}
+              </div>
+              <form className="space-y-3" onSubmit={(event) => addComment(event, feedback)}>
+                <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Add reply</h4>
+                <textarea value={commentDrafts[feedbackId] ?? ""} onChange={(event) => setCommentDrafts((current) => ({ ...current, [feedbackId]: event.target.value }))} rows={4} placeholder="Write a feedback reply or internal comment" className={textareaClass} />
+                {(role === "hr" || role === "operation" || role === "super_admin") ? (
+                  <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
+                    <input
+                      type="checkbox"
+                      checked={internalDrafts[feedbackId] === true}
+                      onChange={(event) => setInternalDrafts((current) => ({ ...current, [feedbackId]: event.target.checked }))}
+                    />
+                    Mark as internal comment
+                  </label>
+                ) : null}
+                <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25">
+                  <MessageSquareReply className="h-4 w-4" />
+                  Add comment
+                </button>
+              </form>
+            </div>
+          </div>
+        ) : null}
+      </article>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load feedback workflow" description={error} /> : null}
@@ -322,176 +537,34 @@ export function FeedbackManageWorkflowPage({ feedbackRows, commentRows, staffRow
 
       <FormSection title="Feedback workflow" description="Assign, update, and reply to feedback using the real workflow tables.">
         {scopedFeedback.length ? (
-          <div className="space-y-5">
-            {scopedFeedback.map((feedback) => {
-              const feedbackId = String(feedback.id ?? "");
-              const comments = getComments(feedbackId);
-              const submitter = getSubmitter(feedback);
-              const targetStaff = getTargetStaff(feedback);
-              const showIdentity = canShowSubmitterIdentity(feedback);
-              const submitterSummary = showIdentity
-                ? `${submitter.name}${submitter.role ? ` · ${submitter.role}` : ""} · ${getBranchName(submitter.branchId)}`
-                : "Anonymous · Hidden · Hidden";
-              const targetSummary = String(feedback.target_type ?? "") === "staff"
-                ? String(feedback.target_staff_id ?? "").trim()
-                  ? `${String(targetStaff?.full_name ?? "Unknown User")} · ${getBranchName(targetStaff?.branch_id ?? feedback.branch_id)}`
-                  : "Target staff not selected"
-                : String(feedback.target_type ?? "-").replaceAll("_", " ");
-              const draft = assignmentDrafts[feedbackId] ?? {
-                assigned_department: String(feedback.assigned_department ?? ""),
-                assigned_to: String(feedback.assigned_to ?? ""),
-                status: String(feedback.status ?? "new"),
-              };
-              const latestComment = comments[comments.length - 1] ?? null;
-              const assignedUserName = getAssignedUserName(feedback.assigned_to);
-              const lastUpdatedAt = String(latestComment?.created_at ?? feedback.updated_at ?? feedback.created_at ?? "");
-              const isExpanded = expandedFeedbackId === feedbackId;
+          <div className="space-y-8">
+            <section className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold tracking-tight text-[var(--foreground)]">Action Required</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Unresolved feedback that still needs review, assignment, reply, or workflow movement.</p>
+              </div>
+              {actionRequiredFeedback.length ? (
+                <div className="space-y-5">
+                  {actionRequiredFeedback.map((feedback) => renderFeedbackCard(feedback, "active"))}
+                </div>
+              ) : (
+                <EmptyState title="No feedback needs action right now." description="All visible feedback cases are currently cleared or waiting elsewhere." />
+              )}
+            </section>
 
-              return (
-                <article
-                  key={feedbackId}
-                  className={cn(
-                    "rounded-[28px] border shadow-[0_18px_45px_rgba(18,42,44,0.04)] transition duration-300",
-                    getStatusPanelClass(String(feedback.status ?? "new")),
-                    isExpanded && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-white",
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setExpandedFeedbackId((current) => (current === feedbackId ? null : feedbackId))}
-                    aria-expanded={isExpanded}
-                    className="flex w-full items-start justify-between gap-4 rounded-[28px] px-5 py-5 text-left transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(18,42,44,0.07)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold text-[var(--foreground)]">{String(feedback.title ?? feedback.subject ?? "Untitled feedback")}</h3>
-                        <StatusBadge value={String(feedback.status ?? "new")} />
-                        {normalizeString(feedback.priority) ? <StatusBadge value={String(feedback.priority ?? "normal")} /> : null}
-                        {feedback.is_anonymous === true ? <StatusBadge value="Anonymous" /> : null}
-                      </div>
-                      <div className="mt-4 grid gap-2 text-sm text-[var(--muted-foreground)] md:grid-cols-2 xl:grid-cols-3">
-                        <p><span className="font-semibold text-[var(--foreground)]">Submitted by:</span> {submitterSummary}</p>
-                        <p><span className="font-semibold text-[var(--foreground)]">Target / department:</span> {String(feedback.target_type ?? "-").replaceAll("_", " ")}{String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ` · ${String(feedback.assigned_department ?? "-").replaceAll("_", " ")}`}</p>
-                        <p><span className="font-semibold text-[var(--foreground)]">Assigned user:</span> {assignedUserName || "Unassigned"}</p>
-                        <p><span className="font-semibold text-[var(--foreground)]">Branch:</span> {getBranchName(feedback.branch_id)}</p>
-                        <p><span className="font-semibold text-[var(--foreground)]">Submitted:</span> {formatDateTime(feedback.created_at)}</p>
-                        <p><span className="font-semibold text-[var(--foreground)]">Last updated:</span> {formatDateTime(lastUpdatedAt)}</p>
-                        <p><span className="font-semibold text-[var(--foreground)]">Replies:</span> {comments.length}</p>
-                      </div>
-                    </div>
-                    <ChevronDown className={cn("mt-1 h-5 w-5 shrink-0 text-[var(--muted-foreground)] transition duration-300", isExpanded && "rotate-180")} />
-                  </button>
-
-                  {isExpanded ? (
-                    <div className="border-t border-white/70 px-5 pb-5 pt-5">
-                      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-600">
-                            <p>
-                              <span className="font-semibold text-slate-800">Submitted by:</span>{" "}
-                              {submitterSummary}
-                            </p>
-                            <p className="mt-1">
-                              <span className="font-semibold text-slate-800">Target:</span>{" "}
-                              {String(feedback.target_type ?? "-").replaceAll("_", " ")}
-                              {String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ""}
-                            </p>
-                            <p className="mt-1">
-                              <span className="font-semibold text-slate-800">Submitted:</span>{" "}
-                              {formatDateTime(feedback.created_at)}
-                            </p>
-                          </div>
-                          <div className="mt-4 rounded-3xl border border-white/80 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(18,42,44,0.04)]">
-                            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Feedback Message</p>
-                            <p className="mt-3 text-base leading-7 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
-                          </div>
-                        </div>
-                        <div className="grid gap-3 lg:min-w-[280px] lg:max-w-[300px]">
-                          <select value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, assigned_department: event.target.value } }))} className={inputClass}>
-                            <option value="">Assigned department</option>
-                            {["staff", "branch_pic", "operation", "hr"].map((department) => (
-                              <option key={department} value={department}>{department.replaceAll("_", " ")}</option>
-                            ))}
-                          </select>
-                          <select value={draft.assigned_to} onChange={(event) => {
-                            const selectedProfileId = event.target.value;
-                            const selectedOption = assignmentOptions.find((option) => option.value === selectedProfileId);
-                            setAssignmentDrafts((current) => ({
-                              ...current,
-                              [feedbackId]: {
-                                ...draft,
-                                assigned_to: selectedProfileId,
-                                assigned_department: selectedOption?.role ?? draft.assigned_department,
-                              },
-                            }));
-                          }} className={inputClass}>
-                            <option value="">Assign to user (optional)</option>
-                            {assignmentOptions.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                          <select value={draft.status} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, status: event.target.value } }))} className={inputClass}>
-                            {["new", "assigned", "in_progress", "need_more_info", "resolved", "closed", "escalated"].map((status) => (
-                              <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
-                            ))}
-                          </select>
-                          <button type="button" onClick={() => saveAssignment(feedback)} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/10">
-                            <ArrowRightCircle className="h-4 w-4" />
-                            Save workflow
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                            Comments {showIdentity ? `· ${submitter.name}` : "· Anonymous"}
-                          </h4>
-                          {comments.length ? (
-                            comments.map((comment) => {
-                              const commenter = getCommenter(comment);
-                              return (
-                                <div key={String(comment.id ?? `${feedback.id}-${comment.created_at}`)} className={cn("rounded-2xl border px-4 py-4", getCommentRoleTone(commenter.role))}>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="text-sm font-semibold text-[var(--foreground)]">
-                                      {commenter.role ? `${commenter.name} · ${commenter.role}` : commenter.name}
-                                    </p>
-                                    {commenter.role ? <StatusBadge value={commenter.role.replaceAll("_", " ")} /> : null}
-                                    {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
-                                  </div>
-                                  <p className="mt-2 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
-                                  <p className="mt-3 text-sm text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <p className="text-sm text-[var(--muted-foreground)]">No comments yet.</p>
-                          )}
-                        </div>
-                        <form className="space-y-3" onSubmit={(event) => addComment(event, feedback)}>
-                          <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Add reply</h4>
-                          <textarea value={commentDrafts[feedbackId] ?? ""} onChange={(event) => setCommentDrafts((current) => ({ ...current, [feedbackId]: event.target.value }))} rows={4} placeholder="Write a feedback reply or internal comment" className={textareaClass} />
-                          {(role === "hr" || role === "operation" || role === "super_admin") ? (
-                            <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
-                              <input
-                                type="checkbox"
-                                checked={internalDrafts[feedbackId] === true}
-                                onChange={(event) => setInternalDrafts((current) => ({ ...current, [feedbackId]: event.target.checked }))}
-                              />
-                              Mark as internal comment
-                            </label>
-                          ) : null}
-                          <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25">
-                            <MessageSquareReply className="h-4 w-4" />
-                            Add comment
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
+            <section className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold tracking-tight text-[var(--foreground)]">Closed Cases</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Archive-style history of feedback that has already been closed.</p>
+              </div>
+              {closedFeedback.length ? (
+                <div className="space-y-3">
+                  {closedFeedback.map((feedback) => renderFeedbackCard(feedback, "closed"))}
+                </div>
+              ) : (
+                <EmptyState title="No closed feedback yet." description="Closed feedback history will appear here once cases are completed." />
+              )}
+            </section>
           </div>
         ) : (
           <EmptyState title={emptyStateTitle ?? "No feedback items available"} description={emptyStateDescription ?? "Relevant feedback assignments and targeted items will appear here automatically."} />
