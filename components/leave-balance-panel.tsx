@@ -4,6 +4,7 @@ interface LeaveBalancePanelProps {
   summary: LeaveBalanceSummary;
   title?: string;
   hideHeader?: boolean;
+  compactAnnualRemainingOnly?: boolean;
 }
 
 function BalanceCard({
@@ -38,7 +39,24 @@ function BalanceCard({
   );
 }
 
-export function LeaveBalancePanel({ summary, title = "Leave Balance", hideHeader = false }: LeaveBalancePanelProps) {
+export function LeaveBalancePanel({ summary, title = "Leave Balance", hideHeader = false, compactAnnualRemainingOnly = false }: LeaveBalancePanelProps) {
+  const annualRemaining = Number(summary.annual.remaining ?? 0) || 0;
+  const annualRemainingLabel = `${annualRemaining} Day${annualRemaining === 1 ? "" : "s"}`;
+
+  if (compactAnnualRemainingOnly) {
+    return (
+      <section className="rounded-[28px] border border-white/80 bg-white/90 p-6 shadow-[0_18px_45px_rgba(18,42,44,0.06)]">
+        <div className="rounded-3xl bg-[var(--card-muted)] px-6 py-6 text-center sm:text-left">
+          <h4 className="text-xl font-semibold text-[var(--foreground)] sm:text-[1.4rem]">Annual Leave</h4>
+          <div className="mt-5 space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--muted-foreground)]">Remaining</p>
+            <p className="text-[2.6rem] font-bold tracking-tight text-[var(--accent)] sm:text-[3rem]">{annualRemainingLabel}</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-[28px] border border-white/80 bg-white/90 p-6 shadow-[0_18px_45px_rgba(18,42,44,0.06)]">
       {!hideHeader ? (

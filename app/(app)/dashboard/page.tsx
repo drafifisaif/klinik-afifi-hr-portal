@@ -1190,7 +1190,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
             <EmptyState title="No shift scheduled yet" description="Shift seterusnya akan muncul di sini bila roster sudah diset." />
           )}
         </FormSection>
-        <LeaveBalancePanel summary={leaveBalance} hideHeader />
+        <LeaveBalancePanel summary={leaveBalance} hideHeader compactAnnualRemainingOnly />
         <PendingLeaveApplicationsWidget rows={pendingLeaveApplications} />
         <FormSection title="Next Approved Annual Leave" description="Cuti tahunan yang telah diluluskan dan akan datang.">
           {nextApprovedAnnualLeave ? (
