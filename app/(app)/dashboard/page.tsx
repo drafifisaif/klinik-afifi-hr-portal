@@ -558,9 +558,9 @@ function HeroCard({
           <h2 className="text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">{title}</h2>
           <div className="mt-6 flex items-center justify-center gap-5 lg:justify-start">
             {avatarUrl ? (
-              <Image src={avatarUrl} alt={name} width={88} height={88} className="h-20 w-20 rounded-[28px] object-cover shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24" unoptimized />
+              <Image src={avatarUrl} alt={name} width={104} height={104} className="h-24 w-24 rounded-[30px] object-cover shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24" unoptimized />
             ) : (
-              <div className="flex h-20 w-20 items-center justify-center rounded-[28px] bg-white/90 text-2xl font-semibold text-[var(--accent)] shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24">
+              <div className="flex h-24 w-24 items-center justify-center rounded-[30px] bg-white/90 text-2xl font-semibold text-[var(--accent)] shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24">
                 {initials}
               </div>
             )}

@@ -56,7 +56,7 @@ export function LeaveBalancePanel({ summary, title = "Leave Balance", hideHeader
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5 text-center sm:text-left">
-          <h4 className="text-lg font-semibold text-[var(--foreground)]">Emergency Leave</h4>
+          <h4 className="text-xl font-semibold text-[var(--foreground)] sm:text-[1.35rem]">Emergency Leave</h4>
           <div className="mt-4">
             <div className="space-y-1.5">
               <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--muted-foreground)]">Used</p>
@@ -65,7 +65,7 @@ export function LeaveBalancePanel({ summary, title = "Leave Balance", hideHeader
           </div>
         </div>
         <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5 text-center sm:text-left">
-          <h4 className="text-lg font-semibold text-[var(--foreground)]">Unpaid Leave</h4>
+          <h4 className="text-xl font-semibold text-[var(--foreground)] sm:text-[1.35rem]">Unpaid Leave</h4>
           <div className="mt-4">
             <div className="space-y-1.5">
               <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--muted-foreground)]">Used</p>
