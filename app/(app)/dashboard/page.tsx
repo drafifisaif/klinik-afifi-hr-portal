@@ -149,6 +149,22 @@ function getShiftName(row: TableRow, shiftTemplates: TableRow[]) {
   return String(template?.name ?? row.shift_template_id ?? "Shift belum diset");
 }
 
+function formatLeaveTypeLabel(value: unknown) {
+  const normalized = String(value ?? "")
+    .trim()
+    .replaceAll("_", " ");
+
+  if (!normalized) {
+    return "Leave";
+  }
+
+  return normalized
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function getNextPersonalShift(rosters: TableRow[], staffId?: string | null) {
   if (!staffId) {
     return null;
@@ -869,6 +885,60 @@ function HolidayWidget({ holiday }: { holiday: TableRow | null }) {
   );
 }
 
+function PendingLeaveApplicationsWidget({ rows }: { rows: TableRow[] }) {
+  return (
+    <FormSection title="My Pending Leave Applications" description="Permohonan cuti anda yang masih menunggu semakan HR.">
+      {rows.length ? (
+        <div className="space-y-3">
+          {rows.map((row) => {
+            const hasAttachment = Boolean(String(row.attachment_url ?? "").trim());
+            const submittedAt = String(row.created_at ?? row.submitted_at ?? "");
+            const reasonPreview = String(row.reason ?? row.remarks ?? "").trim();
+            const dayLabel = `${Number(row.total_days ?? 0) || 0} day${Number(row.total_days ?? 0) === 1 ? "" : "s"}`;
+
+            return (
+              <Link
+                key={String(row.id ?? `${row.leave_type}-${row.created_at}`)}
+                href="/leave?status=pending"
+                className="block rounded-3xl border border-amber-200 bg-amber-50/80 px-5 py-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-amber-950">{formatLeaveTypeLabel(row.leave_type)}</p>
+                    <p className="mt-1 text-sm text-amber-900">
+                      {formatDate(row.start_date)}
+                      {String(row.end_date ?? "") !== String(row.start_date ?? "") ? ` - ${formatDate(row.end_date)}` : ""}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-medium text-amber-800">
+                      <span className="rounded-full bg-white/80 px-3 py-1">{dayLabel}</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1">{hasAttachment ? "Form uploaded" : "Form missing"}</span>
+                      {submittedAt ? <span className="rounded-full bg-white/80 px-3 py-1">Submitted {formatDate(submittedAt)}</span> : null}
+                    </div>
+                    {reasonPreview ? (
+                      <p className="mt-3 line-clamp-2 text-sm text-amber-900/90">{reasonPreview}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-3">
+                    <StatusBadge value="pending" />
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-900">
+                      View leave request
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/35 px-4 py-4 text-sm text-[var(--muted-foreground)]">
+          Tiada permohonan cuti yang masih pending.
+        </div>
+      )}
+    </FormSection>
+  );
+}
+
 function RosterPreview({ title, description, rows, staffRows, shiftTemplates, focusStaffId, branches }: { title: string; description: string; rows: TableRow[]; staffRows: TableRow[]; shiftTemplates: TableRow[]; focusStaffId?: string | null; branches: BranchOption[] }) {
   const groupedRows = rows.reduce<Record<string, { doctors: TableRow[]; staff: TableRow[] }>>((groups, row) => {
     const rosterDate = String(row.roster_date ?? row.date ?? "");
@@ -1070,6 +1140,9 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const nextShift = getNextPersonalShift(rosters.rows, staffId);
   const latestEntitlement = entitlementRows.rows[0] ?? null;
   const leaveBalance = buildLeaveBalanceSummary(latestEntitlement, leaveRows.rows);
+  const pendingLeaveApplications = leaveRows.rows
+    .filter((row) => isPendingLeaveStatus(row))
+    .sort((left, right) => String(right.updated_at ?? right.created_at ?? "").localeCompare(String(left.updated_at ?? left.created_at ?? "")));
   const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
   const missingProfileFields = getMissingStaffEditableProfileFields(context.profile, context.staff);
   const nextApprovedAnnualLeave = [...leaveRows.rows]
@@ -1119,6 +1192,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
             <EmptyState title="No shift scheduled yet" description="Shift seterusnya akan muncul di sini bila roster sudah diset." />
           )}
         </FormSection>
+        <PendingLeaveApplicationsWidget rows={pendingLeaveApplications} />
         <FormSection title="Next Approved Annual Leave" description="Cuti tahunan yang telah diluluskan dan akan datang.">
           {nextApprovedAnnualLeave ? (
             <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
