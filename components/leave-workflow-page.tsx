@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { CalendarPlus, Pencil, Save, X } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CalendarPlus, ChevronDown, Pencil, Save, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
@@ -29,6 +29,9 @@ const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
+
+const collapsibleButtonClass =
+  "flex w-full items-center justify-between gap-4 rounded-[28px] border border-[var(--border)] bg-[var(--card)] px-5 py-4 text-left transition duration-200 hover:-translate-y-[2px] hover:shadow-[0_18px_45px_rgba(18,42,44,0.08)] focus:outline-none focus:ring-4 focus:ring-[var(--ring)]";
 
 const emptyLeaveForm = {
   leave_type: "annual_leave",
@@ -67,6 +70,9 @@ export function LeaveWorkflowPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEntitlementSaving, setIsEntitlementSaving] = useState(false);
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
+  const [expandedLeaveId, setExpandedLeaveId] = useState<string | null>(null);
+  const [isCreateSectionOpen, setIsCreateSectionOpen] = useState(false);
+  const [isEntitlementSectionOpen, setIsEntitlementSectionOpen] = useState(false);
   const [form, setForm] = useState(emptyLeaveForm);
   const [selectedStaffId, setSelectedStaffId] = useState(String(currentStaff?.id ?? staffRows[0]?.id ?? ""));
   const [entitlementForm, setEntitlementForm] = useState(() => {
@@ -113,6 +119,38 @@ export function LeaveWorkflowPage({
   const filteredReviewRows = normalizedStatusFilter
     ? (isBranchPicView ? reviewQueueRows : scopedRows).filter((row) => normalizeString(row.status) === normalizedStatusFilter)
     : (isBranchPicView ? reviewQueueRows : scopedRows);
+  const groupedReviewRows = useMemo(() => {
+    const sourceRows = filteredReviewRows.slice();
+    const weight = (status: string) => {
+      const normalized = normalizeString(status);
+      if (normalized === "pending") return 0;
+      if (["approved", "resolved"].includes(normalized)) return 1;
+      if (["rejected", "cancelled", "closed"].includes(normalized)) return 2;
+      return 0;
+    };
+
+    return sourceRows.sort((left, right) => {
+      const byStatus = weight(String(left.status ?? "")) - weight(String(right.status ?? ""));
+      if (byStatus !== 0) {
+        return byStatus;
+      }
+
+      const leftTime = new Date(String(left.updated_at ?? left.created_at ?? left.submitted_at ?? 0)).getTime();
+      const rightTime = new Date(String(right.updated_at ?? right.created_at ?? right.submitted_at ?? 0)).getTime();
+      return rightTime - leftTime;
+    });
+  }, [filteredReviewRows]);
+  const pendingRows = groupedReviewRows.filter((row) => normalizeString(row.status) === "pending");
+  const approvedRows = groupedReviewRows.filter((row) => ["approved", "resolved"].includes(normalizeString(row.status)));
+  const archivedRows = groupedReviewRows.filter((row) =>
+    ["rejected", "cancelled", "closed"].includes(normalizeString(row.status)),
+  );
+
+  useEffect(() => {
+    if (editingLeaveId) {
+      setIsCreateSectionOpen(true);
+    }
+  }, [editingLeaveId]);
 
   function getBranchName(branchId: unknown) {
     return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? "No branch";
@@ -143,6 +181,7 @@ export function LeaveWorkflowPage({
     }
 
     setEditingLeaveId(String(row.id ?? ""));
+    setExpandedLeaveId(String(row.id ?? ""));
     setForm({
       leave_type: String(row.leave_type ?? "annual_leave"),
       start_date: formatDateInput(row.start_date),
@@ -179,7 +218,7 @@ export function LeaveWorkflowPage({
     );
   }
 
-  function renderLeaveCards(rows: TableRow[], emptyTitle: string, emptyDescription: string) {
+  function renderLeaveCards(rows: TableRow[], emptyTitle: string, emptyDescription: string, mode: "pending" | "approved" | "archived" | "personal" = "pending") {
     if (!rows.length) {
       return <EmptyState title={emptyTitle} description={emptyDescription} />;
     }
@@ -189,85 +228,143 @@ export function LeaveWorkflowPage({
         {rows.map((row) => {
           const summary = getBalanceForStaff(row.staff_id);
           const normalizedStatus = normalizeString(row.status);
-          const cardTone =
-            ["approved", "resolved", "closed"].includes(normalizedStatus)
-              ? "border-emerald-200 bg-emerald-50/55"
-              : ["pending", "in_progress", "assigned", "rejected", "cancelled"].includes(normalizedStatus)
-                ? "border-rose-200 bg-rose-50/60"
-                : "border-[var(--border)] bg-white";
+          const isExpanded = expandedLeaveId === String(row.id ?? "");
+          const isApprovedView = mode === "approved";
+          const isArchivedView = mode === "archived";
+          const isPendingView = mode === "pending";
+          const cardTone = isPendingView
+            ? "border-amber-200 bg-amber-50/70"
+            : isApprovedView
+              ? "border-emerald-200 bg-emerald-50/45"
+              : isArchivedView
+                ? "border-slate-200 bg-slate-50/80"
+                : ["approved", "resolved", "closed"].includes(normalizedStatus)
+                  ? "border-emerald-200 bg-emerald-50/55"
+                  : "border-[var(--border)] bg-white";
+          const metaText = row.updated_at || row.created_at || row.submitted_at;
+          const compactDateLabel =
+            normalizedStatus === "approved" && row.reviewed_at
+              ? `Approved ${formatDateTime(row.reviewed_at)}`
+              : metaText
+                ? `Updated ${formatDateTime(metaText)}`
+                : null;
 
           return (
-            <article key={String(row.id)} className={cn("rounded-[28px] border p-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", cardTone)}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-[var(--foreground)]">{getStaffName(row.staff_id)}</h3>
-                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                    {getBranchName(row.branch_id)} · {String(row.leave_type ?? "-").replaceAll("_", " ")} · {formatDate(row.start_date)} - {formatDate(row.end_date)}
+            <article
+              key={String(row.id)}
+              className={cn(
+                "rounded-[28px] border p-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)] transition duration-200",
+                cardTone,
+                isExpanded ? "ring-2 ring-[var(--ring)]" : "hover:-translate-y-[2px] hover:shadow-[0_18px_45px_rgba(18,42,44,0.08)]",
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => setExpandedLeaveId((current) => (current === String(row.id ?? "") ? null : String(row.id ?? "")))}
+                aria-expanded={isExpanded}
+                className="flex w-full items-start justify-between gap-4 text-left"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className={cn("font-semibold text-[var(--foreground)]", isApprovedView || isArchivedView ? "text-base" : "text-lg")}>
+                      {getStaffName(row.staff_id)}
+                    </h3>
+                    <StatusBadge value={String(row.status ?? "pending")} />
+                    {!isArchivedView ? (
+                      <span className="inline-flex rounded-full bg-white/85 px-3 py-1 text-xs font-semibold text-[var(--foreground)]">
+                        {String(row.total_days ?? "-")} day(s)
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+                    {String(row.leave_type ?? "-").replaceAll("_", " ")} · {formatDate(row.start_date)} - {formatDate(row.end_date)}
                   </p>
+                  {!isApprovedView && !isArchivedView ? (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
+                      <span>Branch: {getBranchName(row.branch_id)}</span>
+                      <span>Submitted: {formatDateTime(row.created_at ?? row.submitted_at)}</span>
+                      {compactDateLabel ? <span>{compactDateLabel}</span> : null}
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
+                      {compactDateLabel ? <span>{compactDateLabel}</span> : null}
+                      {row.reviewed_by ? <span>Approved by: {getStaffName(row.reviewed_by)}</span> : null}
+                    </div>
+                  )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge value={String(row.status ?? "pending")} />
-                  <span className="inline-flex rounded-full bg-white/85 px-3 py-1 text-xs font-semibold text-[var(--foreground)]">
-                    {String(row.total_days ?? "-")} day(s)
-                  </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <ChevronDown className={cn("h-5 w-5 text-[var(--muted-foreground)] transition-transform", isExpanded ? "rotate-180" : "")} />
                 </div>
-              </div>
+              </button>
 
-              <div className="mt-4 rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Reason</p>
-                <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(row.reason ?? "-")}</p>
-              </div>
+              {isExpanded ? (
+                <>
+                  <div className="mt-4 rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Request Details</p>
+                    <div className="mt-3 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                      <p>Staff: {getStaffName(row.staff_id)}</p>
+                      <p>Branch: {getBranchName(row.branch_id)}</p>
+                      <p>Leave type: {String(row.leave_type ?? "-").replaceAll("_", " ")}</p>
+                      <p>Days: {String(row.total_days ?? "-")}</p>
+                      <p>Date range: {formatDate(row.start_date)} - {formatDate(row.end_date)}</p>
+                      <p>Submitted: {formatDateTime(row.created_at ?? row.submitted_at)}</p>
+                    </div>
+                    <p className="mt-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Reason / Remarks</p>
+                    <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(row.reason ?? "-")}</p>
+                  </div>
 
-              <div className="mt-4 rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
-                <p>
-                  <span className="font-semibold text-slate-800">Workflow:</span> {String(row.status ?? "pending").replaceAll("_", " ")}
-                </p>
-                <p className="mt-1">
-                  <span className="font-semibold text-slate-800">Reviewed:</span> {row.reviewed_at ? formatDateTime(row.reviewed_at) : "Pending review"}
-                </p>
-                {row.review_note ? (
-                  <p className="mt-1">
-                    <span className="font-semibold text-slate-800">Review note:</span> {String(row.review_note)}
-                  </p>
-                ) : null}
-                {row.attachment_url ? (
-                  <p className="mt-1">
-                    <span className="font-semibold text-slate-800">Attachment path:</span> {String(row.attachment_url)}
-                  </p>
-                ) : null}
-              </div>
+                  <div className="mt-4 rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
+                    <p>
+                      <span className="font-semibold text-slate-800">Workflow:</span> {String(row.status ?? "pending").replaceAll("_", " ")}
+                    </p>
+                    <p className="mt-1">
+                      <span className="font-semibold text-slate-800">Reviewed:</span> {row.reviewed_at ? formatDateTime(row.reviewed_at) : "Pending review"}
+                    </p>
+                    {row.review_note ? (
+                      <p className="mt-1">
+                        <span className="font-semibold text-slate-800">Review note:</span> {String(row.review_note)}
+                      </p>
+                    ) : null}
+                    {row.attachment_url ? (
+                      <p className="mt-1">
+                        <span className="font-semibold text-slate-800">Attachment path:</span> {String(row.attachment_url)}
+                      </p>
+                    ) : null}
+                  </div>
 
-              <div className="mt-4 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-5 py-5">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Leave Balance Summary</p>
-                {renderInlineBalance(summary)}
-              </div>
+                  <div className="mt-4 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-5 py-5">
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Leave Balance Summary</p>
+                    {renderInlineBalance(summary)}
+                  </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                {canEditOwnLeave(row) ? (
-                  <button
-                    type="button"
-                    onClick={() => startEditLeave(row)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit leave
-                  </button>
-                ) : null}
-                {canReview ? (
-                  <>
-                    {["pending", "approved", "rejected", "cancelled"].map((status) => (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {canEditOwnLeave(row) ? (
                       <button
-                        key={status}
                         type="button"
-                        onClick={() => updateLeaveStatus(String(row.id), status)}
-                        className="rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
+                        onClick={() => startEditLeave(row)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
                       >
-                        {status.replaceAll("_", " ")}
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit leave
                       </button>
-                    ))}
-                  </>
-                ) : null}
-              </div>
+                    ) : null}
+                    {canReview ? (
+                      <>
+                        {["pending", "approved", "rejected", "cancelled"].map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => updateLeaveStatus(String(row.id), status)}
+                            className="rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
+                          >
+                            {status.replaceAll("_", " ")}
+                          </button>
+                        ))}
+                      </>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
             </article>
           );
         })}
@@ -395,43 +492,96 @@ export function LeaveWorkflowPage({
       {error ? <EmptyState title="Unable to load leave data" description={error} /> : null}
       {!isHrView ? <LeaveBalancePanel summary={balanceSummary} title="My Leave Balance" /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <div className="space-y-6">
-          <FormSection
-            title={isHrView ? "Leave Request Queue" : isBranchPicView ? "Branch Leave Review Queue" : "My Leave Requests"}
-            description={
-              isHrView
-                ? "Pantau permohonan cuti, semak status workflow, dan semak baki cuti setiap staff terus dalam kad permohonan."
-                : isBranchPicView
-                  ? "Semak permohonan cuti cawangan yang memerlukan tindakan anda."
-                  : "Pantau sejarah permohonan cuti dan status semakan anda."
-            }
-          >
-            {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
+      <div className="space-y-6">
+        <FormSection
+          title={isHrView ? "Leave Request Queue" : isBranchPicView ? "Branch Leave Review Queue" : "My Leave Requests"}
+          description={
+            isHrView
+              ? "Pantau permohonan cuti, semak status workflow, dan beri tindakan cepat kepada permohonan yang masih menunggu."
+              : isBranchPicView
+                ? "Semak permohonan cuti cawangan yang memerlukan tindakan anda."
+                : "Pantau sejarah permohonan cuti dan status semakan anda."
+          }
+        >
+          {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
+
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Pending Leave Requests</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Permohonan menunggu tindakan dipaparkan dahulu supaya lebih mudah diutamakan.</p>
+              </div>
+              {renderLeaveCards(
+                pendingRows,
+                normalizedStatusFilter ? "No items found for this filter." : "No pending leave requests.",
+                normalizedStatusFilter ? "No items found for this filter." : "Pending leave requests that need action will appear here.",
+                "pending",
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Approved Leave Requests</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Permohonan yang sudah diluluskan dipaparkan dalam gaya yang lebih ringkas untuk audit dan rujukan.</p>
+              </div>
+              {renderLeaveCards(
+                approvedRows,
+                "No approved leave requests yet.",
+                "Approved leave history will appear here once requests are reviewed.",
+                "approved",
+              )}
+            </div>
+
+            {archivedRows.length ? (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-[var(--foreground)]">Rejected / Cancelled Requests</h3>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">Permohonan yang ditolak atau dibatalkan disimpan di bahagian bawah untuk rujukan.</p>
+                </div>
+                {renderLeaveCards(
+                  archivedRows,
+                  "No archived requests.",
+                  "Rejected or cancelled requests will appear here.",
+                  "archived",
+                )}
+              </div>
+            ) : null}
+          </div>
+        </FormSection>
+
+        {isBranchPicView ? (
+          <FormSection title="My Leave History" description="Paparan ringkas untuk permohonan cuti peribadi anda sendiri.">
             {renderLeaveCards(
-              filteredReviewRows,
-              normalizedStatusFilter ? "No items found for this filter." : "No leave requests yet",
-              normalizedStatusFilter ? "No items found for this filter." : "Submitted leave requests will appear here automatically.",
+              ownRows,
+              "No personal leave requests yet",
+              "Your own leave submissions will appear here after your first request.",
+              "personal",
             )}
           </FormSection>
+        ) : null}
 
-          {isBranchPicView ? (
-            <FormSection title="My Leave History" description="Paparan ringkas untuk permohonan cuti peribadi anda sendiri.">
-              {renderLeaveCards(
-                ownRows,
-                "No personal leave requests yet",
-                "Your own leave submissions will appear here after your first request.",
-              )}
-            </FormSection>
-          ) : null}
-        </div>
-
-        <div className="space-y-6">
-          <FormSection
-            title={editingLeaveId ? "Edit leave request" : "Create leave request"}
-            description={editingLeaveId ? "You can update your own pending leave request before it is reviewed." : "Submit real leave requests with linked profile, staff, and branch information."}
+        <section className="space-y-4">
+          <button
+            type="button"
+            className={collapsibleButtonClass}
+            onClick={() => setIsCreateSectionOpen((current) => !current)}
+            aria-expanded={isCreateSectionOpen}
           >
-            {currentStaff ? (
+            <div>
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">{editingLeaveId ? "Edit Leave Request" : "Create Leave Request"}</h3>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                {editingLeaveId ? "Update your pending leave request before it is reviewed." : "Expand to submit a new leave request with linked staff and branch information."}
+              </p>
+            </div>
+            <ChevronDown className={cn("h-5 w-5 text-[var(--muted-foreground)] transition-transform", isCreateSectionOpen ? "rotate-180" : "")} />
+          </button>
+
+          {isCreateSectionOpen ? (
+            <FormSection
+              title={editingLeaveId ? "Edit leave request" : "Create leave request"}
+              description={editingLeaveId ? "You can update your own pending leave request before it is reviewed." : "Submit real leave requests with linked profile, staff, and branch information."}
+            >
+              {currentStaff ? (
               <form className="space-y-4" onSubmit={handleLeaveSubmit}>
                 <select value={form.leave_type} onChange={(event) => setForm((current) => ({ ...current, leave_type: event.target.value }))} className={inputClass}>
                   <option value="annual_leave">Annual Leave</option>
@@ -464,14 +614,31 @@ export function LeaveWorkflowPage({
                   ) : null}
                 </div>
               </form>
-            ) : (
-              <EmptyState title="Complete your staff profile first" description="Your staff row is required before leave requests can be submitted." />
-            )}
-          </FormSection>
+              ) : (
+                <EmptyState title="Complete your staff profile first" description="Your staff row is required before leave requests can be submitted." />
+              )}
+            </FormSection>
+          ) : null}
+        </section>
 
-          {canManageEntitlements ? (
-            <FormSection title="Leave Entitlement Settings" description="Set yearly leave balances for this staff member.">
-              <form className="space-y-4" onSubmit={saveEntitlement}>
+        {canManageEntitlements ? (
+          <section className="space-y-4">
+            <button
+              type="button"
+              className={collapsibleButtonClass}
+              onClick={() => setIsEntitlementSectionOpen((current) => !current)}
+              aria-expanded={isEntitlementSectionOpen}
+            >
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Leave Entitlement Settings</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Expand to manage yearly leave allocation and opening balance settings for staff.</p>
+              </div>
+              <ChevronDown className={cn("h-5 w-5 text-[var(--muted-foreground)] transition-transform", isEntitlementSectionOpen ? "rotate-180" : "")} />
+            </button>
+
+            {isEntitlementSectionOpen ? (
+              <FormSection title="Leave Entitlement Settings" description="Set yearly leave balances for this staff member.">
+                <form className="space-y-4" onSubmit={saveEntitlement}>
                 <div className="rounded-[28px] border border-[var(--border)] bg-[var(--card-muted)]/55 p-5">
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-2">
@@ -528,10 +695,11 @@ export function LeaveWorkflowPage({
                   <Save className="h-4 w-4" />
                   {isEntitlementSaving ? "Saving..." : "Save entitlement"}
                 </button>
-              </form>
-            </FormSection>
-          ) : null}
-        </div>
+                </form>
+              </FormSection>
+            ) : null}
+          </section>
+        ) : null}
       </div>
     </div>
   );
