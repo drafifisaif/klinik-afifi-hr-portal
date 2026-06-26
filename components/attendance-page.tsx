@@ -2206,11 +2206,9 @@ export function AttendancePage({
                     </button>
                   </div>
 
-                  <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+                  <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
                     <p><span className="font-semibold">Branch:</span> {punchInVerification.branchName ?? activeBranchName}</p>
-                    <p><span className="font-semibold">Distance:</span> {punchInVerification.distanceMeters !== null ? `${Math.round(punchInVerification.distanceMeters)}m` : "-"}</p>
                     <p><span className="font-semibold">Last checked:</span> {punchInVerification.checkedAt ? formatMalaysiaDateTime(new Date(punchInVerification.checkedAt).toISOString()) : "-"}</p>
-                    <p><span className="font-semibold">Accuracy:</span> {punchInVerification.accuracyMeters !== null ? `${Math.round(punchInVerification.accuracyMeters)}m` : "-"}</p>
                     <p><span className="font-semibold">Valid for:</span> {punchInVerification.status === "verified_location" && !punchInVerificationExpired ? formatCountdownSeconds(punchInVerificationRemainingSeconds) : punchInVerificationExpired ? "Expired" : "-"}</p>
                   </div>
                   <p className="mt-3 text-sm opacity-90">
