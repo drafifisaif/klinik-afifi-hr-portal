@@ -2208,7 +2208,6 @@ export function AttendancePage({
 
                   <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
                     <p><span className="font-semibold">Branch:</span> {punchInVerification.branchName ?? activeBranchName}</p>
-                    <p><span className="font-semibold">Allowed radius:</span> {Number(punchInVerification.radiusMeters ?? activeBranch?.gps_radius_meters ?? 30) || 30}m</p>
                     <p><span className="font-semibold">Distance:</span> {punchInVerification.distanceMeters !== null ? `${Math.round(punchInVerification.distanceMeters)}m` : "-"}</p>
                     <p><span className="font-semibold">Last checked:</span> {punchInVerification.checkedAt ? formatMalaysiaDateTime(new Date(punchInVerification.checkedAt).toISOString()) : "-"}</p>
                     <p><span className="font-semibold">Accuracy:</span> {punchInVerification.accuracyMeters !== null ? `${Math.round(punchInVerification.accuracyMeters)}m` : "-"}</p>
