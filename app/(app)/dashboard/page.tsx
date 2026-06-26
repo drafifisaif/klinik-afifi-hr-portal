@@ -1136,7 +1136,6 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
     feedbackForMe.map((row) => String(row.submitted_by ?? "")),
   );
 
-  const nextHoliday = getNextHoliday(holidays.rows, branchId);
   const nextShift = getNextPersonalShift(rosters.rows, staffId);
   const latestEntitlement = entitlementRows.rows[0] ?? null;
   const leaveBalance = buildLeaveBalanceSummary(latestEntitlement, leaveRows.rows);
@@ -1206,7 +1205,6 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
             <EmptyState title="No approved annual leave upcoming." description="Approved annual leave akan muncul di sini bila sudah diluluskan." />
           )}
         </FormSection>
-        <HolidayWidget holiday={nextHoliday} />
       </div>
 
       <QuickActions
