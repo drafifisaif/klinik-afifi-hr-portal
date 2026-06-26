@@ -1,6 +1,5 @@
 import { AttendancePage } from "@/components/attendance-page";
 import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
 import { requireRouteAccess } from "@/lib/auth";
 import { fetchRows } from "@/lib/data";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -79,10 +78,6 @@ export default async function AttendanceRoute() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Attendance"
-        description="Clock in and out against roster shifts, review attendance status, manage correction requests, and monitor branch attendance boards."
-      />
       <AttendancePage
         attendanceRows={attendanceRows.rows}
         adjustmentRows={adjustmentRows.rows}

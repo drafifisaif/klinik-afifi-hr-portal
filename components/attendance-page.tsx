@@ -391,6 +391,30 @@ function formatCountdownSeconds(totalSeconds: number) {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
+function AttendanceClockCard({ now }: { now: Date }) {
+  const parts = getMalaysiaDateTimeParts(now);
+  const displayHour = Number(parts.hour);
+  const suffix = displayHour >= 12 ? "PM" : "AM";
+  const twelveHour = displayHour % 12 || 12;
+  const timeLabel = `${String(twelveHour).padStart(2, "0")}:${parts.minute} ${suffix}`;
+  const weekday = new Intl.DateTimeFormat("en-MY", {
+    weekday: "long",
+    timeZone: "Asia/Kuala_Lumpur",
+  }).format(now);
+  const month = new Intl.DateTimeFormat("en-MY", {
+    month: "long",
+    timeZone: "Asia/Kuala_Lumpur",
+  }).format(now);
+
+  return (
+    <section className="rounded-[30px] border border-[#d5e9e6] bg-[linear-gradient(135deg,#EAF8F6_0%,#FFFFFF_60%,#F3FBFA_100%)] px-6 py-7 text-center shadow-[0_18px_45px_rgba(18,42,44,0.06)]">
+      <p className="text-4xl font-semibold tracking-tight text-[var(--foreground)] sm:text-5xl">{timeLabel}</p>
+      <p className="mt-3 text-base font-medium text-[var(--foreground)] sm:text-lg">{weekday}, {Number(parts.day)} {month} {parts.year}</p>
+      <p className="mt-2 text-sm uppercase tracking-[0.22em] text-[var(--accent)]">Malaysia Time</p>
+    </section>
+  );
+}
+
 function MinuteAlertBadge({ tone, text }: { tone: "late" | "early"; text: string }) {
   return (
     <span
@@ -446,6 +470,7 @@ export function AttendancePage({
   const [isVerifyingPunchInLocation, setIsVerifyingPunchInLocation] = useState(false);
   const [punchInVerification, setPunchInVerification] = useState<PunchInVerificationState>(emptyPunchInVerificationState);
   const [verificationNow, setVerificationNow] = useState(() => Date.now());
+  const [clockNow, setClockNow] = useState(() => new Date());
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -573,6 +598,14 @@ export function AttendancePage({
     punchInVerification.status === "verified_location" && punchInVerification.expiresAt
       ? Math.max(0, Math.ceil((punchInVerification.expiresAt - verificationNow) / 1000))
       : 0;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClockNow(new Date());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (role !== "staff" || punchInVerification.status !== "verified_location" || !punchInVerification.expiresAt) {
@@ -2059,6 +2092,8 @@ export function AttendancePage({
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load attendance data" description={error} /> : null}
 
+      <AttendanceClockCard now={clockNow} />
+
       {isHrAdmin ? (
         <>
           <FormSection
@@ -2114,10 +2149,7 @@ export function AttendancePage({
       {isHrAdmin ? null : (
       <>
       {showPersonalAttendanceSection ? (
-        <FormSection
-          title="Today attendance"
-          description="Punch in, punch out, and review your scheduled shift linked to today's roster."
-        >
+        <section className="rounded-[28px] border border-white/80 bg-white/90 p-4 shadow-[0_18px_45px_rgba(18,42,44,0.06)] sm:p-6">
           <div className="rounded-[28px] border border-[var(--border)] bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -2258,7 +2290,7 @@ export function AttendancePage({
               </div>
               {message ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
           </div>
-        </FormSection>
+        </section>
       ) : showManagementOverview || role === "operation" ? (
         <FormSection
           title={role === "operation" ? "Attendance Snapshot" : "Attendance Management Overview"}
