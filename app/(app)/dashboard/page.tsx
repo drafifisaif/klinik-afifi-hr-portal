@@ -1219,8 +1219,8 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
 
       <div className="grid gap-6 xl:grid-cols-1">
         <DashboardList
-          title="Feedback Untuk Saya"
-          description="Maklum balas yang ditujukan terus kepada akaun staff anda supaya tindakan susulan lebih jelas."
+          title="Tugasan / Feedback untuk Anda"
+          description="Maklum balas atau Tugasan yang ditujukan terus kepada Anda dari Admin Operasi atau HR"
           items={feedbackForMe.slice(0, 5).map((row) => renderFeedbackItem(row, staffDirectoryRows.rows, profileRows.rows as Profile[], { currentStaffId: staffId, currentProfileId: profileId }))}
           emptyTitle="Tiada feedback untuk anda"
           emptyDescription="Belum ada feedback yang disasarkan terus kepada anda buat masa ini."

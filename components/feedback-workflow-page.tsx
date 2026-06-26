@@ -474,7 +474,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
         )}
       </FormSection>
 
-      <FormSection title="Feedback Untuk Saya" description="Maklum balas yang ditujukan terus kepada anda atau telah diassign kepada akaun anda.">
+      <FormSection title="Tugasan / Feedback untuk Anda" description="Maklum balas atau Tugasan yang ditujukan terus kepada Anda dari Admin Operasi atau HR">
         {feedbackForMe.length ? (
           <div className="space-y-4">
             {feedbackForMe.map((row) => (
