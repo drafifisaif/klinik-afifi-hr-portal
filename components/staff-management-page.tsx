@@ -1,18 +1,17 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
-import { Pencil, Plus, RefreshCw, Save } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Pencil, Plus, RefreshCw, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
-import { LeaveBalancePanel } from "@/components/leave-balance-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { buildLeaveBalanceSummary, isStaffRecordIncomplete } from "@/lib/data";
 import type { BulkImportPreviewRow } from "@/lib/staff-import";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
-import { formatDate, formatDateInput, mapRowsWithId } from "@/lib/utils";
+import { cn, formatDate, formatDateInput, mapRowsWithId } from "@/lib/utils";
 
 interface StaffManagementPageProps {
   rows: TableRow[];
@@ -29,6 +28,8 @@ interface StaffManagementPageProps {
 
 const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
+const collapsibleButtonClass =
+  "flex w-full items-center justify-between gap-4 rounded-[28px] border border-[var(--border)] bg-[var(--card)] px-5 py-4 text-left transition duration-200 hover:-translate-y-[2px] hover:shadow-[0_18px_45px_rgba(18,42,44,0.08)] focus:outline-none focus:ring-4 focus:ring-[var(--ring)]";
 
 const emptyStaffForm = {
   profile_id: "",
@@ -75,6 +76,8 @@ export function StaffManagementPage({
   const [message, setMessage] = useState<string | null>(null);
   const [bulkImportMessage, setBulkImportMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
+  const [isAddRecordOpen, setIsAddRecordOpen] = useState(false);
   const [bulkImportInput, setBulkImportInput] = useState("");
   const [bulkImportRows, setBulkImportRows] = useState<BulkImportPreviewRow[]>([]);
   const [bulkImportSummary, setBulkImportSummary] = useState<Record<string, number> | null>(null);
@@ -108,14 +111,179 @@ export function StaffManagementPage({
     filteredRows.find((row) => String(row.id ?? "") === editingId) ??
     filteredRows[0] ??
     (String(initialProfileFilter ?? "").trim().toLowerCase() ? null : currentStaff);
-  const selectedEntitlement = getEntitlementForStaff(entitlements, String(selectedStaff?.id ?? ""));
-  const selectedLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === String(selectedStaff?.id ?? ""));
-  const balanceSummary = buildLeaveBalanceSummary(selectedEntitlement, selectedLeaveRows);
+  const groupedByBranch = useMemo(() => {
+    const branchMap = new Map<string, { branchId: string; branchName: string; rows: TableRow[] }>();
+    const branchNameForId = (branchId: string) => branches.find((branch) => branch.id === branchId)?.name ?? "No branch";
+
+    for (const row of filteredRows) {
+      const branchId = String(row.branch_id ?? "");
+      const branchName = branchNameForId(branchId);
+      const existing = branchMap.get(branchId || branchName) ?? {
+        branchId,
+        branchName,
+        rows: [],
+      };
+      existing.rows.push(row);
+      branchMap.set(branchId || branchName, existing);
+    }
+
+    const branchOrder = ["Putatan", "Papar", "Ranau", "Kinabatangan"];
+    return Array.from(branchMap.values())
+      .map((group) => ({
+        ...group,
+        rows: group.rows.slice().sort((left, right) => String(left.full_name ?? "").localeCompare(String(right.full_name ?? ""))),
+      }))
+      .sort((left, right) => {
+        const leftIndex = branchOrder.indexOf(left.branchName);
+        const rightIndex = branchOrder.indexOf(right.branchName);
+        if (leftIndex !== -1 || rightIndex !== -1) {
+          return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
+        }
+        return left.branchName.localeCompare(right.branchName);
+      });
+  }, [branches, filteredRows]);
+
+  useEffect(() => {
+    if (editingId) {
+      setIsAddRecordOpen(true);
+    }
+  }, [editingId]);
 
   function scrollToForm() {
     requestAnimationFrame(() => {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+  }
+
+  function getBranchName(branchId: unknown) {
+    return branches.find((branch) => branch.id === String(branchId ?? ""))?.name ?? String(branchId ?? "-");
+  }
+
+  function getLeaveSummaryForStaff(staffId: unknown) {
+    const staffIdString = String(staffId ?? "");
+    const entitlement = getEntitlementForStaff(entitlements, staffIdString);
+    const staffLeaveRows = leaveRequests.filter((row) => String(row.staff_id ?? "") === staffIdString);
+    return buildLeaveBalanceSummary(entitlement, staffLeaveRows);
+  }
+
+  function renderBranchSummaryTable(rowsForBranch: TableRow[]) {
+    if (!rowsForBranch.length) {
+      return <EmptyState title="No active staff in this branch" description="Active staff will appear here once branch-linked staff records are available." />;
+    }
+
+    return (
+      <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-[var(--border)] text-left">
+            <thead className="bg-[var(--card-muted)]/70">
+              <tr>
+                {["Staff", "Role", "AL Total", "AL Balance", "MC Total", "MC Balance", "Unpaid Leave Used", "Emergency Leave Used"].map((label) => (
+                  <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)] bg-white">
+              {rowsForBranch.map((row) => {
+                const summary = getLeaveSummaryForStaff(row.id);
+                const lowAnnualBalance = summary.annual.remaining <= 3;
+
+                return (
+                  <tr key={String(row.id ?? "")}>
+                    <td className="px-4 py-4 text-sm">
+                      <p className="font-semibold text-[var(--foreground)]">{String(row.full_name ?? row.email ?? "-")}</p>
+                      <p className="text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.position ?? row.department ?? "-")}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{summary.annual.total}</td>
+                    <td className="px-4 py-4 text-sm">
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full px-3 py-1 font-semibold",
+                          lowAnnualBalance ? "bg-amber-100 text-amber-800" : "bg-[var(--card-muted)] text-[var(--foreground)]",
+                        )}
+                      >
+                        {summary.annual.remaining}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{summary.medical.total}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{summary.medical.remaining}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{summary.unpaid.used}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{summary.emergency.used}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  function renderDirectoryCards(rowsForBranch: TableRow[]) {
+    return (
+      <>
+        <div className="space-y-3 md:hidden">
+          {rowsForBranch.map((row) => (
+            <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-[var(--foreground)]">{String(row.full_name ?? row.email ?? "-")}</p>
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
+                </div>
+                <StatusBadge value={String(row.status ?? "active")} />
+              </div>
+              <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
+                <p><span className="font-semibold">IC No:</span> {String(row.ic_no ?? "-")}</p>
+                <p><span className="font-semibold">Position:</span> {String(row.position ?? row.department ?? "-")}</p>
+                <p><span className="font-semibold">Branch:</span> {getBranchName(row.branch_id)}</p>
+                <p><span className="font-semibold">Joined:</span> {formatDate(row.date_joined)}</p>
+              </div>
+              <button type="button" onClick={() => startEdit(row)} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm font-semibold text-[var(--foreground)]">
+                <Pencil className="h-3.5 w-3.5" />
+                {canManageExtended ? "Edit" : "View"}
+              </button>
+            </article>
+          ))}
+        </div>
+
+        <div className="hidden overflow-hidden rounded-[24px] border border-[var(--border)] md:block">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-[var(--border)] text-left">
+              <thead className="bg-[var(--card-muted)]/70">
+                <tr>
+                  {["Staff", "IC No", "Position", "Branch", "Joined", "Status", "Action"].map((label) => (
+                    <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)] bg-white">
+                {rowsForBranch.map((row) => (
+                  <tr key={String(row.id)}>
+                    <td className="px-4 py-4 text-sm">
+                      <p className="font-semibold text-[var(--foreground)]">{String(row.full_name ?? "-")}</p>
+                      <p className="text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.ic_no ?? "-")}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.position ?? row.department ?? "-")}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{getBranchName(row.branch_id)}</td>
+                    <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.date_joined)}</td>
+                    <td className="px-4 py-4 text-sm"><StatusBadge value={String(row.status ?? "active")} /></td>
+                    <td className="px-4 py-4 text-sm">
+                      <button type="button" onClick={() => startEdit(row)} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)]">
+                        <Pencil className="h-3.5 w-3.5" />
+                        {canManageExtended ? "Edit" : "View"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>
+    );
   }
 
   function resetForm() {
@@ -309,161 +477,170 @@ export function StaffManagementPage({
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load staff data" description={error} /> : null}
-      {selectedStaff ? <LeaveBalancePanel summary={balanceSummary} title={`${String(selectedStaff.full_name ?? "Staff")} Leave Balance`} /> : null}
-
-      {canManageExtended ? (
-        <FormSection
-          title="Bulk Add Staff"
-          description="Tampal senarai staff mengikut branch, preview dulu, kemudian cipta akaun staff secara batch."
-        >
-          <div className="space-y-5">
-            <textarea
-              value={bulkImportInput}
-              onChange={(event) => setBulkImportInput(event.target.value)}
-              rows={10}
-              placeholder={`Putatan\nJaiah, zulhijiah96@gmail.com\nShaza, nurshazanie.mohdjanini@yahoo.com\nAisah, azney1976@gmail.com\n\nRanau\nDr Izyan, izyan242@gmail.com\nDr Rizuwan, mr.rizuwan92@gmail.com\nSaleha, salehakaranau@gmail.com`}
-              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]"
-            />
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <button type="button" onClick={handlePreviewImport} disabled={isPreviewingImport || !bulkImportInput.trim()} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
-                <RefreshCw className="h-4 w-4" />
-                {isPreviewingImport ? "Previewing..." : "Preview Import"}
-              </button>
-              <button type="button" onClick={handleCreateImport} disabled={isCreatingImport || !bulkImportRows.some((row) => row.state === "ready")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
-                <Plus className="h-4 w-4" />
-                {isCreatingImport ? "Creating..." : "Create Staff Users"}
-              </button>
-            </div>
-
-            {bulkImportSummary ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {Object.entries(bulkImportSummary).map(([key, value]) => (
-                  <div key={key} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{key.replaceAll("_", " ")}</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
+      <FormSection
+        title="Staff Summary by Branch"
+        description="Lihat ringkasan aktif staff mengikut cawangan dahulu, termasuk baki cuti dan penggunaan emergency / unpaid leave."
+      >
+        <div className="space-y-6">
+          {groupedByBranch.length ? (
+            groupedByBranch.map((group) => (
+              <section key={group.branchId || group.branchName} className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">{group.branchName}</h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{group.rows.length} active staff</p>
                   </div>
-                ))}
-              </div>
-            ) : null}
-
-            {bulkImportMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{bulkImportMessage}</p> : null}
-
-            {bulkImportRows.length ? (
-              <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-[var(--border)] text-left">
-                    <thead className="bg-[var(--card-muted)]/70">
-                      <tr>
-                        {["Branch", "Name", "Email", "Role", "Position", "Status", "Result"].map((label) => (
-                          <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--border)] bg-white">
-                      {bulkImportRows.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.branch || "-"}</td>
-                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.name}</td>
-                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">
-                            <div className="space-y-1">
-                              <p>{row.email}</p>
-                              {row.tempPassword ? <p className="text-xs text-amber-700">Temp password: {row.tempPassword}</p> : null}
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.role}</td>
-                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.position}</td>
-                          <td className="px-4 py-4 text-sm"><StatusBadge value={row.status} /></td>
-                          <td className="px-4 py-4 text-sm">
-                            <div className="space-y-2">
-                              <StatusBadge value={row.state} />
-                              <p className="text-xs text-[var(--muted-foreground)]">{row.reason || "-"}</p>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
-              </div>
-            ) : null}
-          </div>
-        </FormSection>
-      ) : null}
+                {renderBranchSummaryTable(group.rows)}
+              </section>
+            ))
+          ) : (
+            <EmptyState title="No staff summary available" description="Active staff summaries will appear here once staff records are available in scope." />
+          )}
+        </div>
+      </FormSection>
 
       <FormSection
-        title="Staff directory"
+        title="Staff Directory by Branch"
         description="Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."
       >
-        {filteredRows.length ? (
-          <>
-            <div className="space-y-3 md:hidden">
-              {filteredRows.map((row) => (
-                <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-[var(--foreground)]">{String(row.full_name ?? row.email ?? "-")}</p>
-                      <p className="mt-1 text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
-                    </div>
-                    <StatusBadge value={String(row.status ?? "active")} />
+        {groupedByBranch.length ? (
+          <div className="space-y-6">
+            {groupedByBranch.map((group) => (
+              <section key={`directory-${group.branchId || group.branchName}`} className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">{group.branchName}</h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{group.rows.length} staff in directory</p>
                   </div>
-                  <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
-                    <p><span className="font-semibold">IC No:</span> {String(row.ic_no ?? "-")}</p>
-                    <p><span className="font-semibold">Position:</span> {String(row.position ?? row.department ?? "-")}</p>
-                    <p><span className="font-semibold">Branch:</span> {branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-")}</p>
-                    <p><span className="font-semibold">Joined:</span> {formatDate(row.date_joined)}</p>
-                  </div>
-                  <button type="button" onClick={() => startEdit(row)} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm font-semibold text-[var(--foreground)]">
-                    <Pencil className="h-3.5 w-3.5" />
-                    {canManageExtended ? "Edit" : "View"}
-                  </button>
-                </article>
-              ))}
-            </div>
-            <div className="hidden overflow-hidden rounded-[24px] border border-[var(--border)] md:block">
-              <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-[var(--border)] text-left">
-                <thead className="bg-[var(--card-muted)]/70">
-                  <tr>
-                    {["Staff", "IC No", "Position", "Branch", "Joined", "Status", "Action"].map((label) => (
-                      <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)] bg-white">
-                  {filteredRows.map((row) => (
-                    <tr key={String(row.id)}>
-                      <td className="px-4 py-4 text-sm">
-                        <p className="font-semibold text-[var(--foreground)]">{String(row.full_name ?? "-")}</p>
-                        <p className="text-xs text-[var(--muted-foreground)]">{String(row.email ?? "No email")}</p>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.ic_no ?? "-")}</td>
-                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.position ?? row.department ?? "-")}</td>
-                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-")}</td>
-                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.date_joined)}</td>
-                      <td className="px-4 py-4 text-sm"><StatusBadge value={String(row.status ?? "active")} /></td>
-                      <td className="px-4 py-4 text-sm">
-                        <button type="button" onClick={() => startEdit(row)} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)]">
-                          <Pencil className="h-3.5 w-3.5" />
-                          {canManageExtended ? "Edit" : "View"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            </div>
-          </>
+                </div>
+                {renderDirectoryCards(group.rows)}
+              </section>
+            ))}
+          </div>
         ) : (
           <EmptyState title={String(initialProfileFilter ?? "").trim().toLowerCase() === "incomplete" ? "No items found for this filter." : "No staff records available"} description={String(initialProfileFilter ?? "").trim().toLowerCase() === "incomplete" ? "No items found for this filter." : "Staff records will appear here once the linked staff rows exist in Supabase."} />
         )}
       </FormSection>
 
+      {canManageExtended ? (
+        <section className="space-y-4">
+          <button
+            type="button"
+            className={collapsibleButtonClass}
+            onClick={() => setIsBulkAddOpen((current) => !current)}
+            aria-expanded={isBulkAddOpen}
+          >
+            <div>
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">Bulk Add Staff</h3>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Expand when you need to preview and create multiple staff users in one batch.</p>
+            </div>
+            <ChevronDown className={cn("h-5 w-5 text-[var(--muted-foreground)] transition-transform", isBulkAddOpen ? "rotate-180" : "")} />
+          </button>
+
+          {isBulkAddOpen ? (
+            <FormSection
+              title="Bulk Add Staff"
+              description="Tampal senarai staff mengikut branch, preview dulu, kemudian cipta akaun staff secara batch."
+            >
+              <div className="space-y-5">
+                <textarea
+                  value={bulkImportInput}
+                  onChange={(event) => setBulkImportInput(event.target.value)}
+                  rows={10}
+                  placeholder={`Putatan\nJaiah, zulhijiah96@gmail.com\nShaza, nurshazanie.mohdjanini@yahoo.com\nAisah, azney1976@gmail.com\n\nRanau\nDr Izyan, izyan242@gmail.com\nDr Rizuwan, mr.rizuwan92@gmail.com\nSaleha, salehakaranau@gmail.com`}
+                  className="w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]"
+                />
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <button type="button" onClick={handlePreviewImport} disabled={isPreviewingImport || !bulkImportInput.trim()} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+                    <RefreshCw className="h-4 w-4" />
+                    {isPreviewingImport ? "Previewing..." : "Preview Import"}
+                  </button>
+                  <button type="button" onClick={handleCreateImport} disabled={isCreatingImport || !bulkImportRows.some((row) => row.state === "ready")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
+                    <Plus className="h-4 w-4" />
+                    {isCreatingImport ? "Creating..." : "Create Staff Users"}
+                  </button>
+                </div>
+
+                {bulkImportSummary ? (
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {Object.entries(bulkImportSummary).map(([key, value]) => (
+                      <div key={key} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{key.replaceAll("_", " ")}</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {bulkImportMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{bulkImportMessage}</p> : null}
+
+                {bulkImportRows.length ? (
+                  <div className="overflow-hidden rounded-[24px] border border-[var(--border)]">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-[var(--border)] text-left">
+                        <thead className="bg-[var(--card-muted)]/70">
+                          <tr>
+                            {["Branch", "Name", "Email", "Role", "Position", "Status", "Result"].map((label) => (
+                              <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--border)] bg-white">
+                          {bulkImportRows.map((row) => (
+                            <tr key={row.id}>
+                              <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.branch || "-"}</td>
+                              <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.name}</td>
+                              <td className="px-4 py-4 text-sm text-[var(--foreground)]">
+                                <div className="space-y-1">
+                                  <p>{row.email}</p>
+                                  {row.tempPassword ? <p className="text-xs text-amber-700">Temp password: {row.tempPassword}</p> : null}
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.role}</td>
+                              <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.position}</td>
+                              <td className="px-4 py-4 text-sm"><StatusBadge value={row.status} /></td>
+                              <td className="px-4 py-4 text-sm">
+                                <div className="space-y-2">
+                                  <StatusBadge value={row.state} />
+                                  <p className="text-xs text-[var(--muted-foreground)]">{row.reason || "-"}</p>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </FormSection>
+          ) : null}
+        </section>
+      ) : null}
+
       <div ref={formRef}>
-        <FormSection title={editingId ? "Edit staff record" : "Add staff record"} description={canManageExtended ? "HR and super admin can edit organization fields and linked profile roles. The form is shown full width below for easier editing." : "This form is view-only for your allowed staff scope."}>
-          {canManageExtended ? (
-            <form className="space-y-5" onSubmit={handleSubmit}>
+        <section className="space-y-4">
+          <button
+            type="button"
+            className={collapsibleButtonClass}
+            onClick={() => setIsAddRecordOpen((current) => !current)}
+            aria-expanded={isAddRecordOpen}
+          >
+            <div>
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">{editingId ? "Edit Staff Record" : "Add Staff Record"}</h3>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                {canManageExtended ? "Expand when you need to add or update staff records and linked organization details." : "Expand to view your allowed staff record details."}
+              </p>
+            </div>
+            <ChevronDown className={cn("h-5 w-5 text-[var(--muted-foreground)] transition-transform", isAddRecordOpen ? "rotate-180" : "")} />
+          </button>
+
+          {isAddRecordOpen ? (
+            <FormSection title={editingId ? "Edit staff record" : "Add staff record"} description={canManageExtended ? "HR and super admin can edit organization fields and linked profile roles. The form is shown full width below for easier editing." : "This form is view-only for your allowed staff scope."}>
+              {canManageExtended ? (
+                <form className="space-y-5" onSubmit={handleSubmit}>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <input value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} placeholder="Full name" className={inputClass} required />
                 <input value={form.ic_no} onChange={(event) => setForm((current) => ({ ...current, ic_no: event.target.value }))} placeholder="IC number" className={inputClass} />
@@ -502,18 +679,20 @@ export function StaffManagementPage({
                   </button>
                 ) : null}
               </div>
-            </form>
-          ) : selectedStaff ? (
-            <div className="space-y-3 rounded-3xl bg-[var(--card-muted)] px-5 py-5 text-sm text-[var(--foreground)]">
-              <p><span className="font-semibold">Full name:</span> {String(selectedStaff.full_name ?? "-")}</p>
-              <p><span className="font-semibold">Email:</span> {String(selectedStaff.email ?? "-")}</p>
-              <p><span className="font-semibold">Phone:</span> {String(selectedStaff.phone ?? "-")}</p>
-              <p><span className="font-semibold">Status:</span> {String(selectedStaff.status ?? "active")}</p>
-            </div>
-          ) : (
-            <EmptyState title="No staff profile linked" description="Complete your staff profile from My Profile before this section can show record details." />
-          )}
-        </FormSection>
+                </form>
+              ) : selectedStaff ? (
+                <div className="space-y-3 rounded-3xl bg-[var(--card-muted)] px-5 py-5 text-sm text-[var(--foreground)]">
+                  <p><span className="font-semibold">Full name:</span> {String(selectedStaff.full_name ?? "-")}</p>
+                  <p><span className="font-semibold">Email:</span> {String(selectedStaff.email ?? "-")}</p>
+                  <p><span className="font-semibold">Phone:</span> {String(selectedStaff.phone ?? "-")}</p>
+                  <p><span className="font-semibold">Status:</span> {String(selectedStaff.status ?? "active")}</p>
+                </div>
+              ) : (
+                <EmptyState title="No staff profile linked" description="Complete your staff profile from My Profile before this section can show record details." />
+              )}
+            </FormSection>
+          ) : null}
+        </section>
       </div>
     </div>
   );
