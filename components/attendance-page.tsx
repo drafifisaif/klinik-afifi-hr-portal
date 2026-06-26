@@ -1923,8 +1923,7 @@ export function AttendancePage({
           title="Today attendance"
           description="Punch in, punch out, and review your scheduled shift linked to today's roster."
         >
-          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-[28px] border border-[var(--border)] bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-5">
+          <div className="rounded-[28px] border border-[var(--border)] bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 className="text-xl font-semibold text-[var(--foreground)]">{String(currentStaff?.full_name ?? profile?.full_name ?? "Staff attendance")}</h3>
@@ -2027,25 +2026,6 @@ export function AttendancePage({
                 ) : null}
               </div>
               {message ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-            </div>
-
-            <FormSection title="Request correction" description="Use this if you forgot to punch, punched the wrong time, or need HR/manager review.">
-              <form className="space-y-4" onSubmit={handleSubmitAdjustment}>
-                <select value={adjustmentForm.request_type} onChange={(event) => setAdjustmentForm((current) => ({ ...current, request_type: event.target.value }))} className={inputClass}>
-                  <option value="forgot_punch_in">Forgot punch in</option>
-                  <option value="forgot_punch_out">Forgot punch out</option>
-                  <option value="wrong_punch_time">Wrong punch time</option>
-                </select>
-                <input type="datetime-local" value={adjustmentForm.requested_check_in_at} onChange={(event) => setAdjustmentForm((current) => ({ ...current, requested_check_in_at: event.target.value }))} className={inputClass} />
-                <input type="datetime-local" value={adjustmentForm.requested_check_out_at} onChange={(event) => setAdjustmentForm((current) => ({ ...current, requested_check_out_at: event.target.value }))} className={inputClass} />
-                <textarea value={adjustmentForm.reason} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason: event.target.value }))} rows={4} placeholder="Explain what needs to be corrected" className={textareaClass} required />
-                {adjustmentMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
-                <button type="submit" disabled={isSavingAdjustment} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70">
-                  <Edit3 className="h-4 w-4" />
-                  {isSavingAdjustment ? "Saving..." : "Request Correction"}
-                </button>
-              </form>
-            </FormSection>
           </div>
         </FormSection>
       ) : showManagementOverview || role === "operation" ? (
@@ -2076,8 +2056,8 @@ export function AttendancePage({
         <EmptyState title="Complete your staff profile first" description="Attendance punch controls need a linked staff record before they can be used." />
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        {showPersonalAttendanceSection ? (
+      {showPersonalAttendanceSection ? (
+        <div className="space-y-6">
         <FormSection title="Attendance history" description="Your last 14 days of attendance, shift schedule, and any correction requests.">
           {personalHistory.length ? (
             <div className="space-y-3">
@@ -2121,6 +2101,50 @@ export function AttendancePage({
             <EmptyState title="Belum ada rekod attendance" description="Attendance history will appear after your first punch in and punch out." />
           )}
         </FormSection>
+        <FormSection title="Request correction" description="Use this if you forgot to punch, punched the wrong time, or need HR/manager review.">
+          <form className="space-y-4" onSubmit={handleSubmitAdjustment}>
+            <select value={adjustmentForm.request_type} onChange={(event) => setAdjustmentForm((current) => ({ ...current, request_type: event.target.value }))} className={inputClass}>
+              <option value="forgot_punch_in">Forgot punch in</option>
+              <option value="forgot_punch_out">Forgot punch out</option>
+              <option value="wrong_punch_time">Wrong punch time</option>
+            </select>
+            <input type="datetime-local" value={adjustmentForm.requested_check_in_at} onChange={(event) => setAdjustmentForm((current) => ({ ...current, requested_check_in_at: event.target.value }))} className={inputClass} />
+            <input type="datetime-local" value={adjustmentForm.requested_check_out_at} onChange={(event) => setAdjustmentForm((current) => ({ ...current, requested_check_out_at: event.target.value }))} className={inputClass} />
+            <textarea value={adjustmentForm.reason} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason: event.target.value }))} rows={4} placeholder="Explain what needs to be corrected" className={textareaClass} required />
+            {adjustmentMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
+            <button type="submit" disabled={isSavingAdjustment} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 sm:w-auto">
+              <Edit3 className="h-4 w-4" />
+              {isSavingAdjustment ? "Saving..." : "Request Correction"}
+            </button>
+          </form>
+        </FormSection>
+
+        <FormSection title="Pending Adjustment Requests" description="Review your submitted correction requests that are still waiting for approval.">
+          {pendingAdjustments.length ? (
+            <div className="space-y-3">
+              {pendingAdjustments.map((row) => (
+                <article key={String(row.id)} className="rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-base font-semibold text-[var(--foreground)]">{String(row.request_type ?? "correction").replaceAll("_", " ")}</p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">{getBranchName(row.branch_id)} · {formatMalaysiaDateTime(row.created_at)}</p>
+                    </div>
+                    <StatusBadge value={String(row.status ?? "pending")} />
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)]">
+                    <p><span className="font-semibold">Requested check in:</span> {formatMalaysiaDateTime(row.requested_check_in_at)}</p>
+                    <p><span className="font-semibold">Requested check out:</span> {formatMalaysiaDateTime(row.requested_check_out_at)}</p>
+                    <p><span className="font-semibold">Reason:</span> {String(row.reason ?? "-")}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Tiada pembetulan pending" description="Correction requests you submit will appear here while waiting for review." />
+          )}
+          {adjustmentMessage ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
+        </FormSection>
+        </div>
         ) : (
           <FormSection title="Attendance Management Overview" description="Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance.">
             <div className="space-y-3">
@@ -2140,7 +2164,7 @@ export function AttendancePage({
           </FormSection>
         )}
 
-        <FormSection title={role === "branch_pic" ? "Today attendance board" : "Attendance board"} description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
+        {!showPersonalAttendanceSection ? <FormSection title="Attendance board" description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
@@ -2148,7 +2172,7 @@ export function AttendancePage({
                 value={boardBranchId}
                 onChange={(event) => setSelectedBranchId(event.target.value)}
                 className={inputClass}
-                disabled={role === "staff" || role === "branch_pic"}
+                disabled={role === "operation"}
               >
                 {canViewAllBranches ? <option value="all">All visible branches</option> : null}
                 {selectedBranchOptions.map((branch) => (
@@ -2169,7 +2193,7 @@ export function AttendancePage({
             </div>
           </div>
 
-          {(role === "branch_pic" || role === "operation") ? (
+          {role === "operation" ? (
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Present Today</p>
@@ -2307,10 +2331,9 @@ export function AttendancePage({
               <EmptyState title="Roster belum diset" description="Tiada staff roster untuk tarikh dan cawangan yang dipilih." />
             )}
           </div>
-        </FormSection>
-      </div>
+        </FormSection> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      {!showPersonalAttendanceSection ? <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <FormSection title="Pending adjustment requests" description="Review correction requests for missed or incorrect punches.">
           {pendingAdjustments.length ? (
             <div className="space-y-3">
@@ -2697,7 +2720,7 @@ export function AttendancePage({
             </div>
           </FormSection>
         ) : null}
-      </div>
+      </div> : null}
       </>
       )}
     </div>
