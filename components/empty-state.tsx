@@ -9,8 +9,8 @@ interface EmptyStateProps {
 
 export function EmptyState({ title, description, icon: Icon = Inbox }: EmptyStateProps) {
   return (
-    <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[28px] border border-dashed border-[var(--border)] bg-white/80 px-6 py-12 text-center shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--card-muted)] text-[var(--accent)]">
+    <div className="flex min-h-[220px] flex-col items-center justify-center rounded-[28px] border border-dashed border-[var(--border)] bg-[var(--card-muted)]/70 px-6 py-10 text-center shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--accent)] shadow-[0_10px_24px_rgba(15,159,149,0.08)]">
         <Icon className="h-6 w-6" />
       </div>
       <h3 className="mt-5 text-lg font-semibold text-[var(--foreground)]">{title}</h3>

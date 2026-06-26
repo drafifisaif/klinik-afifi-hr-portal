@@ -555,7 +555,7 @@ function HeroCard({
     .join("") || "KA";
 
   return (
-    <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#ffffff_0%,#eef9f8_55%,#f8fcfc_100%)] p-5 shadow-[0_20px_55px_rgba(18,42,44,0.08)] sm:p-7">
+    <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#EAF8F6_0%,#FFFFFF_55%,#F5F3FF_100%)] p-5 shadow-[0_20px_55px_rgba(18,42,44,0.08)] sm:p-7">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">{greetingByTime()}</p>
@@ -575,15 +575,15 @@ function HeroCard({
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-3xl bg-white/80 px-5 py-5">
+          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Branch</p>
             <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{branch}</p>
           </div>
-          <div className="rounded-3xl bg-white/80 px-5 py-5">
+          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Position</p>
             <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{position}</p>
           </div>
-          <div className="rounded-3xl bg-white/80 px-5 py-5 sm:col-span-2">
+          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5 sm:col-span-2">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Next Shift</p>
             <div className="mt-2 text-sm text-[var(--foreground)]">{nextShift ?? "Roster belum diset untuk shift seterusnya."}</div>
           </div>
@@ -867,7 +867,7 @@ function HolidayWidget({ holiday }: { holiday: TableRow | null }) {
   return (
     <FormSection title="Next Clinic Holiday" description="Cuti seterusnya yang relevan untuk cawangan anda.">
       {holiday ? (
-        <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+        <div className="rounded-3xl border border-violet-100 bg-violet-50/65 px-5 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-lg font-semibold text-[var(--foreground)]">{String(holiday.holiday_name ?? "Cuti akan datang")}</p>
@@ -900,7 +900,7 @@ function PendingLeaveApplicationsWidget({ rows }: { rows: TableRow[] }) {
               <Link
                 key={String(row.id ?? `${row.leave_type}-${row.created_at}`)}
                 href="/leave?status=pending"
-                className="block rounded-3xl border border-amber-200 bg-amber-50/80 px-5 py-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                className="block rounded-3xl border border-amber-200 bg-amber-50/82 px-5 py-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -931,7 +931,7 @@ function PendingLeaveApplicationsWidget({ rows }: { rows: TableRow[] }) {
           })}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/35 px-4 py-4 text-sm text-[var(--muted-foreground)]">
+            <div className="rounded-2xl border border-dashed border-amber-200 bg-[#FFF7D6] px-4 py-4 text-sm text-[var(--muted-foreground)]">
           Tiada permohonan cuti yang masih pending.
         </div>
       )}
@@ -1163,7 +1163,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
 
       {isStaffEditableProfileIncomplete(context.profile, context.staff) ? (
         <FormSection title="Profil Belum Lengkap" description="Lengkapkan maklumat peribadi supaya urusan cuti, MC, dan komunikasi HR berjalan lebih lancar.">
-          <div className="flex flex-col gap-4 rounded-3xl border border-rose-200 bg-rose-50 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 rounded-3xl border border-rose-200 bg-[#FFF1F2] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
               <span className="inline-flex w-fit rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">
                 Action needed
@@ -1183,7 +1183,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
       <div className="space-y-6">
         <FormSection title="Next Shift" description="Shift seterusnya yang telah dijadualkan untuk anda.">
           {nextShift ? (
-            <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+            <div className="rounded-3xl border border-[#d5e9e6] bg-white px-5 py-5">
               <p className="text-lg font-semibold text-[var(--foreground)]">{formatDate(nextShift.roster_date)}</p>
               <p className="mt-2 text-sm text-[var(--foreground)]">{getShiftName(nextShift, shiftTemplates.rows)} · {getTimeRange(nextShift, shiftTemplates.rows)}</p>
               <p className="mt-2 text-sm text-[var(--muted-foreground)]">{getBranchName(branches, String(nextShift.branch_id ?? branchId))}</p>
@@ -1195,7 +1195,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
         <PendingLeaveApplicationsWidget rows={pendingLeaveApplications} />
         <FormSection title="Next Approved Annual Leave" description="Cuti tahunan yang telah diluluskan dan akan datang.">
           {nextApprovedAnnualLeave ? (
-            <div className="rounded-3xl bg-[var(--card-muted)] px-5 py-5">
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50/70 px-5 py-5">
               <p className="text-lg font-semibold text-[var(--foreground)]">{formatDate(nextApprovedAnnualLeave.start_date)}{String(nextApprovedAnnualLeave.end_date ?? "") !== String(nextApprovedAnnualLeave.start_date ?? "") ? ` - ${formatDate(nextApprovedAnnualLeave.end_date)}` : ""}</p>
               <p className="mt-2 text-sm text-[var(--foreground)]">{Number(nextApprovedAnnualLeave.total_days ?? 0) || 0} day(s)</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">

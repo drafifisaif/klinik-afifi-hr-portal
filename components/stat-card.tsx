@@ -12,26 +12,26 @@ interface StatCardProps {
 }
 
 export const clickableMetricCardClassName =
-  "cursor-pointer transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_60px_rgba(18,42,44,0.1)] hover:border-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white";
+  "cursor-pointer transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_60px_rgba(18,42,44,0.1)] hover:border-[#9fd9d4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white";
 
 const toneClasses = {
   neutral: {
-    card: "border-white/80 bg-white/90",
+    card: "border-[#d5e9e6] bg-white/95",
     value: "text-[var(--foreground)]",
-    iconWrap: "bg-[var(--card-muted)] text-[var(--accent)]",
+    iconWrap: "bg-[#eaf8f6] text-[var(--accent)]",
   },
   alert: {
-    card: "border-rose-200 bg-rose-50/85",
+    card: "border-rose-200 bg-rose-50/88",
     value: "text-rose-700",
     iconWrap: "bg-rose-100 text-rose-600",
   },
   warning: {
-    card: "border-amber-200 bg-amber-50/85",
+    card: "border-amber-200 bg-amber-50/88",
     value: "text-amber-700",
     iconWrap: "bg-amber-100 text-amber-600",
   },
   success: {
-    card: "border-emerald-200 bg-emerald-50/85",
+    card: "border-emerald-200 bg-emerald-50/88",
     value: "text-emerald-700",
     iconWrap: "bg-emerald-100 text-emerald-600",
   },

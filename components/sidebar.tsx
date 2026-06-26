@@ -34,7 +34,7 @@ export function Sidebar({ currentPath, navigation, profile, mobileOpen = false, 
     <>
       <div className={cn("flex items-center gap-3 rounded-3xl bg-[var(--card-muted)] px-4 py-3", compact ? "justify-center md:px-3" : "justify-between")}>
         <div className={cn("flex items-center gap-3", compact && "justify-center")}>
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-lg shadow-teal-500/20">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-[0_14px_30px_rgba(15,159,149,0.24)]">
             <Hospital className="h-5 w-5" />
           </div>
           {!compact ? (
@@ -80,7 +80,7 @@ export function Sidebar({ currentPath, navigation, profile, mobileOpen = false, 
                       "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white",
                       compact && "justify-center px-3",
                       isActive
-                        ? "bg-[var(--accent)] text-[var(--accent-foreground)] shadow-lg shadow-teal-500/20"
+                        ? "bg-[var(--accent)] text-[var(--accent-foreground)] shadow-[0_14px_30px_rgba(15,159,149,0.24)]"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--card-muted)] hover:text-[var(--foreground)]",
                     )}
                   >

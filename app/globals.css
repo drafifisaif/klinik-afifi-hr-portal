@@ -1,16 +1,18 @@
 :root {
   --background: #f4f7f7;
-  --foreground: #163235;
-  --muted-foreground: #5e7477;
+  --foreground: #12393d;
+  --muted-foreground: #5f7a7d;
   --card: #ffffff;
-  --card-muted: #eef3f3;
-  --border: #d8e5e6;
-  --accent: #0f9d94;
+  --card-muted: #f3fbfa;
+  --border: #d5e9e6;
+  --accent: #0f9f95;
   --accent-foreground: #f4fffe;
-  --ring: rgba(15, 157, 148, 0.16);
-  --danger: #dc6262;
-  --success: #2d8a63;
-  --warning: #d39b32;
+  --ring: rgba(15, 159, 149, 0.18);
+  --danger: #f43f5e;
+  --success: #0f9f95;
+  --warning: #fbbf24;
+  --info: #3b82f6;
+  --purple: #8b5cf6;
 }
 
 * {
@@ -24,7 +26,7 @@ body {
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(15, 157, 148, 0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(15, 159, 149, 0.08), transparent 28%),
     linear-gradient(180deg, #f8fbfb 0%, #f4f7f7 100%);
   color: var(--foreground);
 }
@@ -52,7 +54,7 @@ select {
 }
 
 ::selection {
-  background: rgba(15, 157, 148, 0.16);
+  background: rgba(15, 159, 149, 0.18);
 }
 
 @tailwind base;
