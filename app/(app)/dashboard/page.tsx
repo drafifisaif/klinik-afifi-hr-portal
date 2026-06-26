@@ -534,19 +534,16 @@ function PartialDataNotice({ errors }: { errors: Array<string | null | undefined
 
 function HeroCard({
   title,
-  name,
   branch,
   position,
-  nextShift,
   avatarUrl,
 }: {
   title: string;
-  name: string;
   branch: string;
   position: string;
-  nextShift?: React.ReactNode;
   avatarUrl?: string | null;
 }) {
+  const name = title.split(",").slice(1).join(",").trim() || title;
   const initials = name
     .split(" ")
     .filter(Boolean)
@@ -556,22 +553,17 @@ function HeroCard({
 
   return (
     <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#EAF8F6_0%,#FFFFFF_55%,#F5F3FF_100%)] p-5 shadow-[0_20px_55px_rgba(18,42,44,0.08)] sm:p-7">
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">{greetingByTime()}</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">{title}</h2>
-          <div className="mt-5 flex items-center gap-4">
+          <div className="mt-6 flex items-center gap-5">
             {avatarUrl ? (
-              <Image src={avatarUrl} alt={name} width={64} height={64} className="h-16 w-16 rounded-3xl object-cover shadow-sm" unoptimized />
+              <Image src={avatarUrl} alt={name} width={88} height={88} className="h-20 w-20 rounded-[28px] object-cover shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24" unoptimized />
             ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/90 text-lg font-semibold text-[var(--accent)] shadow-sm">
+              <div className="flex h-20 w-20 items-center justify-center rounded-[28px] bg-white/90 text-2xl font-semibold text-[var(--accent)] shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24">
                 {initials}
               </div>
             )}
-            <div className="min-w-0">
-              <p className="text-base font-semibold text-[var(--foreground)]">{name}</p>
-              <p className="truncate text-sm text-[var(--muted-foreground)]">{branch}</p>
-            </div>
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -582,10 +574,6 @@ function HeroCard({
           <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Position</p>
             <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{position}</p>
-          </div>
-          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5 sm:col-span-2">
-            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Next Shift</p>
-            <div className="mt-2 text-sm text-[var(--foreground)]">{nextShift ?? "Roster belum diset untuk shift seterusnya."}</div>
           </div>
         </div>
       </div>
@@ -1154,10 +1142,8 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
       <PartialDataNotice errors={[notifications.error, holidays.error, rosters.error, shiftTemplates.error, leaveRows.error, entitlementRows.error, branchStaffRows.error, feedbackRows.error, profileRows.error, staffDirectoryRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Warga Klinik Afifi")}`}
-        name={String(context.staff?.full_name ?? context.profile?.full_name ?? "Warga Klinik Afifi")}
         branch={getBranchName(branches, branchId)}
         position={String(context.staff?.position ?? "Jawatan belum ditetapkan")}
-        nextShift={nextShift ? `${formatDate(nextShift.roster_date)} · ${getShiftName(nextShift, shiftTemplates.rows)} · ${getTimeRange(nextShift, shiftTemplates.rows)}` : undefined}
         avatarUrl={avatarUrl}
       />
 
@@ -1261,7 +1247,6 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
   ]);
 
   const leaveBalance = buildLeaveBalanceSummary(entitlementRows.rows[0] ?? null, personalLeaveRows.rows);
-  const nextShift = getNextPersonalShift(ownRosterRows.rows, staffId);
   const nextHoliday = getNextHoliday(holidays.rows, branchId);
   const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
   const todayBranchRows = branchRosterRows.rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today);
@@ -1291,10 +1276,8 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
       <PartialDataNotice errors={[notifications.error, holidays.error, personalLeaveRows.error, entitlementRows.error, ownRosterRows.error, branchRosterRows.error, branchLeaveRows.error, feedbackRows.error, branchStaffRows.error, shiftTemplates.error, profileRows.error, staffDirectoryRows.error, attendanceRows.error, attendanceSettingsRows.error, branchLeaveScopeRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}`}
-        name={String(context.staff?.full_name ?? context.profile?.full_name ?? "Branch PIC")}
         branch={getBranchName(branches, branchId)}
         position={String(context.staff?.position ?? "Branch PIC")}
-        nextShift={nextShift ? `${formatDate(nextShift.roster_date)} · ${getShiftName(nextShift, shiftTemplates.rows)} · ${getTimeRange(nextShift, shiftTemplates.rows)}` : undefined}
         avatarUrl={avatarUrl}
       />
 
