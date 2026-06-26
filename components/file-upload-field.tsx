@@ -9,6 +9,9 @@ interface FileUploadFieldProps {
   file: File | null;
   storedPath?: string | null;
   helperText?: string;
+  accept?: string;
+  required?: boolean;
+  error?: string | null;
   onChange: (file: File | null) => void;
 }
 
@@ -17,11 +20,17 @@ export function FileUploadField({
   file,
   storedPath,
   helperText,
+  accept,
+  required,
+  error,
   onChange,
 }: FileUploadFieldProps) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">{label}</span>
+      <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+        {label}
+        {required ? " *" : ""}
+      </span>
       <div className="overflow-hidden rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card-muted)] p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-[var(--accent)] shadow-sm">
@@ -30,6 +39,7 @@ export function FileUploadField({
           <div className="min-w-0 flex-1">
             <input
               type="file"
+              accept={accept}
               onChange={(event) => onChange(event.target.files?.[0] ?? null)}
               className="block w-full text-sm text-[var(--muted-foreground)]"
             />
@@ -39,6 +49,7 @@ export function FileUploadField({
           </div>
         </div>
         {helperText ? <p className="mt-3 text-xs text-[var(--muted-foreground)]">{helperText}</p> : null}
+        {error ? <p className="mt-3 text-xs font-medium text-rose-700">{error}</p> : null}
       </div>
     </label>
   );

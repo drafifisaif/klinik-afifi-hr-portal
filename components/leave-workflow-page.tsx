@@ -1,17 +1,29 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { CalendarPlus, ChevronDown, Pencil, Save, X } from "lucide-react";
+import { CalendarPlus, ChevronDown, ExternalLink, Pencil, Save, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
+import { FileUploadField } from "@/components/file-upload-field";
 import { FormSection } from "@/components/form-section";
 import { LeaveBalancePanel } from "@/components/leave-balance-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { buildLeaveBalanceSummary, filterLeaveRequestsForRole } from "@/lib/data";
 import type { BranchOption, LeaveBalanceSummary, Profile, TableRow, UserRole } from "@/lib/types";
-import { calculateLeaveDays, cn, formatDate, formatDateInput, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
+import {
+  calculateLeaveDays,
+  cn,
+  formatDate,
+  formatDateInput,
+  formatDateTime,
+  getFilename,
+  getMalaysiaDateString,
+  mapRowsWithId,
+  normalizeString,
+  sanitizeFilename,
+} from "@/lib/utils";
 
 interface LeaveWorkflowPageProps {
   leaveRequests: TableRow[];
@@ -42,6 +54,10 @@ const emptyLeaveForm = {
   attachment_url: "",
 };
 
+const LEAVE_ATTACHMENT_BUCKET = "leave-attachments";
+const LEAVE_ATTACHMENT_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
+const MAX_LEAVE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
 function getEntitlementForStaff(rows: TableRow[], staffId?: string | null) {
   if (!staffId) {
     return null;
@@ -69,10 +85,13 @@ export function LeaveWorkflowPage({
   const [entitlementMessage, setEntitlementMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEntitlementSaving, setIsEntitlementSaving] = useState(false);
+  const [isOpeningAttachment, setIsOpeningAttachment] = useState<string | null>(null);
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
   const [expandedLeaveId, setExpandedLeaveId] = useState<string | null>(null);
   const [isCreateSectionOpen, setIsCreateSectionOpen] = useState(false);
   const [isEntitlementSectionOpen, setIsEntitlementSectionOpen] = useState(false);
+  const [leaveFormFile, setLeaveFormFile] = useState<File | null>(null);
+  const [leaveFormError, setLeaveFormError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyLeaveForm);
   const [selectedStaffId, setSelectedStaffId] = useState(String(currentStaff?.id ?? staffRows[0]?.id ?? ""));
   const [entitlementForm, setEntitlementForm] = useState(() => {
@@ -169,6 +188,8 @@ export function LeaveWorkflowPage({
   function resetLeaveForm() {
     setEditingLeaveId(null);
     setForm(emptyLeaveForm);
+    setLeaveFormFile(null);
+    setLeaveFormError(null);
   }
 
   function canEditOwnLeave(row: TableRow) {
@@ -190,7 +211,58 @@ export function LeaveWorkflowPage({
       reason: String(row.reason ?? ""),
       attachment_url: String(row.attachment_url ?? ""),
     });
+    setLeaveFormFile(null);
+    setLeaveFormError(null);
     setMessage(null);
+  }
+
+  function validateLeaveFormFile(file: File | null) {
+    if (!file) {
+      return "Sila upload borang cuti sebelum menghantar permohonan.";
+    }
+
+    const validTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+    const fileName = String(file.name ?? "").toLowerCase();
+    const hasValidExtension = [".pdf", ".jpg", ".jpeg", ".png"].some((extension) => fileName.endsWith(extension));
+
+    if ((file.type && !validTypes.has(file.type)) || (!file.type && !hasValidExtension)) {
+      return "Fail tidak sah. Sila upload PDF, JPG, JPEG, atau PNG sahaja.";
+    }
+
+    if (file.size > MAX_LEAVE_ATTACHMENT_BYTES) {
+      return "Fail terlalu besar. Sila upload fail 5MB atau kurang.";
+    }
+
+    return null;
+  }
+
+  function handleLeaveFormFileChange(file: File | null) {
+    setLeaveFormFile(file);
+    setLeaveFormError(validateLeaveFormFile(file));
+  }
+
+  async function handleOpenAttachment(rowId: string) {
+    setReviewMessage(null);
+    setMessage(null);
+    setIsOpeningAttachment(rowId);
+
+    try {
+      const response = await fetch(`/api/leave/file?id=${encodeURIComponent(rowId)}`, {
+        method: "GET",
+      });
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result?.url) {
+        setReviewMessage(String(result?.error ?? "Unable to open leave form."));
+        return;
+      }
+
+      window.open(String(result.url), "_blank", "noopener,noreferrer");
+    } catch {
+      setReviewMessage("Unable to open leave form.");
+    } finally {
+      setIsOpeningAttachment(null);
+    }
   }
 
   function renderInlineBalance(summary: LeaveBalanceSummary) {
@@ -275,6 +347,14 @@ export function LeaveWorkflowPage({
                         {String(row.total_days ?? "-")} day(s)
                       </span>
                     ) : null}
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                        row.attachment_url ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700",
+                      )}
+                    >
+                      {row.attachment_url ? "Form attached" : "No attachment"}
+                    </span>
                   </div>
                   <p className="mt-2 text-sm text-[var(--muted-foreground)]">
                     {String(row.leave_type ?? "-").replaceAll("_", " ")} · {formatDate(row.start_date)} - {formatDate(row.end_date)}
@@ -327,9 +407,13 @@ export function LeaveWorkflowPage({
                     ) : null}
                     {row.attachment_url ? (
                       <p className="mt-1">
-                        <span className="font-semibold text-slate-800">Attachment path:</span> {String(row.attachment_url)}
+                        <span className="font-semibold text-slate-800">Leave form:</span> {getFilename(row.attachment_url)}
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="mt-1">
+                        <span className="font-semibold text-slate-800">Leave form:</span> No attachment
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-4 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-5 py-5">
@@ -338,6 +422,15 @@ export function LeaveWorkflowPage({
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAttachment(String(row.id))}
+                      disabled={isOpeningAttachment === String(row.id) || !row.attachment_url}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--foreground)] disabled:opacity-60"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      {isOpeningAttachment === String(row.id) ? "Opening..." : row.attachment_url ? "View Leave Form" : "No attachment"}
+                    </button>
                     {canEditOwnLeave(row) ? (
                       <button
                         type="button"
@@ -380,8 +473,41 @@ export function LeaveWorkflowPage({
       return;
     }
 
+    if (!form.leave_type || !form.start_date || !form.end_date || totalDays <= 0 || !form.reason.trim()) {
+      setMessage("Please complete all required leave request details before submitting.");
+      return;
+    }
+
+    const fileValidationMessage = leaveFormFile ? validateLeaveFormFile(leaveFormFile) : form.attachment_url ? null : "Sila upload borang cuti sebelum menghantar permohonan.";
+    if (fileValidationMessage) {
+      setLeaveFormError(fileValidationMessage);
+      setMessage(fileValidationMessage);
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage(null);
+    setLeaveFormError(null);
+
+    let uploadedPath = form.attachment_url || "";
+
+    if (leaveFormFile) {
+      const safeName = sanitizeFilename(leaveFormFile.name);
+      const malaysiaDate = getMalaysiaDateString();
+      const year = malaysiaDate.slice(0, 4);
+      const filePath = `leave-requests/${currentStaff.id}/${year}/${Date.now()}-${safeName}`;
+      const uploadResult = await supabase.storage.from(LEAVE_ATTACHMENT_BUCKET).upload(filePath, leaveFormFile, {
+        upsert: false,
+      });
+
+      if (uploadResult.error) {
+        setIsSubmitting(false);
+        setMessage(uploadResult.error.message);
+        return;
+      }
+
+      uploadedPath = filePath;
+    }
 
     const payload = {
       leave_type: form.leave_type,
@@ -390,7 +516,7 @@ export function LeaveWorkflowPage({
       total_days: totalDays,
       half_day: form.half_day,
       reason: form.reason || null,
-      attachment_url: form.attachment_url || null,
+      attachment_url: uploadedPath,
       profile_id: profile.id,
       staff_id: currentStaff.id,
       branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
@@ -411,6 +537,9 @@ export function LeaveWorkflowPage({
     setIsSubmitting(false);
 
     if (saveError) {
+      if (leaveFormFile && uploadedPath) {
+        await supabase.storage.from(LEAVE_ATTACHMENT_BUCKET).remove([uploadedPath]).catch(() => undefined);
+      }
       setMessage(saveError.message);
       return;
     }
@@ -423,6 +552,12 @@ export function LeaveWorkflowPage({
   async function updateLeaveStatus(rowId: string, status: string) {
     if (!supabase || !profile?.id) {
       setReviewMessage("Unable to review this request right now.");
+      return;
+    }
+
+    const targetRow = scopedRows.find((row) => String(row.id ?? "") === rowId) ?? null;
+    if (status === "approved" && !String(targetRow?.attachment_url ?? "").trim()) {
+      setReviewMessage("Tidak boleh approve. Borang cuti belum diupload.");
       return;
     }
 
@@ -598,7 +733,16 @@ export function LeaveWorkflowPage({
                   Half day request
                 </label>
                 <div className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">Total days: {totalDays}</div>
-                <input value={form.attachment_url} onChange={(event) => setForm((current) => ({ ...current, attachment_url: event.target.value }))} placeholder="Optional attachment path" className={inputClass} />
+                <FileUploadField
+                  label="Upload Leave Form / Borang Cuti"
+                  file={leaveFormFile}
+                  storedPath={form.attachment_url || null}
+                  onChange={handleLeaveFormFileChange}
+                  accept={LEAVE_ATTACHMENT_ACCEPT}
+                  required
+                  error={leaveFormError}
+                  helperText="Sila upload borang cuti yang telah lengkap diisi sebelum menghantar permohonan. Fail diterima: PDF, JPG, JPEG, PNG. Maksimum 5MB."
+                />
                 <textarea value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} rows={4} placeholder="Reason for leave" className={textareaClass} required />
                 {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
