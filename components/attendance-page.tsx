@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronUp, Edit3, LogIn, LogOut, RefreshCw, Save, TriangleAlert, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -11,6 +11,7 @@ import { clickableMetricCardClassName } from "@/components/stat-card";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import {
+  calculateDistanceMeters,
   calculateNetScheduledMinutesDetails,
   cn,
   formatMinutesAsHours,
@@ -37,6 +38,26 @@ interface AttendancePageProps {
   currentStaff: TableRow | null;
   role: UserRole;
   error?: string | null;
+}
+
+type PunchInVerificationStatus =
+  | "not_verified"
+  | "verified_location"
+  | "outside_location"
+  | "permission_denied"
+  | "location_unavailable";
+
+interface PunchInVerificationState {
+  status: PunchInVerificationStatus;
+  checkedAt: number | null;
+  expiresAt: number | null;
+  branchName: string | null;
+  radiusMeters: number | null;
+  distanceMeters: number | null;
+  accuracyMeters: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  message: string;
 }
 
 type AttendanceSummaryFilter =
@@ -80,6 +101,21 @@ const emptyNetworkForm = {
   notes: "",
   is_active: true,
 };
+
+const emptyPunchInVerificationState: PunchInVerificationState = {
+  status: "not_verified",
+  checkedAt: null,
+  expiresAt: null,
+  branchName: null,
+  radiusMeters: null,
+  distanceMeters: null,
+  accuracyMeters: null,
+  latitude: null,
+  longitude: null,
+  message: "Please verify your location before punching in.",
+};
+
+const PUNCH_IN_VERIFICATION_WINDOW_MS = 2 * 60 * 1000;
 
 function toDateInput(date = new Date()) {
   return getMalaysiaDateString(date);
@@ -313,6 +349,48 @@ function getLocationStatusMessage(status: unknown) {
   return "Location unavailable.";
 }
 
+function getVerificationTone(status: PunchInVerificationStatus, expired: boolean) {
+  if (expired) {
+    return "border-amber-200 bg-amber-50/80 text-amber-900";
+  }
+
+  if (status === "verified_location") {
+    return "border-emerald-200 bg-emerald-50/80 text-emerald-900";
+  }
+
+  if (status === "outside_location") {
+    return "border-rose-200 bg-rose-50/80 text-rose-900";
+  }
+
+  return "border-amber-200 bg-amber-50/80 text-amber-900";
+}
+
+function getVerificationLabel(status: PunchInVerificationStatus, expired: boolean) {
+  if (expired) {
+    return "Verification expired";
+  }
+
+  switch (status) {
+    case "verified_location":
+      return "Location verified";
+    case "outside_location":
+      return "Outside allowed radius";
+    case "permission_denied":
+      return "Location permission denied";
+    case "location_unavailable":
+      return "Location unavailable";
+    default:
+      return "Not verified yet";
+  }
+}
+
+function formatCountdownSeconds(totalSeconds: number) {
+  const seconds = Math.max(0, totalSeconds);
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
 function MinuteAlertBadge({ tone, text }: { tone: "late" | "early"; text: string }) {
   return (
     <span
@@ -365,6 +443,9 @@ export function AttendancePage({
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [selectedSummaryFilter, setSelectedSummaryFilter] = useState<AttendanceSummaryFilter>("all");
   const [isPunching, setIsPunching] = useState(false);
+  const [isVerifyingPunchInLocation, setIsVerifyingPunchInLocation] = useState(false);
+  const [punchInVerification, setPunchInVerification] = useState<PunchInVerificationState>(emptyPunchInVerificationState);
+  const [verificationNow, setVerificationNow] = useState(() => Date.now());
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -475,6 +556,35 @@ export function AttendancePage({
   const todayLateMinutes = Number(todayAttendance?.late_minutes ?? computeLateMinutes(todayAttendance?.check_in_at, todayAttendance?.scheduled_start ?? todayScheduledStart, graceMinutes));
   const todayEarlyLeaveGraceMinutes = Number(scopedTodaySetting?.early_leave_grace_minutes ?? 10) || 10;
   const todayEarlyLeaveMinutes = Number(todayAttendance?.early_leave_minutes ?? computeEarlyLeaveMinutes(todayAttendance?.check_out_at, todayAttendance?.scheduled_end ?? todayScheduledEnd, todayEarlyLeaveGraceMinutes));
+  const activeBranch = branchRows.find((branch) => branch.id === operationalBranchId) ?? null;
+  const punchInVerificationExpired =
+    role === "staff"
+      && punchInVerification.status === "verified_location"
+      && Boolean(punchInVerification.expiresAt)
+      && Number(punchInVerification.expiresAt) <= verificationNow;
+  const canUsePunchInVerification =
+    role !== "staff"
+      || (
+        punchInVerification.status === "verified_location"
+        && !punchInVerificationExpired
+        && Boolean(punchInVerification.checkedAt)
+      );
+  const punchInVerificationRemainingSeconds =
+    punchInVerification.status === "verified_location" && punchInVerification.expiresAt
+      ? Math.max(0, Math.ceil((punchInVerification.expiresAt - verificationNow) / 1000))
+      : 0;
+
+  useEffect(() => {
+    if (role !== "staff" || punchInVerification.status !== "verified_location" || !punchInVerification.expiresAt) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setVerificationNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [punchInVerification.expiresAt, punchInVerification.status, role]);
 
   const personalHistory = historyDates
     .map((date) => {
@@ -820,10 +930,92 @@ export function AttendancePage({
     });
   }
 
+  async function handleVerifyPunchInLocation() {
+    if (!activeBranch || activeBranch.latitude === null || activeBranch.longitude === null || activeBranch.is_active === false) {
+      setPunchInVerification({
+        ...emptyPunchInVerificationState,
+        status: "location_unavailable",
+        branchName: activeBranch?.name ?? activeBranchName,
+        radiusMeters: Number(activeBranch?.gps_radius_meters ?? 30) || 30,
+        message: "Unable to detect branch GPS settings. Please contact HR/admin.",
+      });
+      return;
+    }
+
+    setIsVerifyingPunchInLocation(true);
+    setVerificationNow(Date.now());
+    const location = await requestPunchLocation();
+    const checkedAt = Date.now();
+    const radiusMeters = Number(activeBranch.gps_radius_meters ?? 30) || 30;
+
+    if (location.status === "permission_denied") {
+      setPunchInVerification({
+        ...emptyPunchInVerificationState,
+        status: "permission_denied",
+        checkedAt,
+        branchName: activeBranch.name,
+        radiusMeters,
+        message: "Please enable location permission in your browser and verify again.",
+      });
+      setIsVerifyingPunchInLocation(false);
+      return;
+    }
+
+    if (location.status !== "captured" || location.latitude === undefined || location.longitude === undefined) {
+      setPunchInVerification({
+        ...emptyPunchInVerificationState,
+        status: "location_unavailable",
+        checkedAt,
+        branchName: activeBranch.name,
+        radiusMeters,
+        message: "Unable to detect your location. Please try again.",
+      });
+      setIsVerifyingPunchInLocation(false);
+      return;
+    }
+
+    const distanceMeters = calculateDistanceMeters(
+      location.latitude,
+      location.longitude,
+      Number(activeBranch.latitude),
+      Number(activeBranch.longitude),
+    );
+    const withinRadius = distanceMeters <= radiusMeters;
+
+    setPunchInVerification({
+      status: withinRadius ? "verified_location" : "outside_location",
+      checkedAt,
+      expiresAt: withinRadius ? checkedAt + PUNCH_IN_VERIFICATION_WINDOW_MS : null,
+      branchName: activeBranch.name,
+      radiusMeters,
+      distanceMeters,
+      accuracyMeters: location.accuracy ?? null,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      message: withinRadius
+        ? "Location verified. You may punch in within 2 minutes."
+        : "You are outside the allowed attendance radius. Please move closer and verify again.",
+    });
+    setVerificationNow(checkedAt);
+    setIsVerifyingPunchInLocation(false);
+  }
+
   async function handlePunch(action: "in" | "out") {
     if (!profile?.id || !currentStaff?.id) {
       setMessage("Complete your linked staff profile before using attendance.");
       return;
+    }
+
+    if (role === "staff" && action === "in") {
+      if (punchInVerification.status !== "verified_location") {
+        setMessage("Please verify your location before punching in.");
+        return;
+      }
+
+      if (punchInVerificationExpired || !punchInVerification.checkedAt) {
+        setMessage("Location verification expired. Please verify again before punching in.");
+        return;
+      }
     }
 
     if (isOffsitePunch && !offsiteNote.trim()) {
@@ -859,6 +1051,9 @@ export function AttendancePage({
       }
 
       setMessage(String(result?.message ?? "Attendance punch saved."));
+      if (action === "in") {
+        setPunchInVerification(emptyPunchInVerificationState);
+      }
       setIsOffsitePunch(false);
       setOffsiteNote("");
       router.refresh();
@@ -1988,11 +2183,50 @@ export function AttendancePage({
                 </div>
               </div>
 
+              {role === "staff" ? (
+                <div className={cn("mt-5 rounded-3xl border px-4 py-4", getVerificationTone(punchInVerification.status, punchInVerificationExpired))}>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-base font-semibold">Verify Location</p>
+                        <p className="mt-1 text-sm opacity-80">Please verify your location before punching in.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge value={getVerificationLabel(punchInVerification.status, punchInVerificationExpired)} />
+                        {punchInVerification.status === "verified_location" && !punchInVerificationExpired ? <StatusBadge value="2 minute window" /> : null}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyPunchInLocation}
+                      disabled={isVerifyingPunchInLocation}
+                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 disabled:opacity-70 md:w-auto"
+                    >
+                      {isVerifyingPunchInLocation ? "Verifying..." : "Verify Location"}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+                    <p><span className="font-semibold">Branch:</span> {punchInVerification.branchName ?? activeBranchName}</p>
+                    <p><span className="font-semibold">Allowed radius:</span> {Number(punchInVerification.radiusMeters ?? activeBranch?.gps_radius_meters ?? 30) || 30}m</p>
+                    <p><span className="font-semibold">Distance:</span> {punchInVerification.distanceMeters !== null ? `${Math.round(punchInVerification.distanceMeters)}m` : "-"}</p>
+                    <p><span className="font-semibold">Last checked:</span> {punchInVerification.checkedAt ? formatMalaysiaDateTime(new Date(punchInVerification.checkedAt).toISOString()) : "-"}</p>
+                    <p><span className="font-semibold">Accuracy:</span> {punchInVerification.accuracyMeters !== null ? `${Math.round(punchInVerification.accuracyMeters)}m` : "-"}</p>
+                    <p><span className="font-semibold">Valid for:</span> {punchInVerification.status === "verified_location" && !punchInVerificationExpired ? formatCountdownSeconds(punchInVerificationRemainingSeconds) : punchInVerificationExpired ? "Expired" : "-"}</p>
+                  </div>
+                  <p className="mt-3 text-sm opacity-90">
+                    {punchInVerificationExpired
+                      ? "Location verification expired. Please verify again before punching in."
+                      : punchInVerification.message}
+                  </p>
+                </div>
+              ) : null}
+
               <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <button
                   type="button"
                   onClick={() => handlePunch("in")}
-                  disabled={isPunching}
+                  disabled={isPunching || (role === "staff" && !canUsePunchInVerification)}
                   className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto"
                 >
                   <LogIn className="h-4 w-4" />
