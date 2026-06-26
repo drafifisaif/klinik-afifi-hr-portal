@@ -554,9 +554,9 @@ function HeroCard({
   return (
     <section className="overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,#EAF8F6_0%,#FFFFFF_55%,#F5F3FF_100%)] p-5 shadow-[0_20px_55px_rgba(18,42,44,0.08)] sm:p-7">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-        <div>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">{title}</h2>
-          <div className="mt-6 flex items-center gap-5">
+        <div className="text-center lg:text-left">
+          <h2 className="text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">{title}</h2>
+          <div className="mt-6 flex items-center justify-center gap-5 lg:justify-start">
             {avatarUrl ? (
               <Image src={avatarUrl} alt={name} width={88} height={88} className="h-20 w-20 rounded-[28px] object-cover shadow-[0_16px_36px_rgba(18,42,44,0.12)] sm:h-24 sm:w-24" unoptimized />
             ) : (
@@ -567,11 +567,23 @@ function HeroCard({
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
+          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5 sm:hidden">
+            <div className="space-y-3 text-center">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Branch</p>
+                <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{branch}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Position</p>
+                <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{position}</p>
+              </div>
+            </div>
+          </div>
+          <div className="hidden rounded-3xl border border-white/80 bg-white/80 px-5 py-5 sm:block">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Branch</p>
             <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{branch}</p>
           </div>
-          <div className="rounded-3xl border border-white/80 bg-white/80 px-5 py-5">
+          <div className="hidden rounded-3xl border border-white/80 bg-white/80 px-5 py-5 sm:block">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Position</p>
             <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{position}</p>
           </div>
@@ -1178,6 +1190,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
             <EmptyState title="No shift scheduled yet" description="Shift seterusnya akan muncul di sini bila roster sudah diset." />
           )}
         </FormSection>
+        <LeaveBalancePanel summary={leaveBalance} hideHeader />
         <PendingLeaveApplicationsWidget rows={pendingLeaveApplications} />
         <FormSection title="Next Approved Annual Leave" description="Cuti tahunan yang telah diluluskan dan akan datang.">
           {nextApprovedAnnualLeave ? (
@@ -1195,8 +1208,6 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
         </FormSection>
         <HolidayWidget holiday={nextHoliday} />
       </div>
-
-      <LeaveBalancePanel summary={leaveBalance} title="Ringkasan Leave dan MC" />
 
       <QuickActions
         title="Quick Actions"
