@@ -35,7 +35,7 @@ export default async function McPage({ searchParams }: { searchParams?: Promise<
     <div className="space-y-6">
       <PageHeader
         title="Medical Certificates"
-        description="Upload your own MC privately, review approvals, and track the resulting medical leave workflow."
+        description="Review MC approvals and history linked to the medical leave workflow."
       />
       <McWorkflowPage
         leaveRequests={leaveRows.rows}

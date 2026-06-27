@@ -1,11 +1,10 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, FileUp, Search, X, XCircle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CheckCircle2, ExternalLink, Search, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
-import { FileUploadField } from "@/components/file-upload-field";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
@@ -16,10 +15,8 @@ import {
   formatMalaysiaDateTime,
   getFilename,
   getMalaysiaDateTimeParts,
-  getMalaysiaDateString,
   mapRowsWithId,
   normalizeString,
-  sanitizeFilename,
 } from "@/lib/utils";
 
 interface McWorkflowPageProps {
@@ -46,8 +43,6 @@ interface McHistorySummaryRow {
   lastMcDate: string | null;
 }
 
-const textareaClass =
-  "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 
@@ -101,17 +96,12 @@ export function McWorkflowPage({
 }: McWorkflowPageProps) {
   const router = useRouter();
   const supabase = createClient();
-  const [file, setFile] = useState<File | null>(null);
-  const [reason, setReason] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [openingFileId, setOpeningFileId] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
   const [historyStatusFilter, setHistoryStatusFilter] = useState(String(initialStatusFilter ?? "all").trim().toLowerCase() || "all");
   const [selectedHistoryStaffId, setSelectedHistoryStaffId] = useState<string | null>(null);
 
-  const canUpload = role === "staff" || role === "branch_pic";
   const canReview = role === "super_admin" || role === "hr" || role === "branch_pic";
   const branches = useMemo(
     () =>
@@ -238,7 +228,6 @@ export function McWorkflowPage({
 
   async function handleViewMc(rowId: string) {
     setReviewMessage(null);
-    setMessage(null);
     setOpeningFileId(rowId);
 
     try {
@@ -259,61 +248,6 @@ export function McWorkflowPage({
     } finally {
       setOpeningFileId(null);
     }
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!supabase || !file || !profile?.id || !currentStaff) {
-      setMessage("A linked staff profile and MC file are required.");
-      return;
-    }
-
-    if (!currentStaff.id || !currentStaff.branch_id || String(currentStaff.profile_id ?? "") !== String(profile.id)) {
-      setMessage("Staff profile is incomplete. Please complete your profile before uploading MC.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    setMessage(null);
-
-    const safeName = sanitizeFilename(file.name);
-    const datePrefix = getMalaysiaDateString();
-    const filePath = `mc/${profile.id}/${datePrefix}-${safeName}`;
-    const uploadResult = await supabase.storage.from("mc-uploads").upload(filePath, file, {
-      upsert: true,
-    });
-
-    if (uploadResult.error) {
-      setIsSubmitting(false);
-      setMessage(uploadResult.error.message);
-      return;
-    }
-
-    const { error: insertError } = await supabase.from("leave_requests").insert({
-      leave_type: "medical_leave",
-      profile_id: profile.id,
-      staff_id: currentStaff.id,
-      branch_id: currentStaff.branch_id,
-      attachment_url: filePath,
-      reason: reason || null,
-      start_date: datePrefix,
-      end_date: datePrefix,
-      total_days: 1,
-      status: "pending",
-    });
-
-    setIsSubmitting(false);
-
-    if (insertError) {
-      setMessage(insertError.message);
-      return;
-    }
-
-    setMessage("MC uploaded and submitted for review.");
-    setFile(null);
-    setReason("");
-    router.refresh();
   }
 
   async function handleReview(rowId: string, status: "approved" | "rejected") {
@@ -346,7 +280,7 @@ export function McWorkflowPage({
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load MC records" description={error} /> : null}
 
-      <div className={canUpload ? "grid gap-6 xl:grid-cols-[1.2fr_0.8fr]" : "space-y-6"}>
+      <div className="space-y-6">
         <FormSection title="Pending MC Review" description="Pending medical certificate submissions that still need review.">
           {reviewMessage ? <p className="mb-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{reviewMessage}</p> : null}
           {pendingRows.length ? (
@@ -439,24 +373,6 @@ export function McWorkflowPage({
             <EmptyState title={initialStatusFilter ? "No items found for this filter." : "No pending MC review"} description={initialStatusFilter ? "No items found for this filter." : "All pending MC submissions have been cleared for now."} />
           )}
         </FormSection>
-
-        {canUpload ? (
-          <FormSection title="Upload my MC" description="Only staff and branch PIC can submit their own MC in this batch.">
-            {currentStaff ? (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <FileUploadField label="MC file" file={file} onChange={setFile} helperText="The uploaded file remains private in the `mc-uploads` bucket." />
-                <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Optional note for the reviewer" className={textareaClass} />
-                {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
-                <button type="submit" disabled={isSubmitting} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70">
-                  <FileUp className="h-4 w-4" />
-                  {isSubmitting ? "Uploading..." : "Submit MC"}
-                </button>
-              </form>
-            ) : (
-              <EmptyState title="Complete your staff profile first" description="A linked staff row is required before you can upload MC documents." />
-            )}
-          </FormSection>
-        ) : null}
       </div>
 
       <FormSection title="MC History" description="Review historical MC applications by staff, check approval outcomes, and inspect the original attachment when needed.">
