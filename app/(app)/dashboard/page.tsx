@@ -1367,11 +1367,12 @@ async function loadHrDashboard(
 ) {
   const attendanceDate = options?.attendanceDate || getMalaysiaDateString();
   const attendanceBranchId = options?.attendanceBranchId || "all";
-  const [leaveRows, staffDocs, feedbackRows, staffRows, attendanceRows, rosterRows, attendanceSettingsRows, adjustmentRows] = await Promise.all([
+  const [leaveRows, staffDocs, feedbackRows, staffRows, profileRows, attendanceRows, rosterRows, attendanceSettingsRows, adjustmentRows] = await Promise.all([
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
     queryRows(() => supabase.from("staff_documents").select("*").limit(320)),
     queryRows(() => supabase.from("feedbacks").select("*").limit(250)),
     queryRows(() => supabase.from("staff").select("*").limit(300)),
+    queryRows(() => supabase.from("profiles").select("*").limit(320)),
     queryRows(() => supabase.from("attendance_records").select("*").eq("attendance_date", attendanceDate).limit(300)),
     queryRows(() => supabase.from("rosters").select("*").eq("roster_date", attendanceDate).limit(300)),
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
@@ -1381,7 +1382,18 @@ async function loadHrDashboard(
   const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus);
   const pendingMc = pendingLeave.filter((row) => normalizeString(row.leave_type) === "medical_leave" || Boolean(row.attachment_url));
   const pendingDocReview = staffDocs.rows.filter((row) => normalizeString(row.status) === "pending_review");
-  const incompleteProfiles = staffRows.rows.filter(isStaffRecordIncomplete);
+  const incompleteProfiles = staffRows.rows.filter((staffRow) => {
+    const normalizedStatus = normalizeString(staffRow.status);
+    if (normalizedStatus === "inactive" || normalizedStatus === "resigned") {
+      return false;
+    }
+
+    const linkedProfile =
+      (profileRows.rows.find((profileRow) => String(profileRow.id ?? "") === String(staffRow.profile_id ?? "")) as Profile | undefined) ??
+      null;
+
+    return getMissingStaffEditableProfileFields(linkedProfile, staffRow).length > 0;
+  });
   const hrFeedback = feedbackRows.rows.filter((row) => {
     const status = normalizeString(row.status);
     const targetType = normalizeString(row.target_type);
@@ -1416,7 +1428,7 @@ async function loadHrDashboard(
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[leaveRows.error, staffDocs.error, feedbackRows.error, staffRows.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error, adjustmentRows.error]} />
+      <PartialDataNotice errors={[leaveRows.error, staffDocs.error, feedbackRows.error, staffRows.error, profileRows.error, attendanceRows.error, rosterRows.error, attendanceSettingsRows.error, adjustmentRows.error]} />
       <PageHeader title="HR Operations Dashboard" description="Operational command centre for attendance, approvals, staff compliance and daily HR activities." />
 
       <TodayAttendanceSnapshot

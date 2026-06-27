@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Pencil, Plus, RefreshCw, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
-import { buildLeaveBalanceSummary, isStaffRecordIncomplete } from "@/lib/data";
+import { buildLeaveBalanceSummary, getMissingStaffEditableProfileFields } from "@/lib/data";
 import type { BulkImportPreviewRow } from "@/lib/staff-import";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
@@ -75,17 +75,39 @@ export function StaffManagementPage({
   const [isCreatingImport, setIsCreatingImport] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [bulkImportMessage, setBulkImportMessage] = useState<string | null>(null);
+  const [bulkTaskMessage, setBulkTaskMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false);
+  const [isProfileTaskConfirmOpen, setIsProfileTaskConfirmOpen] = useState(false);
+  const [isSendingProfileTasks, setIsSendingProfileTasks] = useState(false);
   const [bulkImportInput, setBulkImportInput] = useState("");
   const [bulkImportRows, setBulkImportRows] = useState<BulkImportPreviewRow[]>([]);
   const [bulkImportSummary, setBulkImportSummary] = useState<Record<string, number> | null>(null);
   const [form, setForm] = useState(emptyStaffForm);
 
   const canManageExtended = role === "super_admin" || role === "hr";
+  const canSendProfileCompletionTasks = role === "super_admin" || role === "hr";
   const staffRows = useMemo(() => mapRowsWithId(rows), [rows]);
   const linkedProfiles = useMemo(() => mapRowsWithId(profileRows), [profileRows]);
+  const normalizedProfileFilter = String(initialProfileFilter ?? "").trim().toLowerCase();
+  const isIncompleteProfileView = normalizedProfileFilter === "incomplete";
+
+  const getLinkedProfileForStaff = useCallback(
+    (row: TableRow) =>
+      ((linkedProfiles.find((item) => String(item.id ?? "") === String(row.profile_id ?? "")) as Profile | undefined) ?? null),
+    [linkedProfiles],
+  );
+
+  const getMissingProfileFieldsForStaff = useCallback(
+    (row: TableRow) => getMissingStaffEditableProfileFields(getLinkedProfileForStaff(row), row),
+    [getLinkedProfileForStaff],
+  );
+
+  function isActiveStaffRow(row: TableRow) {
+    const normalizedStatus = String(row.status ?? "active").trim().toLowerCase();
+    return normalizedStatus !== "inactive" && normalizedStatus !== "resigned";
+  }
 
   const scopedRows = useMemo(() => {
     if (role === "staff") {
@@ -100,17 +122,17 @@ export function StaffManagementPage({
   }, [currentStaff, profile?.branch_id, role, staffRows]);
 
   const filteredRows = useMemo(() => {
-    if (String(initialProfileFilter ?? "").trim().toLowerCase() !== "incomplete") {
+    if (!isIncompleteProfileView) {
       return scopedRows;
     }
 
-    return scopedRows.filter(isStaffRecordIncomplete);
-  }, [initialProfileFilter, scopedRows]);
+    return scopedRows.filter((row) => isActiveStaffRow(row) && getMissingProfileFieldsForStaff(row).length > 0);
+  }, [getMissingProfileFieldsForStaff, isIncompleteProfileView, scopedRows]);
 
   const selectedStaff =
     filteredRows.find((row) => String(row.id ?? "") === editingId) ??
     filteredRows[0] ??
-    (String(initialProfileFilter ?? "").trim().toLowerCase() ? null : currentStaff);
+    (normalizedProfileFilter ? null : currentStaff);
   const groupedByBranch = useMemo(() => {
     const branchMap = new Map<string, { branchId: string; branchName: string; rows: TableRow[] }>();
     const branchNameForId = (branchId: string) => branches.find((branch) => branch.id === branchId)?.name ?? "No branch";
@@ -221,6 +243,11 @@ export function StaffManagementPage({
     );
   }
 
+  function renderMissingFieldsText(row: TableRow) {
+    const missingFields = getMissingProfileFieldsForStaff(row);
+    return missingFields.length ? missingFields.join(", ") : "Complete";
+  }
+
   function renderDirectoryCards(rowsForBranch: TableRow[]) {
     return (
       <>
@@ -239,6 +266,12 @@ export function StaffManagementPage({
                 <p><span className="font-semibold">Position:</span> {String(row.position ?? row.department ?? "-")}</p>
                 <p><span className="font-semibold">Branch:</span> {getBranchName(row.branch_id)}</p>
                 <p><span className="font-semibold">Joined:</span> {formatDate(row.date_joined)}</p>
+                {isIncompleteProfileView ? (
+                  <>
+                    <p><span className="font-semibold">Profile completion:</span> Incomplete</p>
+                    <p><span className="font-semibold">Missing fields:</span> {renderMissingFieldsText(row)}</p>
+                  </>
+                ) : null}
               </div>
               <button type="button" onClick={() => startEdit(row)} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm font-semibold text-[var(--foreground)]">
                 <Pencil className="h-3.5 w-3.5" />
@@ -253,7 +286,16 @@ export function StaffManagementPage({
             <table className="min-w-full divide-y divide-[var(--border)] text-left">
               <thead className="bg-[var(--card-muted)]/70">
                 <tr>
-                  {["Staff", "IC No", "Position", "Branch", "Joined", "Status", "Action"].map((label) => (
+                  {[
+                    "Staff",
+                    "IC No",
+                    "Position",
+                    "Branch",
+                    ...(isIncompleteProfileView ? ["Missing Fields", "Profile Status"] : []),
+                    "Joined",
+                    "Status",
+                    "Action",
+                  ].map((label) => (
                     <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
                   ))}
                 </tr>
@@ -268,6 +310,12 @@ export function StaffManagementPage({
                     <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.ic_no ?? "-")}</td>
                     <td className="px-4 py-4 text-sm text-[var(--foreground)]">{String(row.position ?? row.department ?? "-")}</td>
                     <td className="px-4 py-4 text-sm text-[var(--foreground)]">{getBranchName(row.branch_id)}</td>
+                    {isIncompleteProfileView ? (
+                      <>
+                        <td className="px-4 py-4 text-sm text-[var(--foreground)]">{renderMissingFieldsText(row)}</td>
+                        <td className="px-4 py-4 text-sm"><StatusBadge value="Incomplete" /></td>
+                      </>
+                    ) : null}
                     <td className="px-4 py-4 text-sm text-[var(--foreground)]">{formatDate(row.date_joined)}</td>
                     <td className="px-4 py-4 text-sm"><StatusBadge value={String(row.status ?? "active")} /></td>
                     <td className="px-4 py-4 text-sm">
@@ -474,6 +522,51 @@ export function StaffManagementPage({
     }
   }
 
+  async function handleSendProfileCompletionTasks() {
+    const targetStaffIds = filteredRows
+      .map((row) => String(row.id ?? "").trim())
+      .filter(Boolean);
+
+    if (!targetStaffIds.length) {
+      setBulkTaskMessage("No incomplete staff profiles are currently available to receive a task.");
+      setIsProfileTaskConfirmOpen(false);
+      return;
+    }
+
+    setIsSendingProfileTasks(true);
+    setBulkTaskMessage(null);
+
+    try {
+      const response = await fetch("/api/staff/profile-completion-tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          staffIds: targetStaffIds,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+      setIsSendingProfileTasks(false);
+      setIsProfileTaskConfirmOpen(false);
+
+      if (!response.ok) {
+        setBulkTaskMessage(String(result?.error ?? "Unable to send profile completion tasks."));
+        return;
+      }
+
+      setBulkTaskMessage(
+        `Profile completion tasks checked for ${Number(result?.totalIncomplete ?? 0)} incomplete staff. Created: ${Number(result?.created ?? 0)}, skipped existing: ${Number(result?.skippedExisting ?? 0)}, failed: ${Number(result?.failed ?? 0)}.`,
+      );
+      router.refresh();
+    } catch (error) {
+      setIsSendingProfileTasks(false);
+      setIsProfileTaskConfirmOpen(false);
+      setBulkTaskMessage(error instanceof Error ? error.message : "Unable to send profile completion tasks.");
+    }
+  }
+
   return (
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load staff data" description={error} /> : null}
@@ -502,8 +595,29 @@ export function StaffManagementPage({
 
       <FormSection
         title="Staff Directory by Branch"
-        description="Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."
+        description={isIncompleteProfileView ? "Review active staff profiles that are still missing staff-editable details, then send one profile completion task to everyone who still needs it." : "Staff visibility respects role scope: all staff for HR and super admin, branch staff for branch PIC, and self for staff users."}
       >
+        {isIncompleteProfileView && canSendProfileCompletionTasks ? (
+          <div className="mb-5 rounded-[28px] border border-amber-200 bg-amber-50/70 px-5 py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Incomplete staff profiles</h3>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                  {filteredRows.length} active staff still need profile updates. Duplicate open profile-completion tasks will be skipped automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsProfileTaskConfirmOpen(true)}
+                disabled={!filteredRows.length}
+                className="inline-flex h-12 items-center justify-center rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-60"
+              >
+                Hantar Tugasan Lengkapkan Profil
+              </button>
+            </div>
+            {bulkTaskMessage ? <p className="mt-4 rounded-2xl bg-white/80 px-4 py-3 text-sm text-[var(--foreground)]">{bulkTaskMessage}</p> : null}
+          </div>
+        ) : null}
         {groupedByBranch.length ? (
           <div className="space-y-6">
             {groupedByBranch.map((group) => (
@@ -694,6 +808,38 @@ export function StaffManagementPage({
           ) : null}
         </section>
       </div>
+
+      {isProfileTaskConfirmOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-[32px] border border-[var(--border)] bg-white p-6 shadow-[0_30px_80px_rgba(15,31,32,0.2)]">
+            <h3 className="text-xl font-semibold text-[var(--foreground)]">Hantar tugasan lengkapkan profil kepada semua staff yang profil belum lengkap?</h3>
+            <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+              This will target {filteredRows.length} active incomplete staff profiles. Any open or pending profile completion task that already exists for the same staff will be skipped automatically.
+            </p>
+            <div className="mt-5 rounded-3xl bg-[var(--card-muted)] px-4 py-4 text-sm text-[var(--foreground)]">
+              <p><span className="font-semibold">Affected staff:</span> {filteredRows.length}</p>
+              <p className="mt-2"><span className="font-semibold">Duplicate handling:</span> Existing unresolved profile completion tasks will not be created again.</p>
+            </div>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setIsProfileTaskConfirmOpen(false)}
+                className="inline-flex h-12 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSendProfileCompletionTasks}
+                disabled={isSendingProfileTasks}
+                className="inline-flex h-12 items-center justify-center rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70"
+              >
+                {isSendingProfileTasks ? "Sending..." : "Send Task"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
