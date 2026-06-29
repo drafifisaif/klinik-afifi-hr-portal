@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { filterFeedbackForManageView, getOperationVisibleFeedback } from "@/lib/data";
-import { triggerFeedbackEmailNotifications } from "@/lib/feedback-email";
+import { triggerFeedbackEmailNotifications, type FeedbackEmailEvent } from "@/lib/feedback-email";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as {
     feedbackId?: string;
-    eventType?: "feedback_new" | "feedback_assignment" | "feedback_reply";
+    eventType?: FeedbackEmailEvent;
     commentText?: string | null;
   } | null;
 
@@ -75,8 +75,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      sent: result.sent ?? 0,
+      sent: result.counts?.emailsSent ?? 0,
+      suppressed: result.counts?.emailsSuppressed ?? 0,
+      failed: result.counts?.emailsFailed ?? 0,
+      noEmail: result.counts?.noEmail ?? 0,
       skipped: result.skipped ?? false,
+      results: result.results ?? [],
     });
   } catch (error) {
     console.error("[feedback-email]", error);

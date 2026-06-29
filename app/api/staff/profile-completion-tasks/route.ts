@@ -4,7 +4,7 @@ import {
   choosePreferredStaffRow,
   getMissingStaffEditableProfileFields,
 } from "@/lib/data";
-import { insertNotificationRows } from "@/lib/notification-helpers";
+import { deliverFeedbackNotifications, type FeedbackEmailAttemptResult } from "@/lib/feedback-email";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, TableRow } from "@/lib/types";
@@ -64,11 +64,12 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as {
     staffIds?: string[];
+    resendForStaffId?: string | null;
   } | null;
 
   const requestedStaffIds = Array.from(
     new Set(
-      (body?.staffIds ?? [])
+      ([...(body?.staffIds ?? []), ...(body?.resendForStaffId ? [body.resendForStaffId] : [])] as string[])
         .map((value) => String(value ?? "").trim())
         .filter(Boolean),
     ),
@@ -149,6 +150,12 @@ export async function POST(request: Request) {
   let created = 0;
   let skippedExisting = 0;
   let failed = 0;
+  let notificationsCreated = 0;
+  let emailsSent = 0;
+  let emailsSuppressed = 0;
+  let emailsFailed = 0;
+  let noEmail = 0;
+  const recipientResults: FeedbackEmailAttemptResult[] = [];
 
   for (const staffRow of targetStaff) {
     const targetProfile = profileMap.get(String(staffRow.profile_id ?? "")) ?? null;
@@ -166,65 +173,124 @@ export async function POST(request: Request) {
       continue;
     }
 
-    if (existingTaskStaffIds.has(targetStaffId)) {
+    const existingTask = ((existingFeedbackRows ?? []) as TableRow[])
+      .filter(hasOpenProfileCompletionTask)
+      .find((row) => String(row.target_staff_id ?? "").trim() === targetStaffId) ?? null;
+
+    if (existingTask && !body?.resendForStaffId) {
       skippedExisting += 1;
-      continue;
-    }
-
-    const insertPayload = {
-      title: PROFILE_COMPLETION_TITLE,
-      category: "profile_completion",
-      message: PROFILE_COMPLETION_MESSAGE,
-      target_type: "staff",
-      target_staff_id: targetStaffId,
-      expected_action: "Complete your My Profile details in the HR Portal.",
-      priority: "normal",
-      submitted_by: user.id,
-      staff_id: actingStaff?.id ?? null,
-      branch_id: staffRow.branch_id ?? targetProfile?.branch_id ?? null,
-      source_type: actingRole,
-      assigned_department: "hr",
-      assigned_to: targetProfile?.id ?? null,
-      status: "new",
-    };
-
-    const { data: insertedFeedback, error: insertError } = await adminClient
-      .from("feedbacks")
-      .insert(insertPayload)
-      .select("id")
-      .maybeSingle();
-
-    if (insertError || !insertedFeedback?.id) {
-      console.error("Profile completion feedback insert failed", {
-        targetStaffId,
+      recipientResults.push({
+        staffId: targetStaffId,
         profileId: targetProfile?.id ?? null,
-        code: insertError?.code ?? null,
-        message: insertError?.message ?? null,
-        details: insertError?.details ?? null,
-        hint: insertError?.hint ?? null,
+        staffName: String(staffRow.full_name ?? staffRow.email ?? "Unknown Staff"),
+        email: String(staffRow.email ?? targetProfile?.email ?? "").trim() || null,
+        feedbackId: String(existingTask.id ?? ""),
+        taskCreated: false,
+        notificationCreated: false,
+        notificationStatus: "failed",
+        emailStatus: "skipped_duplicate",
+        resendEmailId: null,
+        errorMessage: "Existing open profile completion task already found.",
+        logCreated: false,
       });
-      failed += 1;
       continue;
     }
 
-    created += 1;
-    existingTaskStaffIds.add(targetStaffId);
+    let feedbackId = String(existingTask?.id ?? "").trim();
+    let taskCreated = false;
 
-    if (targetProfile?.id) {
-      await insertNotificationRows(adminClient, [
-        {
-          recipient_profile_id: targetProfile.id,
-          recipient_email: targetProfile.email ?? staffRow.email ?? null,
-          title: PROFILE_COMPLETION_TITLE,
-          message: "Sila lengkapkan profil anda melalui menu My Profile.",
-          type: "feedback_new",
-          related_table: "feedbacks",
-          related_id: insertedFeedback.id,
-          email_status: "pending",
-          is_read: false,
-        },
-      ]);
+    if (!existingTask) {
+      const insertPayload = {
+        title: PROFILE_COMPLETION_TITLE,
+        category: "profile_completion",
+        message: PROFILE_COMPLETION_MESSAGE,
+        target_type: "staff",
+        target_staff_id: targetStaffId,
+        expected_action: "Sila login ke HR Portal dan lengkapkan profil anda melalui menu My Profile.",
+        priority: "normal",
+        submitted_by: user.id,
+        staff_id: actingStaff?.id ?? null,
+        branch_id: staffRow.branch_id ?? targetProfile?.branch_id ?? null,
+        source_type: actingRole,
+        assigned_department: "hr",
+        assigned_to: targetProfile?.id ?? null,
+        status: "new",
+      };
+
+      const { data: insertedFeedback, error: insertError } = await adminClient
+        .from("feedbacks")
+        .insert(insertPayload)
+        .select("id")
+        .maybeSingle();
+
+      if (insertError || !insertedFeedback?.id) {
+        console.error("Profile completion feedback insert failed", {
+          targetStaffId,
+          profileId: targetProfile?.id ?? null,
+          code: insertError?.code ?? null,
+          message: insertError?.message ?? null,
+          details: insertError?.details ?? null,
+          hint: insertError?.hint ?? null,
+        });
+        failed += 1;
+        recipientResults.push({
+          staffId: targetStaffId,
+          profileId: targetProfile?.id ?? null,
+          staffName: String(staffRow.full_name ?? staffRow.email ?? "Unknown Staff"),
+          email: String(staffRow.email ?? targetProfile?.email ?? "").trim() || null,
+          feedbackId: "",
+          taskCreated: false,
+          notificationCreated: false,
+          notificationStatus: "failed",
+          emailStatus: "failed",
+          resendEmailId: null,
+          errorMessage: insertError?.message ?? "Unable to create feedback task.",
+          logCreated: false,
+        });
+        continue;
+      }
+
+      feedbackId = String(insertedFeedback.id);
+      created += 1;
+      taskCreated = true;
+      existingTaskStaffIds.add(targetStaffId);
     }
+
+    const delivery = await deliverFeedbackNotifications({
+      feedbackId,
+      eventType: taskCreated ? "feedback_new" : "feedback_assignment",
+      actorProfileId: user.id,
+      createInAppNotification: !body?.resendForStaffId,
+      taskCreated,
+    });
+
+    notificationsCreated += delivery.counts.notificationsCreated;
+    emailsSent += delivery.counts.emailsSent;
+    emailsSuppressed += delivery.counts.emailsSuppressed;
+    emailsFailed += delivery.counts.emailsFailed;
+    noEmail += delivery.counts.noEmail;
+
+    if (!delivery.results.length) {
+      recipientResults.push({
+        staffId: targetStaffId,
+        profileId: targetProfile?.id ?? null,
+        staffName: String(staffRow.full_name ?? staffRow.email ?? "Unknown Staff"),
+        email: String(staffRow.email ?? targetProfile?.email ?? "").trim() || null,
+        feedbackId,
+        taskCreated,
+        notificationCreated: false,
+        notificationStatus: "failed",
+        emailStatus: "failed",
+        resendEmailId: null,
+        errorMessage: "No delivery result returned for the targeted staff.",
+        logCreated: false,
+      });
+      continue;
+    }
+
+    recipientResults.push(
+      ...delivery.results.filter((row) => String(row.staffId ?? "") === targetStaffId),
+    );
   }
 
   return NextResponse.json({
@@ -232,5 +298,11 @@ export async function POST(request: Request) {
     created,
     skippedExisting,
     failed,
+    notificationsCreated,
+    emailsSent,
+    emailsSuppressed,
+    emailsFailed,
+    noEmail,
+    results: recipientResults,
   });
 }

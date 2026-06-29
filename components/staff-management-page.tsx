@@ -26,6 +26,21 @@ interface StaffManagementPageProps {
   error?: string | null;
 }
 
+interface ProfileCompletionBulkResultRow {
+  staffId: string | null;
+  profileId: string | null;
+  staffName: string;
+  email: string | null;
+  feedbackId: string;
+  taskCreated: boolean;
+  notificationCreated: boolean;
+  notificationStatus: "created" | "failed";
+  emailStatus: string;
+  resendEmailId: string | null;
+  errorMessage: string | null;
+  logCreated: boolean;
+}
+
 const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 const collapsibleButtonClass =
@@ -76,11 +91,24 @@ export function StaffManagementPage({
   const [message, setMessage] = useState<string | null>(null);
   const [bulkImportMessage, setBulkImportMessage] = useState<string | null>(null);
   const [bulkTaskMessage, setBulkTaskMessage] = useState<string | null>(null);
+  const [bulkTaskSummary, setBulkTaskSummary] = useState<{
+    totalIncomplete: number;
+    created: number;
+    skippedExisting: number;
+    failed: number;
+    notificationsCreated: number;
+    emailsSent: number;
+    emailsSuppressed: number;
+    emailsFailed: number;
+    noEmail: number;
+  } | null>(null);
+  const [bulkTaskResults, setBulkTaskResults] = useState<ProfileCompletionBulkResultRow[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false);
   const [isProfileTaskConfirmOpen, setIsProfileTaskConfirmOpen] = useState(false);
   const [isSendingProfileTasks, setIsSendingProfileTasks] = useState(false);
+  const [resendingStaffId, setResendingStaffId] = useState<string | null>(null);
   const [bulkImportInput, setBulkImportInput] = useState("");
   const [bulkImportRows, setBulkImportRows] = useState<BulkImportPreviewRow[]>([]);
   const [bulkImportSummary, setBulkImportSummary] = useState<Record<string, number> | null>(null);
@@ -553,17 +581,76 @@ export function StaffManagementPage({
 
       if (!response.ok) {
         setBulkTaskMessage(String(result?.error ?? "Unable to send profile completion tasks."));
+        setBulkTaskSummary(null);
+        setBulkTaskResults([]);
         return;
       }
 
       setBulkTaskMessage(
-        `Profile completion tasks checked for ${Number(result?.totalIncomplete ?? 0)} incomplete staff. Created: ${Number(result?.created ?? 0)}, skipped existing: ${Number(result?.skippedExisting ?? 0)}, failed: ${Number(result?.failed ?? 0)}.`,
+        `Profile completion tasks checked for ${Number(result?.totalIncomplete ?? 0)} incomplete staff.`,
       );
+      setBulkTaskSummary({
+        totalIncomplete: Number(result?.totalIncomplete ?? 0),
+        created: Number(result?.created ?? 0),
+        skippedExisting: Number(result?.skippedExisting ?? 0),
+        failed: Number(result?.failed ?? 0),
+        notificationsCreated: Number(result?.notificationsCreated ?? 0),
+        emailsSent: Number(result?.emailsSent ?? 0),
+        emailsSuppressed: Number(result?.emailsSuppressed ?? 0),
+        emailsFailed: Number(result?.emailsFailed ?? 0),
+        noEmail: Number(result?.noEmail ?? 0),
+      });
+      setBulkTaskResults((result?.results ?? []) as ProfileCompletionBulkResultRow[]);
       router.refresh();
     } catch (error) {
       setIsSendingProfileTasks(false);
       setIsProfileTaskConfirmOpen(false);
       setBulkTaskMessage(error instanceof Error ? error.message : "Unable to send profile completion tasks.");
+      setBulkTaskSummary(null);
+      setBulkTaskResults([]);
+    }
+  }
+
+  async function handleResendProfileCompletionEmail(staffId: string) {
+    setResendingStaffId(staffId);
+    setBulkTaskMessage(null);
+
+    try {
+      const response = await fetch("/api/staff/profile-completion-tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          resendForStaffId: staffId,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+      setResendingStaffId(null);
+
+      if (!response.ok) {
+        setBulkTaskMessage(String(result?.error ?? "Unable to resend the email notification."));
+        return;
+      }
+
+      setBulkTaskMessage("Email notification resend processed.");
+      setBulkTaskSummary({
+        totalIncomplete: Number(result?.totalIncomplete ?? 0),
+        created: Number(result?.created ?? 0),
+        skippedExisting: Number(result?.skippedExisting ?? 0),
+        failed: Number(result?.failed ?? 0),
+        notificationsCreated: Number(result?.notificationsCreated ?? 0),
+        emailsSent: Number(result?.emailsSent ?? 0),
+        emailsSuppressed: Number(result?.emailsSuppressed ?? 0),
+        emailsFailed: Number(result?.emailsFailed ?? 0),
+        noEmail: Number(result?.noEmail ?? 0),
+      });
+      setBulkTaskResults((result?.results ?? []) as ProfileCompletionBulkResultRow[]);
+      router.refresh();
+    } catch (error) {
+      setResendingStaffId(null);
+      setBulkTaskMessage(error instanceof Error ? error.message : "Unable to resend the email notification.");
     }
   }
 
@@ -616,6 +703,66 @@ export function StaffManagementPage({
               </button>
             </div>
             {bulkTaskMessage ? <p className="mt-4 rounded-2xl bg-white/80 px-4 py-3 text-sm text-[var(--foreground)]">{bulkTaskMessage}</p> : null}
+            {bulkTaskSummary ? (
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {[
+                  ["Tasks created", bulkTaskSummary.created],
+                  ["In-app notifications created", bulkTaskSummary.notificationsCreated],
+                  ["Emails sent", bulkTaskSummary.emailsSent],
+                  ["Emails suppressed", bulkTaskSummary.emailsSuppressed],
+                  ["Emails failed", bulkTaskSummary.emailsFailed],
+                  ["No email found", bulkTaskSummary.noEmail],
+                  ["Duplicates skipped", bulkTaskSummary.skippedExisting],
+                  ["Failed items", bulkTaskSummary.failed],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-[24px] border border-white/80 bg-white/85 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{String(label)}</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-[var(--foreground)]">{Number(value)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {bulkTaskResults.length ? (
+              <div className="mt-4 overflow-hidden rounded-[24px] border border-white/80 bg-white/90">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-[var(--border)] text-left">
+                    <thead className="bg-[var(--card-muted)]/70">
+                      <tr>
+                        {["Staff", "Email", "Task Created", "Notification", "Email Status", "Error", "Action"].map((label) => (
+                          <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border)] bg-white">
+                      {bulkTaskResults.map((row) => (
+                        <tr key={`${row.staffId ?? row.profileId ?? row.email ?? row.staffName}-${row.feedbackId || "no-feedback"}`}>
+                          <td className="px-4 py-4 text-sm font-semibold text-[var(--foreground)]">{row.staffName}</td>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.email ?? "No email"}</td>
+                          <td className="px-4 py-4 text-sm"><StatusBadge value={row.taskCreated ? "created" : "existing"} /></td>
+                          <td className="px-4 py-4 text-sm"><StatusBadge value={row.notificationCreated ? "created" : row.notificationStatus} /></td>
+                          <td className="px-4 py-4 text-sm"><StatusBadge value={row.emailStatus} /></td>
+                          <td className="px-4 py-4 text-sm text-[var(--foreground)]">{row.errorMessage ?? "-"}</td>
+                          <td className="px-4 py-4 text-sm">
+                            {row.staffId ? (
+                              <button
+                                type="button"
+                                onClick={() => handleResendProfileCompletionEmail(String(row.staffId))}
+                                disabled={resendingStaffId === String(row.staffId)}
+                                className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)] disabled:opacity-60"
+                              >
+                                {resendingStaffId === String(row.staffId) ? "Resending..." : "Resend email notification"}
+                              </button>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
         {groupedByBranch.length ? (
