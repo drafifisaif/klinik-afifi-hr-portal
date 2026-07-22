@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowRight, LockKeyhole, Mail } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
@@ -137,6 +138,12 @@ export function LoginForm() {
                   required
                 />
               </label>
+
+              <div className="flex justify-end">
+                <Link href="/forgot-password" className="text-sm font-semibold text-[var(--accent)] hover:opacity-80">
+                  Forgot password?
+                </Link>
+              </div>
 
               <button
                 type="submit"

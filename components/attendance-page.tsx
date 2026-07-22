@@ -434,6 +434,15 @@ function getBranchCode(branchRows: BranchOption[], branchId: string) {
   return String(branchRows.find((branch) => branch.id === branchId)?.code ?? "");
 }
 
+function getBranchLocationDebug(branchRows: BranchOption[], branchId: unknown) {
+  return branchRows.find((branch) => branch.id === String(branchId ?? "")) ?? null;
+}
+
+function formatCoordinateValue(value: unknown) {
+  const number = typeof value === "number" ? value : Number(value ?? NaN);
+  return Number.isFinite(number) ? number.toFixed(6) : "-";
+}
+
 export function AttendancePage({
   attendanceRows,
   adjustmentRows,
@@ -506,6 +515,7 @@ export function AttendancePage({
   const canManageNetworkIps = role === "super_admin" || role === "hr";
   const canViewNetworkIps = canManageNetworkIps || role === "operation";
   const canViewAllBranches = role === "super_admin" || role === "hr" || role === "operation";
+  const canViewLocationDebug = role === "super_admin" || role === "hr" || role === "operation";
   const isHrAdmin = role === "hr" || role === "super_admin";
   const canUsePersonalPunch = Boolean(currentStaff?.id && profile?.id);
   const showPersonalAttendanceSection =
@@ -956,7 +966,7 @@ export function AttendancePage({
         },
         {
           enableHighAccuracy: true,
-          timeout: 10000,
+          timeout: 15000,
           maximumAge: 0,
         },
       );
@@ -1576,6 +1586,17 @@ export function AttendancePage({
           {filteredBoardRows.length ? (
             filteredBoardRows.map((row) => {
               const adminRecordId = String(row.record?.id ?? "").trim();
+              const branchDebug = getBranchLocationDebug(branchRows, row.rosterRow.branch_id ?? row.member?.branch_id);
+              const showLocationDebug =
+                canViewLocationDebug
+                && (
+                  row.checkInLocationStatus === "outside_location"
+                  || row.checkOutLocationStatus === "outside_location"
+                  || row.checkInLocationStatus === "permission_denied"
+                  || row.checkOutLocationStatus === "permission_denied"
+                  || row.checkInLocationStatus === "location_unavailable"
+                  || row.checkOutLocationStatus === "location_unavailable"
+                );
 
               return (
                 <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className={cn("rounded-[24px] border px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getBoardStatusTone(row.status))}>
@@ -1611,11 +1632,32 @@ export function AttendancePage({
                       <StatusBadge value={getLocationStatusLabel(row.checkOutLocationStatus)} />
                     </div>
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-[var(--muted-foreground)]">
-                    <p>Check in GPS: {row.checkInLatitude && row.checkInLongitude ? `${row.checkInLatitude}, ${row.checkInLongitude}` : "-"}</p>
-                    <p>Check out GPS: {row.checkOutLatitude && row.checkOutLongitude ? `${row.checkOutLatitude}, ${row.checkOutLongitude}` : "-"}</p>
-                    <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
-                  </div>
+                  {showLocationDebug ? (
+                    <div className="mt-4 rounded-3xl border border-slate-200 bg-white/85 px-4 py-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">HR location debug</p>
+                      <div className="mt-3 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                        <p><span className="font-semibold">Staff:</span> {String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
+                        <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
+                        <p><span className="font-semibold">Check in verification time:</span> {row.record?.check_in_at ? formatMalaysiaDateTime(row.record.check_in_at) : "-"}</p>
+                        <p><span className="font-semibold">Check out verification time:</span> {row.record?.check_out_at ? formatMalaysiaDateTime(row.record.check_out_at) : "-"}</p>
+                        <p><span className="font-semibold">Detected check in GPS:</span> {row.checkInLatitude && row.checkInLongitude ? `${formatCoordinateValue(row.checkInLatitude)}, ${formatCoordinateValue(row.checkInLongitude)}` : "-"}</p>
+                        <p><span className="font-semibold">Detected check out GPS:</span> {row.checkOutLatitude && row.checkOutLongitude ? `${formatCoordinateValue(row.checkOutLatitude)}, ${formatCoordinateValue(row.checkOutLongitude)}` : "-"}</p>
+                        <p><span className="font-semibold">Branch GPS:</span> {branchDebug ? `${formatCoordinateValue(branchDebug.latitude)}, ${formatCoordinateValue(branchDebug.longitude)}` : "-"}</p>
+                        <p><span className="font-semibold">Radius used:</span> {branchDebug ? `${Number(branchDebug.gps_radius_meters ?? 30) || 30}m` : "-"}</p>
+                        <p><span className="font-semibold">Calculated check in distance:</span> {row.checkInDistanceMeters > 0 ? `${Math.round(row.checkInDistanceMeters)}m` : "-"}</p>
+                        <p><span className="font-semibold">Calculated check out distance:</span> {row.checkOutDistanceMeters > 0 ? `${Math.round(row.checkOutDistanceMeters)}m` : "-"}</p>
+                        <p><span className="font-semibold">Browser accuracy:</span> Not stored in current attendance audit</p>
+                        <p><span className="font-semibold">Result status:</span> In: {getLocationStatusLabel(row.checkInLocationStatus)} · Out: {getLocationStatusLabel(row.checkOutLocationStatus)}</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {canViewLocationDebug ? (
+                    <div className="mt-2 space-y-1 text-xs text-[var(--muted-foreground)]">
+                      <p>Check in GPS: {row.checkInLatitude && row.checkInLongitude ? `${row.checkInLatitude}, ${row.checkInLongitude}` : "-"}</p>
+                      <p>Check out GPS: {row.checkOutLatitude && row.checkOutLongitude ? `${row.checkOutLatitude}, ${row.checkOutLongitude}` : "-"}</p>
+                      <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
+                    </div>
+                  ) : null}
 
                   {false ? (
                     <div className="mt-4 space-y-3 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-4 py-4">
@@ -1822,7 +1864,7 @@ export function AttendancePage({
 
               <div className="rounded-[24px] border border-[var(--border)] bg-white px-5 py-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
                 <h3 className="text-base font-semibold text-[var(--foreground)]">Branch GPS Settings</h3>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">GPS verification checks whether staff punch in/out within the branch radius.</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Review and update branch latitude, longitude, and attendance radius here. GPS verification checks whether staff punch in/out within that configured radius.</p>
                 <div className="mt-5 space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-2">
@@ -2204,11 +2246,6 @@ export function AttendancePage({
                         ? getLocationStatusMessage(todayAttendance?.check_in_location_status)
                         : "Location is captured only when you punch in or punch out."}
                   </p>
-                  {todayAttendance?.check_out_at && todayAttendance?.check_out_distance_meters !== null && todayAttendance?.check_out_distance_meters !== undefined ? (
-                    <p className="mt-2 text-sm text-[var(--muted-foreground)]">Distance from clinic: {Math.round(Number(todayAttendance.check_out_distance_meters))}m</p>
-                  ) : todayAttendance?.check_in_at && todayAttendance?.check_in_distance_meters !== null && todayAttendance?.check_in_distance_meters !== undefined ? (
-                    <p className="mt-2 text-sm text-[var(--muted-foreground)]">Distance from clinic: {Math.round(Number(todayAttendance.check_in_distance_meters))}m</p>
-                  ) : null}
                   {todayAttendance?.offsite_note ? (
                     <p className="mt-2 text-sm text-[var(--muted-foreground)]">Offsite note: {String(todayAttendance.offsite_note)}</p>
                   ) : null}
@@ -2485,6 +2522,17 @@ export function AttendancePage({
             {boardRows.length ? (
               boardRows.map((row) => {
                 const adminRecordId = String(row.record?.id ?? "").trim();
+                const branchDebug = getBranchLocationDebug(branchRows, row.rosterRow.branch_id ?? row.member?.branch_id);
+                const showLocationDebug =
+                  canViewLocationDebug
+                  && (
+                    row.checkInLocationStatus === "outside_location"
+                    || row.checkOutLocationStatus === "outside_location"
+                    || row.checkInLocationStatus === "permission_denied"
+                    || row.checkOutLocationStatus === "permission_denied"
+                    || row.checkInLocationStatus === "location_unavailable"
+                    || row.checkOutLocationStatus === "location_unavailable"
+                  );
 
                 return (
                   <article key={String(row.rosterRow.id ?? row.member?.id ?? row.record?.id)} className={cn("rounded-[24px] border px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]", getBoardStatusTone(row.status))}>
@@ -2520,11 +2568,32 @@ export function AttendancePage({
                       <StatusBadge value={getLocationStatusLabel(row.checkOutLocationStatus)} />
                     </div>
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-[var(--muted-foreground)]">
-                    <p>Check in GPS: {row.checkInLatitude && row.checkInLongitude ? `${row.checkInLatitude}, ${row.checkInLongitude}` : "-"}</p>
-                    <p>Check out GPS: {row.checkOutLatitude && row.checkOutLongitude ? `${row.checkOutLatitude}, ${row.checkOutLongitude}` : "-"}</p>
-                    <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
-                  </div>
+                  {showLocationDebug ? (
+                    <div className="mt-4 rounded-3xl border border-slate-200 bg-white/85 px-4 py-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">HR location debug</p>
+                      <div className="mt-3 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                        <p><span className="font-semibold">Staff:</span> {String(row.member?.full_name ?? row.rosterRow.staff_id ?? "Unknown User")}</p>
+                        <p><span className="font-semibold">Branch:</span> {getBranchName(row.rosterRow.branch_id ?? row.member?.branch_id)}</p>
+                        <p><span className="font-semibold">Check in verification time:</span> {row.record?.check_in_at ? formatMalaysiaDateTime(row.record.check_in_at) : "-"}</p>
+                        <p><span className="font-semibold">Check out verification time:</span> {row.record?.check_out_at ? formatMalaysiaDateTime(row.record.check_out_at) : "-"}</p>
+                        <p><span className="font-semibold">Detected check in GPS:</span> {row.checkInLatitude && row.checkInLongitude ? `${formatCoordinateValue(row.checkInLatitude)}, ${formatCoordinateValue(row.checkInLongitude)}` : "-"}</p>
+                        <p><span className="font-semibold">Detected check out GPS:</span> {row.checkOutLatitude && row.checkOutLongitude ? `${formatCoordinateValue(row.checkOutLatitude)}, ${formatCoordinateValue(row.checkOutLongitude)}` : "-"}</p>
+                        <p><span className="font-semibold">Branch GPS:</span> {branchDebug ? `${formatCoordinateValue(branchDebug.latitude)}, ${formatCoordinateValue(branchDebug.longitude)}` : "-"}</p>
+                        <p><span className="font-semibold">Radius used:</span> {branchDebug ? `${Number(branchDebug.gps_radius_meters ?? 30) || 30}m` : "-"}</p>
+                        <p><span className="font-semibold">Calculated check in distance:</span> {row.checkInDistanceMeters > 0 ? `${Math.round(row.checkInDistanceMeters)}m` : "-"}</p>
+                        <p><span className="font-semibold">Calculated check out distance:</span> {row.checkOutDistanceMeters > 0 ? `${Math.round(row.checkOutDistanceMeters)}m` : "-"}</p>
+                        <p><span className="font-semibold">Browser accuracy:</span> Not stored in current attendance audit</p>
+                        <p><span className="font-semibold">Result status:</span> In: {getLocationStatusLabel(row.checkInLocationStatus)} · Out: {getLocationStatusLabel(row.checkOutLocationStatus)}</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {canViewLocationDebug ? (
+                    <div className="mt-2 space-y-1 text-xs text-[var(--muted-foreground)]">
+                      <p>Check in GPS: {row.checkInLatitude && row.checkInLongitude ? `${row.checkInLatitude}, ${row.checkInLongitude}` : "-"}</p>
+                      <p>Check out GPS: {row.checkOutLatitude && row.checkOutLongitude ? `${row.checkOutLatitude}, ${row.checkOutLongitude}` : "-"}</p>
+                      <p>Legacy IP audit: {row.checkInIp || "-"} / {row.checkOutIp || "-"}</p>
+                    </div>
+                  ) : null}
 
                   {false ? (
                     <div className="mt-4 space-y-3 rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/65 px-4 py-4">
@@ -2711,7 +2780,7 @@ export function AttendancePage({
         {canViewBranchGps ? (
           <FormSection
             title="Branch GPS Settings"
-            description={canManageBranchGps ? "GPS verification checks whether staff punch in/out within the branch radius." : "Operation boleh melihat tetapan GPS cawangan secara read-only."}
+            description={canManageBranchGps ? "Review and update each branch latitude, longitude, and attendance radius here. GPS verification checks whether staff punch in/out within that configured radius." : "Operation boleh melihat tetapan GPS cawangan secara read-only."}
           >
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
