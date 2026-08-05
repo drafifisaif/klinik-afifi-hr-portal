@@ -290,14 +290,6 @@ function isLeaveForDate(row: TableRow, date: string) {
   return Boolean(start && end && start <= date && end >= date);
 }
 
-function buildHistoryDates(days = 14) {
-  return Array.from({ length: days }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() - index);
-    return toDateInput(date);
-  });
-}
-
 function getBoardStatusTone(status: string) {
   const normalized = normalizeString(status);
 
@@ -2450,6 +2442,7 @@ export function AttendancePage({
           </FormSection>
 
           {renderAttendanceBoard(true)}
+          {renderHrAttendanceReport()}
           {renderPendingCorrections()}
           {renderHrSettingsPanel()}
         </>
@@ -2745,6 +2738,7 @@ export function AttendancePage({
           )}
           {adjustmentMessage ? <p className="mt-4 rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{adjustmentMessage}</p> : null}
         </FormSection>
+        {canViewAttendanceReport ? renderHrAttendanceReport() : null}
         </div>
         ) : (
           <FormSection title="Attendance Management Overview" description="Pantau kehadiran staff, kelewatan, punch tidak lengkap, dan pembetulan attendance.">
@@ -2765,7 +2759,10 @@ export function AttendancePage({
           </FormSection>
         )}
 
-        {!showPersonalAttendanceSection ? <FormSection title="Attendance board" description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
+        {!showPersonalAttendanceSection ? (
+        <>
+        {canViewAttendanceReport ? renderHrAttendanceReport() : null}
+        <FormSection title="Attendance board" description="Review roster attendance by date, identify late or missing punches, and monitor correction requests.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</label>
@@ -2964,7 +2961,9 @@ export function AttendancePage({
               <EmptyState title="Roster belum diset" description="Tiada staff roster untuk tarikh dan cawangan yang dipilih." />
             )}
           </div>
-        </FormSection> : null}
+        </FormSection>
+        </>
+        ) : null}
 
       {!showPersonalAttendanceSection ? <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <FormSection title="Pending adjustment requests" description="Review correction requests for missed or incorrect punches.">
