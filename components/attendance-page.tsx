@@ -482,6 +482,9 @@ export function AttendancePage({
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportStatus, setReportStatus] = useState("all");
   const [reportLocationStatus, setReportLocationStatus] = useState("all");
+  const [showAttendanceDetails, setShowAttendanceDetails] = useState(false);
+  const [attendanceDetailsPage, setAttendanceDetailsPage] = useState(1);
+  const [attendanceDetailsPageSize, setAttendanceDetailsPageSize] = useState(25);
   const [message, setMessage] = useState<string | null>(null);
   const [adjustmentMessage, setAdjustmentMessage] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -763,6 +766,54 @@ export function AttendancePage({
     () => buildStaffAttendanceSummary(attendanceReportRows),
     [attendanceReportRows],
   );
+  const attendanceOverview = useMemo(() => {
+    return attendanceSummaryRows.reduce(
+      (totals, row) => ({
+        totalStaff: totals.totalStaff + 1,
+        presentDays: totals.presentDays + row.presentDays,
+        lateDays: totals.lateDays + row.lateDays,
+        absentDays: totals.absentDays + row.absentDays,
+        leaveDays: totals.leaveDays + row.leaveDays,
+        incompletePunchDays: totals.incompletePunchDays + row.incompletePunchDays,
+      }),
+      {
+        totalStaff: 0,
+        presentDays: 0,
+        lateDays: 0,
+        absentDays: 0,
+        leaveDays: 0,
+        incompletePunchDays: 0,
+      },
+    );
+  }, [attendanceSummaryRows]);
+  const attendanceDetailsTotalPages = Math.max(1, Math.ceil(attendanceReportRows.length / attendanceDetailsPageSize));
+  const paginatedAttendanceReportRows = useMemo(() => {
+    const start = (attendanceDetailsPage - 1) * attendanceDetailsPageSize;
+    return attendanceReportRows.slice(start, start + attendanceDetailsPageSize);
+  }, [attendanceDetailsPage, attendanceDetailsPageSize, attendanceReportRows]);
+  const attendanceDetailsStartRecord = attendanceReportRows.length
+    ? (attendanceDetailsPage - 1) * attendanceDetailsPageSize + 1
+    : 0;
+  const attendanceDetailsEndRecord = Math.min(attendanceDetailsPage * attendanceDetailsPageSize, attendanceReportRows.length);
+
+  useEffect(() => {
+    setAttendanceDetailsPage(1);
+  }, [
+    reportBranchId,
+    reportFromDate,
+    reportLocationStatus,
+    reportMonth,
+    reportStaffId,
+    reportStatus,
+    reportToDate,
+    reportYear,
+  ]);
+
+  useEffect(() => {
+    if (attendanceDetailsPage > attendanceDetailsTotalPages) {
+      setAttendanceDetailsPage(attendanceDetailsTotalPages);
+    }
+  }, [attendanceDetailsPage, attendanceDetailsTotalPages]);
 
   const boardBranchId =
     role === "staff" || role === "branch_pic"
@@ -1622,6 +1673,8 @@ export function AttendancePage({
     setReportStaffId("all");
     setReportStatus("all");
     setReportLocationStatus("all");
+    setShowAttendanceDetails(false);
+    setAttendanceDetailsPage(1);
   }
 
   function buildAttendanceReportExportUrl() {
@@ -1729,46 +1782,20 @@ export function AttendancePage({
           </div>
         </div>
 
-        <div className="mt-5 overflow-x-auto rounded-[24px] border border-[var(--border)] bg-white">
-          {attendanceReportRows.length ? (
-            <table className="min-w-[1200px] divide-y divide-[var(--border)] text-left text-sm">
-              <thead className="bg-[var(--card-muted)] text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                <tr>
-                  {["No.", "Staff Name", "Branch", "Date", "Day", "Scheduled Shift", "Scheduled Start", "Scheduled End", "Check In", "Check Out", "Attendance Status", "Location Status", "Late Minutes", "Scheduled Hours", "Worked Hours", "OT Hours", "Correction Status", "Remarks"].map((header) => (
-                    <th key={header} className="px-4 py-3 font-semibold">{header}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {attendanceReportRows.map((row, index) => (
-                  <tr key={`${row.staffId}-${row.date}-${index}`} className="align-top">
-                    <td className="px-4 py-3">{index + 1}</td>
-                    <td className="px-4 py-3 font-medium text-[var(--foreground)]">{row.staffName}</td>
-                    <td className="px-4 py-3">{row.branchName}</td>
-                    <td className="px-4 py-3">{formatDate(row.date)}</td>
-                    <td className="px-4 py-3">{row.day}</td>
-                    <td className="px-4 py-3">{row.scheduledShift}</td>
-                    <td className="px-4 py-3">{row.scheduledStart}</td>
-                    <td className="px-4 py-3">{row.scheduledEnd}</td>
-                    <td className="px-4 py-3">{row.checkIn}</td>
-                    <td className="px-4 py-3">{row.checkOut}</td>
-                    <td className="px-4 py-3"><StatusBadge value={row.attendanceStatus} /></td>
-                    <td className="px-4 py-3">{row.locationStatus}</td>
-                    <td className="px-4 py-3">{row.lateMinutes}</td>
-                    <td className="px-4 py-3">{formatReportHours(row.scheduledMinutes)}</td>
-                    <td className="px-4 py-3">{formatReportHours(row.workedMinutes)}</td>
-                    <td className="px-4 py-3">{formatReportHours(row.otMinutes)}</td>
-                    <td className="px-4 py-3">{row.correctionStatus}</td>
-                    <td className="px-4 py-3">{row.remarks || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="p-4">
-              <EmptyState title="Tiada rekod attendance dijumpai untuk tempoh yang dipilih." description="Try a different month, date range, branch, staff, or status filter." />
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {[
+            { label: "Total Staff", value: attendanceOverview.totalStaff, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+            { label: "Present Days", value: attendanceOverview.presentDays, tone: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+            { label: "Late Days", value: attendanceOverview.lateDays, tone: "border-orange-200 bg-orange-50 text-orange-700" },
+            { label: "Absent Days", value: attendanceOverview.absentDays, tone: "border-rose-200 bg-rose-50 text-rose-700" },
+            { label: "Leave Days", value: attendanceOverview.leaveDays, tone: "border-sky-200 bg-sky-50 text-sky-700" },
+            { label: "Incomplete Punch Days", value: attendanceOverview.incompletePunchDays, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+          ].map((card) => (
+            <div key={card.label} className={cn("rounded-[20px] border px-4 py-3", card.tone)}>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-75">{card.label}</p>
+              <p className="mt-2 text-2xl font-semibold">{card.value}</p>
             </div>
-          )}
+          ))}
         </div>
 
         {attendanceSummaryRows.length ? (
@@ -1807,6 +1834,115 @@ export function AttendancePage({
             <EmptyState title="Tiada summary untuk tempoh yang dipilih." description="Summary will appear when the filtered report has attendance records." />
           </div>
         )}
+
+        <div className="mt-6 rounded-[24px] border border-[var(--border)] bg-white shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+          <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-base font-semibold text-[var(--foreground)]">Attendance Details</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Detailed daily attendance records for the selected period.</p>
+              <p className="mt-1 text-xs font-medium text-[var(--muted-foreground)]">{attendanceReportRows.length} filtered records</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAttendanceDetails((current) => !current)}
+              aria-expanded={showAttendanceDetails}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)] transition hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+            >
+              {showAttendanceDetails ? "Hide Details" : "Show Details"}
+              {showAttendanceDetails ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </div>
+
+          {showAttendanceDetails ? (
+            attendanceReportRows.length ? (
+              <>
+                <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 text-sm text-[var(--muted-foreground)] sm:flex-row sm:items-center sm:justify-between">
+                  <p>
+                    Showing {attendanceDetailsStartRecord}-{attendanceDetailsEndRecord} of {attendanceReportRows.length} records
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]" htmlFor="attendance-details-page-size">
+                      Rows
+                    </label>
+                    <select
+                      id="attendance-details-page-size"
+                      value={attendanceDetailsPageSize}
+                      onChange={(event) => {
+                        setAttendanceDetailsPageSize(Number(event.target.value));
+                        setAttendanceDetailsPage(1);
+                      }}
+                      className="h-10 rounded-2xl border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--foreground)]"
+                    >
+                      {[25, 50, 100].map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-[1200px] divide-y divide-[var(--border)] text-left text-sm">
+                    <thead className="bg-[var(--card-muted)] text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                      <tr>
+                        {["No.", "Staff Name", "Branch", "Date", "Day", "Scheduled Shift", "Scheduled Start", "Scheduled End", "Check In", "Check Out", "Attendance Status", "Location Status", "Late Minutes", "Scheduled Hours", "Worked Hours", "OT Hours", "Correction Status", "Remarks"].map((header) => (
+                          <th key={header} className="px-4 py-3 font-semibold">{header}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {paginatedAttendanceReportRows.map((row, index) => (
+                        <tr key={`${row.staffId}-${row.date}-${attendanceDetailsStartRecord + index}`} className="align-top">
+                          <td className="px-4 py-3">{attendanceDetailsStartRecord + index}</td>
+                          <td className="px-4 py-3 font-medium text-[var(--foreground)]">{row.staffName}</td>
+                          <td className="px-4 py-3">{row.branchName}</td>
+                          <td className="px-4 py-3">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3">{row.day}</td>
+                          <td className="px-4 py-3">{row.scheduledShift}</td>
+                          <td className="px-4 py-3">{row.scheduledStart}</td>
+                          <td className="px-4 py-3">{row.scheduledEnd}</td>
+                          <td className="px-4 py-3">{row.checkIn}</td>
+                          <td className="px-4 py-3">{row.checkOut}</td>
+                          <td className="px-4 py-3"><StatusBadge value={row.attendanceStatus} /></td>
+                          <td className="px-4 py-3">{row.locationStatus}</td>
+                          <td className="px-4 py-3">{row.lateMinutes}</td>
+                          <td className="px-4 py-3">{formatReportHours(row.scheduledMinutes)}</td>
+                          <td className="px-4 py-3">{formatReportHours(row.workedMinutes)}</td>
+                          <td className="px-4 py-3">{formatReportHours(row.otMinutes)}</td>
+                          <td className="px-4 py-3">{row.correctionStatus}</td>
+                          <td className="px-4 py-3">{row.remarks || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-col gap-3 border-t border-[var(--border)] px-4 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <p className="font-medium text-[var(--muted-foreground)]">Page {attendanceDetailsPage} of {attendanceDetailsTotalPages}</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceDetailsPage((current) => Math.max(1, current - 1))}
+                      disabled={attendanceDetailsPage <= 1}
+                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceDetailsPage((current) => Math.min(attendanceDetailsTotalPages, current + 1))}
+                      disabled={attendanceDetailsPage >= attendanceDetailsTotalPages}
+                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-4">
+                <EmptyState title="Tiada rekod attendance dijumpai untuk tempoh yang dipilih." description="Try a different month, date range, branch, staff, or status filter." />
+              </div>
+            )
+          ) : null}
+        </div>
       </FormSection>
     );
   }
