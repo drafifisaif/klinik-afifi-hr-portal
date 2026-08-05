@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { buildAttendanceReportRows, formatReportHours, getMonthDateRange } from "@/lib/attendance-report";
+import { buildAttendanceReportRows, buildStaffAttendanceSummary, formatReportHours, getMonthDateRange } from "@/lib/attendance-report";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { BranchOption, TableRow } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { choosePreferredStaffRow } from "@/lib/data";
-import { createXlsxWorkbook } from "@/lib/xlsx";
+import { createXlsxWorkbookWithSheets } from "@/lib/xlsx";
 
-const HEADERS = [
+const DETAIL_HEADERS = [
   "No.",
   "Staff Name",
   "Branch",
@@ -27,6 +27,16 @@ const HEADERS = [
   "OT Hours",
   "Correction Status",
   "Remarks",
+];
+const SUMMARY_HEADERS = [
+  "No.",
+  "Staff Name",
+  "Branch",
+  "Present Days",
+  "Late Days",
+  "Absent Days",
+  "Leave Days",
+  "Incomplete Punch Days",
 ];
 
 function sanitizeFilter(value: string | null, fallback = "all") {
@@ -180,7 +190,28 @@ export async function GET(request: Request) {
     row.correctionStatus,
     row.remarks || "-",
   ]);
-  const workbook = createXlsxWorkbook(HEADERS, xlsxRows);
+  const summaryRows = buildStaffAttendanceSummary(rows).map((row, index) => [
+    index + 1,
+    row.staffName,
+    row.branchName,
+    row.presentDays,
+    row.lateDays,
+    row.absentDays,
+    row.leaveDays,
+    row.incompletePunchDays,
+  ]);
+  const workbook = createXlsxWorkbookWithSheets([
+    {
+      name: "Attendance Details",
+      headers: DETAIL_HEADERS,
+      rows: xlsxRows,
+    },
+    {
+      name: "Staff Summary",
+      headers: SUMMARY_HEADERS,
+      rows: summaryRows,
+    },
+  ]);
 
   return new Response(workbook, {
     headers: {

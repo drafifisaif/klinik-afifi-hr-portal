@@ -11,6 +11,7 @@ import { clickableMetricCardClassName } from "@/components/stat-card";
 import {
   buildAttendanceReportRows,
   buildDateRange,
+  buildStaffAttendanceSummary,
   formatDateDay,
   formatReportHours,
   getMonthDateRange,
@@ -758,6 +759,10 @@ export function AttendancePage({
     shiftTemplateRows,
     staffDirectory,
   ]);
+  const attendanceSummaryRows = useMemo(
+    () => buildStaffAttendanceSummary(attendanceReportRows),
+    [attendanceReportRows],
+  );
 
   const boardBranchId =
     role === "staff" || role === "branch_pic"
@@ -1765,6 +1770,43 @@ export function AttendancePage({
             </div>
           )}
         </div>
+
+        {attendanceSummaryRows.length ? (
+          <div className="mt-6 rounded-[24px] border border-[var(--border)] bg-white shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+            <div className="border-b border-[var(--border)] px-4 py-4">
+              <p className="text-base font-semibold text-[var(--foreground)]">Staff Attendance Summary</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Grouped by staff for the currently filtered report period.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-[760px] divide-y divide-[var(--border)] text-left text-sm">
+                <thead className="bg-[var(--card-muted)] text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                  <tr>
+                    {["Staff", "Branch", "Present", "Late", "Absent", "Leave", "Incomplete Punch"].map((header) => (
+                      <th key={header} className="px-4 py-3 font-semibold">{header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {attendanceSummaryRows.map((row) => (
+                    <tr key={row.staffId || `${row.staffName}-${row.branchName}`}>
+                      <td className="px-4 py-3 font-semibold text-[var(--foreground)]">{row.staffName}</td>
+                      <td className="px-4 py-3 text-[var(--muted-foreground)]">{row.branchName}</td>
+                      <td className="px-4 py-3"><span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{row.presentDays}</span></td>
+                      <td className="px-4 py-3"><span className="inline-flex rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700">{row.lateDays}</span></td>
+                      <td className="px-4 py-3"><span className="inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">{row.absentDays}</span></td>
+                      <td className="px-4 py-3"><span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">{row.leaveDays}</span></td>
+                      <td className="px-4 py-3"><span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{row.incompletePunchDays}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : attendanceReportRows.length ? null : (
+          <div className="mt-6">
+            <EmptyState title="Tiada summary untuk tempoh yang dipilih." description="Summary will appear when the filtered report has attendance records." />
+          </div>
+        )}
       </FormSection>
     );
   }

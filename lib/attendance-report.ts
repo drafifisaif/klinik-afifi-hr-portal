@@ -38,6 +38,17 @@ export interface AttendanceReportRow {
   remarks: string;
 }
 
+export interface StaffAttendanceSummaryRow {
+  staffId: string;
+  staffName: string;
+  branchName: string;
+  presentDays: number;
+  lateDays: number;
+  absentDays: number;
+  leaveDays: number;
+  incompletePunchDays: number;
+}
+
 function parseDateOnly(dateString: string) {
   const [year, month, day] = String(dateString).slice(0, 10).split("-").map(Number);
   return new Date(Date.UTC(year || 1970, Math.max((month || 1) - 1, 0), day || 1));
@@ -339,4 +350,42 @@ export function buildAttendanceReportRows({
 
 export function formatReportHours(minutes: number) {
   return formatMinutesAsHours(minutes);
+}
+
+export function buildStaffAttendanceSummary(rows: AttendanceReportRow[]) {
+  const summaryMap = new Map<string, StaffAttendanceSummaryRow>();
+
+  rows.forEach((row) => {
+    const key = row.staffId || `${row.staffName}:${row.branchName}`;
+    const current = summaryMap.get(key) ?? {
+      staffId: row.staffId,
+      staffName: row.staffName,
+      branchName: row.branchName,
+      presentDays: 0,
+      lateDays: 0,
+      absentDays: 0,
+      leaveDays: 0,
+      incompletePunchDays: 0,
+    };
+    const status = normalizeString(row.attendanceStatus);
+
+    if (status === "late" || row.lateMinutes > 0) {
+      current.lateDays += 1;
+    } else if (["present", "verified", "completed", "complete", "normal"].includes(status)) {
+      current.presentDays += 1;
+    } else if (status === "absent") {
+      current.absentDays += 1;
+    } else if (["on_leave", "leave", "annual_leave", "emergency_leave", "unpaid_leave", "mc", "medical_leave"].includes(status)) {
+      current.leaveDays += 1;
+    } else if (status === "incomplete" || status === "incomplete_punch") {
+      current.incompletePunchDays += 1;
+    }
+
+    summaryMap.set(key, current);
+  });
+
+  return Array.from(summaryMap.values()).sort((left, right) => {
+    const branchOrder = left.branchName.localeCompare(right.branchName);
+    return branchOrder || left.staffName.localeCompare(right.staffName);
+  });
 }
