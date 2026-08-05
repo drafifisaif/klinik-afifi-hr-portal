@@ -2,7 +2,6 @@ import type { BranchOption, TableRow } from "@/lib/types";
 import {
   calculateNetScheduledMinutesDetails,
   formatMalaysiaTime,
-  formatMinutesAsHours,
   normalizeString,
 } from "@/lib/utils";
 
@@ -33,7 +32,6 @@ export interface AttendanceReportRow {
   lateMinutes: number;
   scheduledMinutes: number;
   workedMinutes: number;
-  otMinutes: number;
   correctionStatus: string;
   remarks: string;
 }
@@ -47,6 +45,8 @@ export interface StaffAttendanceSummaryRow {
   absentDays: number;
   leaveDays: number;
   incompletePunchDays: number;
+  scheduledMinutes: number;
+  workedMinutes: number;
 }
 
 function parseDateOnly(dateString: string) {
@@ -295,8 +295,9 @@ export function buildAttendanceReportRows({
           : "on_leave"
         : computeAttendanceStatus(attendanceRow, graceMinutes);
       const correction = findCorrection(adjustmentRows, staffId, date, attendanceRow?.id);
-      const hasAttendance = Boolean(attendanceRow?.check_in_at || attendanceRow?.check_out_at);
-      const workedMinutes = hasAttendance ? scheduleDetails.netMinutes : 0;
+      const hasCompleteAttendance = Boolean(attendanceRow?.check_in_at && attendanceRow?.check_out_at);
+      const hasApprovedCorrection = normalizeString(correction?.status) === "approved";
+      const workedMinutes = hasCompleteAttendance || hasApprovedCorrection ? scheduleDetails.netMinutes : 0;
       const remarks = [
         attendanceRow?.offsite_note,
         attendanceRow?.check_in_note,
@@ -325,7 +326,6 @@ export function buildAttendanceReportRows({
         lateMinutes: Number(attendanceRow?.late_minutes ?? computeLateMinutes(attendanceRow?.check_in_at, scheduledStart, graceMinutes) ?? 0),
         scheduledMinutes: scheduleDetails.netMinutes,
         workedMinutes,
-        otMinutes: 0,
         correctionStatus: String(correction?.status ?? "-"),
         remarks,
       } satisfies AttendanceReportRow;
@@ -349,7 +349,13 @@ export function buildAttendanceReportRows({
 }
 
 export function formatReportHours(minutes: number) {
-  return formatMinutesAsHours(minutes);
+  const safeMinutes = Number.isFinite(minutes) ? Math.max(0, minutes) : 0;
+  if (safeMinutes === 0) {
+    return "0 h";
+  }
+
+  const hours = safeMinutes / 60;
+  return `${hours.toFixed(1)} h`;
 }
 
 export function buildStaffAttendanceSummary(rows: AttendanceReportRow[]) {
@@ -366,8 +372,13 @@ export function buildStaffAttendanceSummary(rows: AttendanceReportRow[]) {
       absentDays: 0,
       leaveDays: 0,
       incompletePunchDays: 0,
+      scheduledMinutes: 0,
+      workedMinutes: 0,
     };
     const status = normalizeString(row.attendanceStatus);
+
+    current.scheduledMinutes += row.scheduledMinutes;
+    current.workedMinutes += row.workedMinutes;
 
     if (status === "late" || row.lateMinutes > 0) {
       current.lateDays += 1;

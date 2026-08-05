@@ -24,7 +24,6 @@ const DETAIL_HEADERS = [
   "Late Minutes",
   "Scheduled Hours",
   "Worked Hours",
-  "OT Hours",
   "Correction Status",
   "Remarks",
 ];
@@ -37,6 +36,8 @@ const SUMMARY_HEADERS = [
   "Absent Days",
   "Leave Days",
   "Incomplete Punch Days",
+  "Scheduled Hours",
+  "Worked Hours",
 ];
 
 function sanitizeFilter(value: string | null, fallback = "all") {
@@ -186,7 +187,6 @@ export async function GET(request: Request) {
     row.lateMinutes,
     formatReportHours(row.scheduledMinutes),
     formatReportHours(row.workedMinutes),
-    formatReportHours(row.otMinutes),
     row.correctionStatus,
     row.remarks || "-",
   ]);
@@ -199,6 +199,8 @@ export async function GET(request: Request) {
     row.absentDays,
     row.leaveDays,
     row.incompletePunchDays,
+    formatReportHours(row.scheduledMinutes),
+    formatReportHours(row.workedMinutes),
   ]);
   const workbook = createXlsxWorkbookWithSheets([
     {

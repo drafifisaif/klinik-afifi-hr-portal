@@ -1805,10 +1805,10 @@ export function AttendancePage({
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">Grouped by staff for the currently filtered report period.</p>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-[760px] divide-y divide-[var(--border)] text-left text-sm">
+              <table className="min-w-[960px] divide-y divide-[var(--border)] text-left text-sm">
                 <thead className="bg-[var(--card-muted)] text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
                   <tr>
-                    {["Staff", "Branch", "Present", "Late", "Absent", "Leave", "Incomplete Punch"].map((header) => (
+                    {["Staff", "Branch", "Present", "Late", "Absent", "Leave", "Incomplete Punch", "Scheduled Hours", "Worked Hours"].map((header) => (
                       <th key={header} className="px-4 py-3 font-semibold">{header}</th>
                     ))}
                   </tr>
@@ -1823,6 +1823,8 @@ export function AttendancePage({
                       <td className="px-4 py-3"><span className="inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">{row.absentDays}</span></td>
                       <td className="px-4 py-3"><span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">{row.leaveDays}</span></td>
                       <td className="px-4 py-3"><span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{row.incompletePunchDays}</span></td>
+                      <td className="px-4 py-3 font-semibold text-[var(--foreground)]">{formatReportHours(row.scheduledMinutes)}</td>
+                      <td className="px-4 py-3 font-semibold text-[var(--foreground)]">{formatReportHours(row.workedMinutes)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1883,7 +1885,7 @@ export function AttendancePage({
                   <table className="min-w-[1200px] divide-y divide-[var(--border)] text-left text-sm">
                     <thead className="bg-[var(--card-muted)] text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
                       <tr>
-                        {["No.", "Staff Name", "Branch", "Date", "Day", "Scheduled Shift", "Scheduled Start", "Scheduled End", "Check In", "Check Out", "Attendance Status", "Location Status", "Late Minutes", "Scheduled Hours", "Worked Hours", "OT Hours", "Correction Status", "Remarks"].map((header) => (
+                        {["No.", "Staff Name", "Branch", "Date", "Day", "Scheduled Shift", "Scheduled Start", "Scheduled End", "Check In", "Check Out", "Attendance Status", "Location Status", "Late Minutes", "Scheduled Hours", "Worked Hours", "Correction Status", "Remarks"].map((header) => (
                           <th key={header} className="px-4 py-3 font-semibold">{header}</th>
                         ))}
                       </tr>
@@ -1906,7 +1908,6 @@ export function AttendancePage({
                           <td className="px-4 py-3">{row.lateMinutes}</td>
                           <td className="px-4 py-3">{formatReportHours(row.scheduledMinutes)}</td>
                           <td className="px-4 py-3">{formatReportHours(row.workedMinutes)}</td>
-                          <td className="px-4 py-3">{formatReportHours(row.otMinutes)}</td>
                           <td className="px-4 py-3">{row.correctionStatus}</td>
                           <td className="px-4 py-3">{row.remarks || "-"}</td>
                         </tr>
