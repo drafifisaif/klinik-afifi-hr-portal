@@ -493,6 +493,7 @@ export function AttendancePage({
   const [networkMessage, setNetworkMessage] = useState<string | null>(null);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [selectedSummaryFilter, setSelectedSummaryFilter] = useState<AttendanceSummaryFilter>("all");
+  const [showAttendanceBoardDetails, setShowAttendanceBoardDetails] = useState(false);
   const [isPunching, setIsPunching] = useState(false);
   const [isVerifyingPunchInLocation, setIsVerifyingPunchInLocation] = useState(false);
   const [punchInVerification, setPunchInVerification] = useState<PunchInVerificationState>(emptyPunchInVerificationState);
@@ -819,6 +820,10 @@ export function AttendancePage({
     role === "staff" || role === "branch_pic"
       ? operationalBranchId
       : selectedBranchId || "all";
+  const boardBranchLabel =
+    boardBranchId === "all"
+      ? "All visible branches"
+      : branchRows.find((branch) => branch.id === boardBranchId)?.name ?? "Selected branch";
 
   const visibleRosterRows = rosters.filter((row) => {
     const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
@@ -1011,6 +1016,7 @@ export function AttendancePage({
     }
 
     setSelectedSummaryFilter(filter);
+    setShowAttendanceBoardDetails(true);
   }
 
   function renderSummaryCard({
@@ -1995,6 +2001,26 @@ export function AttendancePage({
           </div>
         ) : null}
 
+        <div className="mt-5 flex flex-col gap-3 rounded-[24px] border border-[var(--border)] bg-white px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)] sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--foreground)]">
+              {boardBranchLabel} · {formatDate(selectedBoardDate)}
+            </p>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              {filteredBoardRows.length} of {boardRows.length} rostered staff · {boardCounts.late} late · {boardCounts.incomplete} incomplete · {boardCounts.absent} absent · {boardCounts.notPunchedIn} not punched in · {boardCounts.outsideLocation} outside location
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowAttendanceBoardDetails((current) => !current)}
+            aria-expanded={showAttendanceBoardDetails}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--foreground)] px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 transition hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/35 sm:w-auto"
+          >
+            {showAttendanceBoardDetails ? "Hide Board" : "Show Board"}
+            {showAttendanceBoardDetails ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+
         {!showInlineSummary && (role === "branch_pic" || role === "hr" || role === "super_admin" || role === "operation") ? (
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 px-4 py-4 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
@@ -2020,6 +2046,7 @@ export function AttendancePage({
           </div>
         ) : null}
 
+        {showAttendanceBoardDetails ? (
         <div className="mt-5 space-y-3">
           {filteredBoardRows.length ? (
             filteredBoardRows.map((row) => {
@@ -2168,6 +2195,7 @@ export function AttendancePage({
             />
           )}
         </div>
+        ) : null}
       </FormSection>
     );
   }
