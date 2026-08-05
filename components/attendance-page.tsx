@@ -8,6 +8,13 @@ import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { clickableMetricCardClassName } from "@/components/stat-card";
+import {
+  buildAttendanceReportRows,
+  buildDateRange,
+  formatDateDay,
+  formatReportHours,
+  getMonthDateRange,
+} from "@/lib/attendance-report";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import {
@@ -462,11 +469,26 @@ export function AttendancePage({
   const supabase = createClient();
   const pendingCorrectionsRef = useRef<HTMLDivElement | null>(null);
   const today = toDateInput();
+  const currentMalaysiaParts = getMalaysiaDateTimeParts();
+  const currentMonth = currentMalaysiaParts.month;
+  const currentYear = currentMalaysiaParts.year;
   const operationalBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
   const [selectedBoardDate, setSelectedBoardDate] = useState(today);
   const [selectedBranchId, setSelectedBranchId] = useState(
     role === "branch_pic" || role === "staff" ? operationalBranchId : String(profile?.branch_id ?? "all") || "all",
   );
+  const [historyMonth, setHistoryMonth] = useState(currentMonth);
+  const [historyYear, setHistoryYear] = useState(currentYear);
+  const [historyFromDate, setHistoryFromDate] = useState("");
+  const [historyToDate, setHistoryToDate] = useState("");
+  const [reportMonth, setReportMonth] = useState(currentMonth);
+  const [reportYear, setReportYear] = useState(currentYear);
+  const [reportFromDate, setReportFromDate] = useState("");
+  const [reportToDate, setReportToDate] = useState("");
+  const [reportBranchId, setReportBranchId] = useState(role === "branch_pic" ? operationalBranchId : "all");
+  const [reportStaffId, setReportStaffId] = useState("all");
+  const [reportStatus, setReportStatus] = useState("all");
+  const [reportLocationStatus, setReportLocationStatus] = useState("all");
   const [message, setMessage] = useState<string | null>(null);
   const [adjustmentMessage, setAdjustmentMessage] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -545,7 +567,20 @@ export function AttendancePage({
     return branchRows;
   }, [branchRows, operationalBranchId, role]);
 
-  const historyDates = useMemo(() => buildHistoryDates(14), []);
+  const personalHistoryRange = useMemo(() => {
+    if (historyFromDate && historyToDate) {
+      return {
+        startDate: historyFromDate,
+        endDate: historyToDate,
+      };
+    }
+
+    return getMonthDateRange(historyYear, historyMonth);
+  }, [historyFromDate, historyMonth, historyToDate, historyYear]);
+  const personalHistoryDates = useMemo(
+    () => buildDateRange(personalHistoryRange.startDate, personalHistoryRange.endDate, 370),
+    [personalHistoryRange.endDate, personalHistoryRange.startDate],
+  );
   const filteredNetworkRows = useMemo(() => {
     if (networkFilterBranchId === "all") {
       return clinicNetworkRows;
@@ -629,7 +664,7 @@ export function AttendancePage({
     return () => window.clearInterval(timer);
   }, [punchInVerification.expiresAt, punchInVerification.status, role]);
 
-  const personalHistory = historyDates
+  const personalHistory = personalHistoryDates
     .map((date) => {
       const attendanceRow = attendance.find(
         (row) =>
@@ -664,9 +699,73 @@ export function AttendancePage({
         correction,
         earlyLeaveMinutes: Number(attendanceRow?.early_leave_minutes ?? computeEarlyLeaveMinutes(attendanceRow?.check_out_at, attendanceRow?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end"), todayEarlyLeaveGraceMinutes)),
         scheduledNetMinutes: scheduleDetails.netMinutes,
+        workedMinutes: attendanceRow?.check_in_at ? scheduleDetails.netMinutes : 0,
       };
     })
     .filter((row) => row.attendanceRow || row.rosterRow || row.correction);
+
+  const reportRange = useMemo(() => {
+    if (reportFromDate && reportToDate) {
+      return {
+        startDate: reportFromDate,
+        endDate: reportToDate,
+      };
+    }
+
+    return getMonthDateRange(reportYear, reportMonth);
+  }, [reportFromDate, reportMonth, reportToDate, reportYear]);
+  const canViewAttendanceReport = role === "super_admin" || role === "hr" || role === "operation";
+  const reportStaffOptions = useMemo(() => {
+    return staffDirectory
+      .filter((row) => {
+        if (reportBranchId === "all") {
+          return true;
+        }
+
+        return String(row.branch_id ?? "") === reportBranchId;
+      })
+      .sort((left, right) => String(left.full_name ?? "").localeCompare(String(right.full_name ?? "")));
+  }, [reportBranchId, staffDirectory]);
+  const attendanceReportRows = useMemo(() => {
+    if (!canViewAttendanceReport) {
+      return [];
+    }
+
+    return buildAttendanceReportRows({
+      attendanceRows: attendance,
+      adjustmentRows: adjustments,
+      staffRows: staffDirectory,
+      branchRows,
+      rosterRows: rosters,
+      shiftTemplateRows,
+      leaveRows,
+      settingRows: settingsRows,
+      filters: {
+        fromDate: reportRange.startDate,
+        toDate: reportRange.endDate,
+        branchId: reportBranchId,
+        staffId: reportStaffId,
+        status: reportStatus,
+        locationStatus: reportLocationStatus,
+      },
+    });
+  }, [
+    adjustments,
+    attendance,
+    branchRows,
+    canViewAttendanceReport,
+    leaveRows,
+    reportBranchId,
+    reportLocationStatus,
+    reportRange.endDate,
+    reportRange.startDate,
+    reportStaffId,
+    reportStatus,
+    rosters,
+    settingsRows,
+    shiftTemplateRows,
+    staffDirectory,
+  ]);
 
   const boardBranchId =
     role === "staff" || role === "branch_pic"
@@ -1508,6 +1607,174 @@ export function AttendancePage({
 
     setSettingsMessage("Attendance settings saved.");
     router.refresh();
+  }
+
+  function resetPersonalHistoryFilters() {
+    setHistoryMonth(currentMonth);
+    setHistoryYear(currentYear);
+    setHistoryFromDate("");
+    setHistoryToDate("");
+  }
+
+  function resetReportFilters() {
+    setReportMonth(currentMonth);
+    setReportYear(currentYear);
+    setReportFromDate("");
+    setReportToDate("");
+    setReportBranchId(role === "branch_pic" ? operationalBranchId : "all");
+    setReportStaffId("all");
+    setReportStatus("all");
+    setReportLocationStatus("all");
+  }
+
+  function buildAttendanceReportExportUrl() {
+    const params = new URLSearchParams({
+      from: reportRange.startDate,
+      to: reportRange.endDate,
+      branch: reportBranchId,
+      staff: reportStaffId,
+      status: reportStatus,
+      location: reportLocationStatus,
+    });
+
+    return `/api/attendance/report/export?${params.toString()}`;
+  }
+
+  function renderHrAttendanceReport() {
+    if (!canViewAttendanceReport) {
+      return null;
+    }
+
+    return (
+      <FormSection
+        title="HR Attendance Report"
+        description="Review filtered staff attendance records for monthly performance review and export the current result to Excel."
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Month</span>
+            <select value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} className={inputClass}>
+              {Array.from({ length: 12 }, (_, index) => {
+                const value = String(index + 1).padStart(2, "0");
+                return <option key={value} value={value}>{new Intl.DateTimeFormat("en-MY", { month: "long" }).format(new Date(2026, index, 1))}</option>;
+              })}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Year</span>
+            <input value={reportYear} onChange={(event) => setReportYear(event.target.value)} className={inputClass} inputMode="numeric" />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">From date</span>
+            <input type="date" value={reportFromDate} onChange={(event) => setReportFromDate(event.target.value)} className={inputClass} />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">To date</span>
+            <input type="date" value={reportToDate} onChange={(event) => setReportToDate(event.target.value)} className={inputClass} />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Branch</span>
+            <select value={reportBranchId} onChange={(event) => { setReportBranchId(event.target.value); setReportStaffId("all"); }} className={inputClass}>
+              <option value="all">All visible branches</option>
+              {branchRows.map((branch) => (
+                <option key={branch.id} value={branch.id}>{branch.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Staff</span>
+            <select value={reportStaffId} onChange={(event) => setReportStaffId(event.target.value)} className={inputClass}>
+              <option value="all">All staff</option>
+              {reportStaffOptions.map((row) => (
+                <option key={String(row.id)} value={String(row.id)}>{String(row.full_name ?? row.email ?? row.id)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Attendance status</span>
+            <select value={reportStatus} onChange={(event) => setReportStatus(event.target.value)} className={inputClass}>
+              <option value="all">All statuses</option>
+              <option value="present">Present</option>
+              <option value="late">Late</option>
+              <option value="absent">Absent</option>
+              <option value="incomplete">Incomplete</option>
+              <option value="not_punched_in">Not punched in</option>
+              <option value="on_leave">On leave</option>
+              <option value="mc">MC</option>
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Location status</span>
+            <select value={reportLocationStatus} onChange={(event) => setReportLocationStatus(event.target.value)} className={inputClass}>
+              <option value="all">All location statuses</option>
+              <option value="verified_location">Verified Location</option>
+              <option value="outside_location">Outside Location</option>
+              <option value="permission_denied">Location Permission Denied</option>
+              <option value="location_unavailable">Location Unavailable</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-col gap-3 rounded-[24px] border border-[var(--border)] bg-[var(--card-muted)]/55 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--foreground)]">{attendanceReportRows.length} records found</p>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              Showing {reportRange.startDate} to {reportRange.endDate}. Custom date range overrides month/year filters.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={resetReportFilters} className="inline-flex h-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)]">
+              Reset
+            </button>
+            <a href={buildAttendanceReportExportUrl()} className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/10">
+              Download Excel
+            </a>
+          </div>
+        </div>
+
+        <div className="mt-5 overflow-x-auto rounded-[24px] border border-[var(--border)] bg-white">
+          {attendanceReportRows.length ? (
+            <table className="min-w-[1200px] divide-y divide-[var(--border)] text-left text-sm">
+              <thead className="bg-[var(--card-muted)] text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                <tr>
+                  {["No.", "Staff Name", "Branch", "Date", "Day", "Scheduled Shift", "Scheduled Start", "Scheduled End", "Check In", "Check Out", "Attendance Status", "Location Status", "Late Minutes", "Scheduled Hours", "Worked Hours", "OT Hours", "Correction Status", "Remarks"].map((header) => (
+                    <th key={header} className="px-4 py-3 font-semibold">{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {attendanceReportRows.map((row, index) => (
+                  <tr key={`${row.staffId}-${row.date}-${index}`} className="align-top">
+                    <td className="px-4 py-3">{index + 1}</td>
+                    <td className="px-4 py-3 font-medium text-[var(--foreground)]">{row.staffName}</td>
+                    <td className="px-4 py-3">{row.branchName}</td>
+                    <td className="px-4 py-3">{formatDate(row.date)}</td>
+                    <td className="px-4 py-3">{row.day}</td>
+                    <td className="px-4 py-3">{row.scheduledShift}</td>
+                    <td className="px-4 py-3">{row.scheduledStart}</td>
+                    <td className="px-4 py-3">{row.scheduledEnd}</td>
+                    <td className="px-4 py-3">{row.checkIn}</td>
+                    <td className="px-4 py-3">{row.checkOut}</td>
+                    <td className="px-4 py-3"><StatusBadge value={row.attendanceStatus} /></td>
+                    <td className="px-4 py-3">{row.locationStatus}</td>
+                    <td className="px-4 py-3">{row.lateMinutes}</td>
+                    <td className="px-4 py-3">{formatReportHours(row.scheduledMinutes)}</td>
+                    <td className="px-4 py-3">{formatReportHours(row.workedMinutes)}</td>
+                    <td className="px-4 py-3">{formatReportHours(row.otMinutes)}</td>
+                    <td className="px-4 py-3">{row.correctionStatus}</td>
+                    <td className="px-4 py-3">{row.remarks || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="p-4">
+              <EmptyState title="Tiada rekod attendance dijumpai untuk tempoh yang dipilih." description="Try a different month, date range, branch, staff, or status filter." />
+            </div>
+          )}
+        </div>
+      </FormSection>
+    );
   }
 
   function renderAttendanceBoard(showInlineSummary = false) {
@@ -2358,7 +2625,35 @@ export function AttendancePage({
 
       {showPersonalAttendanceSection ? (
         <div className="space-y-6">
-        <FormSection title="Attendance history" description="Your last 14 days of attendance, shift schedule, and any correction requests.">
+        <FormSection title="Attendance history" description="Review your own attendance records by month or custom date range.">
+          <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Month</span>
+              <select value={historyMonth} onChange={(event) => setHistoryMonth(event.target.value)} className={inputClass}>
+                {Array.from({ length: 12 }, (_, index) => {
+                  const value = String(index + 1).padStart(2, "0");
+                  return <option key={value} value={value}>{new Intl.DateTimeFormat("en-MY", { month: "long" }).format(new Date(2026, index, 1))}</option>;
+                })}
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Year</span>
+              <input value={historyYear} onChange={(event) => setHistoryYear(event.target.value)} className={inputClass} inputMode="numeric" />
+            </label>
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">From date</span>
+              <input type="date" value={historyFromDate} onChange={(event) => setHistoryFromDate(event.target.value)} className={inputClass} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">To date</span>
+              <input type="date" value={historyToDate} onChange={(event) => setHistoryToDate(event.target.value)} className={inputClass} />
+            </label>
+            <div className="flex items-end">
+              <button type="button" onClick={resetPersonalHistoryFilters} className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-[var(--border)] bg-white px-4 text-sm font-semibold text-[var(--foreground)]">
+                Reset filter
+              </button>
+            </div>
+          </div>
           {personalHistory.length ? (
             <div className="space-y-3">
               {personalHistory.map((entry) => {
@@ -2374,6 +2669,7 @@ export function AttendancePage({
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="text-base font-semibold text-[var(--foreground)]">{formatDate(entry.date)}</p>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">{formatDateDay(entry.date)}</p>
                         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                           {getShiftName(entry.rosterRow, entry.template)} · {formatShortTime(entry.attendanceRow?.scheduled_start ?? buildScheduledDateTime(entry.rosterRow, entry.template, "start"))} - {formatShortTime(entry.attendanceRow?.scheduled_end ?? buildScheduledDateTime(entry.rosterRow, entry.template, "end"))}
                         </p>
@@ -2386,11 +2682,16 @@ export function AttendancePage({
                       </div>
                     </div>
                     <div className="mt-4 grid gap-2 text-sm text-[var(--foreground)] md:grid-cols-2">
+                      <p><span className="font-semibold">Scheduled shift:</span> {getShiftName(entry.rosterRow, entry.template)}</p>
+                      <p><span className="font-semibold">Scheduled start/end:</span> {formatShortTime(entry.attendanceRow?.scheduled_start ?? buildScheduledDateTime(entry.rosterRow, entry.template, "start"))} - {formatShortTime(entry.attendanceRow?.scheduled_end ?? buildScheduledDateTime(entry.rosterRow, entry.template, "end"))}</p>
                       <p><span className="font-semibold">Check in:</span> {formatShortTime(entry.attendanceRow?.check_in_at)}</p>
                       <p><span className="font-semibold">Check out:</span> {formatShortTime(entry.attendanceRow?.check_out_at)}</p>
+                      <p><span className="font-semibold">Attendance status:</span> {String(status).replaceAll("_", " ")}</p>
+                      <p><span className="font-semibold">Location status:</span> {entry.attendanceRow ? `${getLocationStatusLabel(entry.attendanceRow.check_in_location_status)} / ${getLocationStatusLabel(entry.attendanceRow.check_out_location_status)}` : "-"}</p>
                       <p><span className="font-semibold">Late minutes:</span> {String(entry.attendanceRow?.late_minutes ?? computeLateMinutes(entry.attendanceRow?.check_in_at, entry.attendanceRow?.scheduled_start, graceMinutes))}</p>
                       <p><span className="font-semibold">Early leave:</span> {entry.earlyLeaveMinutes > 0 ? `${entry.earlyLeaveMinutes} min` : "-"}</p>
                       <p><span className="font-semibold">Scheduled hours:</span> {formatMinutesAsHours(entry.scheduledNetMinutes)}</p>
+                      <p><span className="font-semibold">Worked hours:</span> {formatMinutesAsHours(entry.workedMinutes)}</p>
                       <p><span className="font-semibold">Correction status:</span> {String(entry.correction?.status ?? "-")}</p>
                     </div>
                   </article>
@@ -2398,7 +2699,7 @@ export function AttendancePage({
               })}
             </div>
           ) : (
-            <EmptyState title="Belum ada rekod attendance" description="Attendance history will appear after your first punch in and punch out." />
+            <EmptyState title="Tiada rekod attendance untuk tempoh yang dipilih." description="Try another month or date range if you need to review older attendance." />
           )}
         </FormSection>
         <FormSection title="Request correction" description="Use this if you forgot to punch, punched the wrong time, or need HR/manager review.">
