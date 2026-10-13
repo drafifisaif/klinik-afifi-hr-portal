@@ -132,6 +132,30 @@ test("report filters preserve branch precedence, leave and correction semantics"
   assert.equal(buildAttendanceReportRows({ ...input, filters: { ...input.filters, branchScopeId: "other" } }).length, 0);
 });
 
+test("Malaysia shift labels and late minutes agree on UTC servers and Malaysia browsers", () => {
+  const originalTimezone = process.env.TZ;
+  const utils = load("lib/utils.ts");
+  const { buildAttendanceReportRows } = load("lib/attendance-report.ts");
+  try {
+    for (const timezone of ["UTC", "Asia/Kuala_Lumpur"]) {
+      process.env.TZ = timezone;
+      assert.equal(utils.formatMalaysiaTime("2026-10-14T15:00:00"), "03:00 pm");
+      assert.equal(utils.parseMalaysiaDateTime("2026-10-14T15:00:00").toISOString(), "2026-10-14T07:00:00.000Z");
+      assert.equal(utils.parseMalaysiaDateTime("2026-10-14T07:00:00Z").toISOString(), "2026-10-14T07:00:00.000Z");
+      assert.equal(utils.parseMalaysiaDateTime("08:00", new Date("2026-10-13T20:30:00Z")).toISOString(), "2026-10-14T00:00:00.000Z");
+      const rows = buildAttendanceReportRows({
+        attendanceRows: [{ staff_id: "s", attendance_date: "2026-10-14", scheduled_start: "08:00:00", check_in_at: "2026-10-14T08:30:00+08:00" }],
+        rosterRows: [], staffRows: [], branchRows: [], shiftTemplateRows: [], leaveRows: [], settingRows: [], adjustmentRows: [],
+        filters: { fromDate: "2026-10-14", toDate: "2026-10-14" },
+      });
+      assert.equal(rows[0].lateMinutes, 20);
+    }
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
+});
+
 function hookHarness() {
   const slots = [];
   let cursor = 0, dirty = false;
@@ -234,7 +258,7 @@ function elements(node, predicate) {
 
 test("Attendance absence totals advance with time without changing data or filters", () => {
   const harness = hookHarness();
-  let now = new Date("2026-10-14T08:30:00").getTime();
+  let now = new Date("2026-10-14T08:30:00+08:00").getTime();
   const day = load("lib/utils.ts").getMalaysiaDateString(new Date(now));
   const initialRangeData = { attendanceRows: [], adjustmentRows: [], leaveRows: [], error: null, rosterRows: [{ id: "r", staff_id: "s", branch_id: "b", roster_date: day, custom_start_time: "08:00", custom_end_time: "17:00" }] };
   const { AttendancePage } = loader({
@@ -251,7 +275,7 @@ test("Attendance absence totals advance with time without changing data or filte
     return elements(card, node => node.type === "p" && typeof node.props.children === "number")[0].props.children;
   };
   assert.equal(absentCount(render()), 0);
-  now = new Date("2026-10-14T09:01:00").getTime();
+  now = new Date("2026-10-14T09:01:00+08:00").getTime();
   assert.equal(absentCount(render()), 1);
   harness.dispose();
 });

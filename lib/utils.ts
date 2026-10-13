@@ -87,6 +87,19 @@ export function normalizeString(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+// Clinic wall-clock values are Malaysia time, including during UTC server renders.
+export function parseMalaysiaDateTime(value: unknown, referenceDate?: Date | null) {
+  if (!value) return null;
+  const text = String(value).trim();
+  const normalized = /^\d{2}:\d{2}(:\d{2})?$/.test(text)
+    ? `${getMalaysiaDateString(referenceDate ?? new Date())}T${text.length === 5 ? `${text}:00` : text}+08:00`
+    : /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)
+      ? `${text}+08:00`
+      : text;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export function formatDate(value: unknown) {
   if (!value) {
     return "-";
@@ -120,9 +133,9 @@ export function formatMalaysiaDateTime(value: unknown) {
     return "-";
   }
 
-  const date = new Date(String(value));
+  const date = parseMalaysiaDateTime(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (!date) {
     return String(value);
   }
 
@@ -139,8 +152,8 @@ export function formatMalaysiaTime(value: unknown) {
     return text.slice(0, 5);
   }
 
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) {
+  const date = parseMalaysiaDateTime(text);
+  if (!date) {
     return text;
   }
 

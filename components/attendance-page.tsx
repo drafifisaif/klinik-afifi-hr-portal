@@ -33,6 +33,7 @@ import {
   getMalaysiaDateTimeParts,
   mapRowsWithId,
   normalizeString,
+  parseMalaysiaDateTime,
 } from "@/lib/utils";
 
 interface AttendancePageProps {
@@ -142,7 +143,7 @@ function combineDateAndTime(date: string, timeValue?: string | null) {
     return null;
   }
 
-  return `${date}T${time}:00`;
+  return `${date}T${time}:00+08:00`;
 }
 
 function normalizeTimeForPostgres(value: unknown) {
@@ -218,20 +219,7 @@ function formatShortDateTime(value: unknown) {
 }
 
 function parseIso(value: unknown, referenceDate?: Date | null) {
-  if (!value) {
-    return null;
-  }
-
-  const text = String(value).trim();
-  if (/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
-    const [hours, minutes, seconds = "00"] = text.split(":");
-    const base = referenceDate ? new Date(referenceDate) : new Date();
-    base.setHours(Number(hours), Number(minutes), Number(seconds), 0);
-    return Number.isNaN(base.getTime()) ? null : base;
-  }
-
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? null : date;
+  return parseMalaysiaDateTime(value, referenceDate);
 }
 
 function buildScheduledDateTime(rosterRow: TableRow | null, shiftTemplate: TableRow | null, field: "start" | "end") {

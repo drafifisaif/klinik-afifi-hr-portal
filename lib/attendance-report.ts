@@ -3,6 +3,7 @@ import {
   calculateNetScheduledMinutesDetails,
   formatMalaysiaTime,
   normalizeString,
+  parseMalaysiaDateTime,
 } from "@/lib/utils";
 
 export interface AttendanceReportFilters {
@@ -96,24 +97,11 @@ function combineDateAndTime(date: string, timeValue?: unknown) {
     return null;
   }
 
-  return `${date}T${time}:00`;
+  return `${date}T${time}:00+08:00`;
 }
 
 function parseIso(value: unknown, referenceDate?: Date | null) {
-  if (!value) {
-    return null;
-  }
-
-  const text = String(value).trim();
-  if (/^\d{2}:\d{2}(:\d{2})?$/.test(text)) {
-    const [hours, minutes, seconds = "00"] = text.split(":");
-    const base = referenceDate ? new Date(referenceDate) : new Date();
-    base.setHours(Number(hours), Number(minutes), Number(seconds), 0);
-    return Number.isNaN(base.getTime()) ? null : base;
-  }
-
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? null : date;
+  return parseMalaysiaDateTime(value, referenceDate);
 }
 
 function computeLateMinutes(checkInAt: unknown, scheduledStart: unknown, graceMinutes: number) {
