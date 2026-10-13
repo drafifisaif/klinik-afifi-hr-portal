@@ -379,6 +379,42 @@ function buildAttendanceSnapshotRows({
   date: string;
   branchScope?: string;
 }) {
+  const staffById = new Map<string, TableRow>();
+  staffRows.forEach((row) => {
+    const id = String(row.id ?? "");
+    if (id && !staffById.has(id)) staffById.set(id, row);
+  });
+  const attendanceByStaffDate = new Map<string, TableRow>();
+  attendanceRows.forEach((row) => {
+    const staffId = String(row.staff_id ?? "");
+    const attendanceDate = String(row.attendance_date ?? row.created_at ?? "").slice(0, 10);
+    const key = `${staffId}:${attendanceDate}`;
+    if (staffId && attendanceDate && !attendanceByStaffDate.has(key)) attendanceByStaffDate.set(key, row);
+  });
+  const settingsByBranchId = new Map<string, TableRow>();
+  let defaultSetting: TableRow | null = null;
+  settingRows.forEach((row) => {
+    const branchId = String(row.branch_id ?? "");
+    if (!branchId.trim()) {
+      defaultSetting ??= row;
+    } else if (!settingsByBranchId.has(branchId)) {
+      settingsByBranchId.set(branchId, row);
+    }
+  });
+  const templatesById = new Map<string, TableRow>();
+  shiftTemplateRows.forEach((row) => {
+    const id = String(row.id ?? "");
+    if (id && !templatesById.has(id)) templatesById.set(id, row);
+  });
+  const branchesById = new Map(branches.map((branch) => [branch.id, branch]));
+  const approvedLeaveByStaffId = new Map<string, TableRow>();
+  leaveRows.forEach((row) => {
+    const staffId = String(row.staff_id ?? "");
+    if (staffId && !approvedLeaveByStaffId.has(staffId) && isApprovedLeaveForDate(row, date)) {
+      approvedLeaveByStaffId.set(staffId, row);
+    }
+  });
+
   return rosterRows
     .filter((row) => {
       const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
@@ -389,17 +425,12 @@ function buildAttendanceSnapshotRows({
       return branchScope === "all" ? true : String(row.branch_id ?? "") === branchScope;
     })
     .map<AttendanceSnapshotRow>((rosterRow) => {
-      const staffRow = staffRows.find((item) => String(item.id ?? "") === String(rosterRow.staff_id ?? ""));
-      const attendanceRow = attendanceRows.find(
-        (item) =>
-          String(item.staff_id ?? "") === String(rosterRow.staff_id ?? "") &&
-          String(item.attendance_date ?? item.created_at ?? "").slice(0, 10) === date,
-      ) ?? null;
+      const staffId = String(rosterRow.staff_id ?? "");
+      const staffRow = staffById.get(staffId) ?? null;
+      const attendanceRow = attendanceByStaffDate.get(`${staffId}:${date}`) ?? null;
       const branchId = String(rosterRow.branch_id ?? staffRow?.branch_id ?? "");
-      const branchName = getBranchName(branches, branchId);
-      const branchSetting = settingRows.find((item) => String(item.branch_id ?? "") === branchId)
-        ?? settingRows.find((item) => !String(item.branch_id ?? "").trim())
-        ?? null;
+      const branchName = branchesById.get(branchId)?.name ?? "Cawangan belum ditetapkan";
+      const branchSetting = settingsByBranchId.get(branchId) ?? defaultSetting;
       const graceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
       const autoAbsentAfterMinutes = Number(branchSetting?.auto_absent_after_minutes ?? 60) || 60;
       const scheduledStart = attendanceRow?.scheduled_start
@@ -407,9 +438,7 @@ function buildAttendanceSnapshotRows({
           String(rosterRow.roster_date ?? rosterRow.date ?? ""),
           String(rosterRow.custom_start_time ?? ""),
         );
-      const leaveRow = leaveRows.find(
-        (item) => String(item.staff_id ?? "") === String(rosterRow.staff_id ?? "") && isApprovedLeaveForDate(item, date),
-      ) ?? null;
+      const leaveRow = approvedLeaveByStaffId.get(staffId) ?? null;
       const lateMinutes = Number(attendanceRow?.late_minutes ?? computeAttendanceLateMinutes(attendanceRow?.check_in_at, scheduledStart, graceMinutes));
 
       let status = leaveRow
@@ -421,15 +450,19 @@ function buildAttendanceSnapshotRows({
       const scheduledStartDate = parseIso(scheduledStart);
       const malaysiaToday = getMalaysiaDateString();
       const isToday = date === malaysiaToday;
-      const now = new Date();
-
       if (!leaveRow && !attendanceRow && scheduledStartDate) {
         if (date < malaysiaToday) {
           status = "absent";
-        } else if (isToday && now.getTime() > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
+        } else if (isToday && Date.now() > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
           status = "absent";
         }
       }
+
+      const shiftTemplate = templatesById.get(String(rosterRow.shift_template_id ?? "")) ?? null;
+      const shiftName = String(shiftTemplate?.name ?? rosterRow.shift_template_id ?? "Shift belum diset");
+      const startTime = String(rosterRow.custom_start_time ?? shiftTemplate?.start_time ?? "").slice(0, 5);
+      const endTime = String(rosterRow.custom_end_time ?? shiftTemplate?.end_time ?? "").slice(0, 5);
+      const shiftTime = !startTime && !endTime ? "Masa belum diset" : `${startTime || "-"} - ${endTime || "-"}`;
 
       return {
         id: String(rosterRow.id ?? `${rosterRow.staff_id}-${date}`),
@@ -440,7 +473,7 @@ function buildAttendanceSnapshotRows({
         lateMinutes,
         checkInLocationStatus: String(attendanceRow?.check_in_location_status ?? "location_unavailable"),
         checkOutLocationStatus: String(attendanceRow?.check_out_location_status ?? "location_unavailable"),
-        shiftLabel: `${getShiftName(rosterRow, shiftTemplateRows)} · ${getTimeRange(rosterRow, shiftTemplateRows)}`,
+        shiftLabel: `${shiftName} · ${shiftTime}`,
         checkInAt: attendanceRow?.check_in_at ? String(attendanceRow.check_in_at) : null,
         checkOutAt: attendanceRow?.check_out_at ? String(attendanceRow.check_out_at) : null,
       };
@@ -1111,30 +1144,31 @@ function renderFeedbackItem(
   );
 }
 
-async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
+async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardContextLike, branchesPromise: Promise<BranchOption[]>) {
   const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const staffId = String(context.staff?.id ?? "");
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
   const today = getMalaysiaDateString();
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
+  const avatarUrlPromise = getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
 
-  const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, branchStaffRows, feedbackRows, staffDirectoryRows] = await Promise.all([
+  const [notifications, holidays, rosters, shiftTemplates, leaveRows, entitlementRows, feedbackRows, staffDirectoryRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
     queryRows(() => supabase.from("holidays").select("*").limit(120)),
     queryRows(() => supabase.from("rosters").select("*").eq("branch_id", branchId).gte("roster_date", today).lte("roster_date", getMalaysiaDateString(inSevenDays)).order("roster_date", { ascending: true }).limit(120)),
     queryRows(() => supabase.from("shift_templates").select("*").limit(120)),
     queryRows(() => supabase.from("leave_requests").select("*").eq("staff_id", staffId).limit(200)),
     queryRows(() => supabase.from("leave_entitlements").select("*").eq("staff_id", staffId).order("entitlement_year", { ascending: false }).limit(5)),
-    queryRows(() => supabase.from("staff").select("*").eq("branch_id", branchId).limit(200)),
     queryRows(() => supabase.from("feedbacks").select("*").eq("target_staff_id", staffId).in("status", ["new", "assigned", "in_progress", "need_more_info"]).order("created_at", { ascending: false }).limit(40)),
     queryRows(() => supabase.from("staff").select("*").limit(400)),
   ]);
   const feedbackForMe = dedupeRowsById(feedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
-  const profileRows = await queryProfilesByIds(
-    supabase,
-    feedbackForMe.map((row) => String(row.submitted_by ?? "")),
-  );
+  const [profileRows, branches, avatarUrl] = await Promise.all([
+    queryProfilesByIds(supabase, feedbackForMe.map((row) => String(row.submitted_by ?? ""))),
+    branchesPromise,
+    avatarUrlPromise,
+  ]);
 
   const nextShift = getNextPersonalShift(rosters.rows, staffId);
   const latestEntitlement = entitlementRows.rows[0] ?? null;
@@ -1142,7 +1176,6 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   const pendingLeaveApplications = leaveRows.rows
     .filter((row) => isPendingLeaveStatus(row))
     .sort((left, right) => String(right.updated_at ?? right.created_at ?? "").localeCompare(String(left.updated_at ?? left.created_at ?? "")));
-  const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
   const missingProfileFields = getMissingStaffEditableProfileFields(context.profile, context.staff);
   const nextApprovedAnnualLeave = [...leaveRows.rows]
     .filter((row) => normalizeString(row.status) === "approved" && normalizeString(row.leave_type) === "annual_leave" && String(row.start_date ?? "").slice(0, 10) >= today)
@@ -1150,7 +1183,7 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
 
   return (
     <div className="space-y-8">
-      <PartialDataNotice errors={[notifications.error, holidays.error, rosters.error, shiftTemplates.error, leaveRows.error, entitlementRows.error, branchStaffRows.error, feedbackRows.error, profileRows.error, staffDirectoryRows.error]} />
+      <PartialDataNotice errors={[notifications.error, holidays.error, rosters.error, shiftTemplates.error, leaveRows.error, entitlementRows.error, feedbackRows.error, profileRows.error, staffDirectoryRows.error]} />
       <HeroCard
         title={`${greetingByTime()}, ${String(context.staff?.full_name ?? context.profile?.full_name ?? "Warga Klinik Afifi")}`}
         branch={getBranchName(branches, branchId)}
@@ -1230,13 +1263,14 @@ async function loadStaffDashboard(supabase: SupabaseClient, context: DashboardCo
   );
 }
 
-async function loadBranchPicDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
+async function loadBranchPicDashboard(supabase: SupabaseClient, context: DashboardContextLike, branchesPromise: Promise<BranchOption[]>) {
   const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const staffId = String(context.staff?.id ?? "");
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
   const today = getMalaysiaDateString();
   const inSevenDays = new Date();
   inSevenDays.setDate(inSevenDays.getDate() + 7);
+  const avatarUrlPromise = getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
 
   const [notifications, holidays, personalLeaveRows, entitlementRows, ownRosterRows, branchRosterRows, branchLeaveRows, feedbackRows, branchStaffRows, shiftTemplates, staffDirectoryRows, attendanceRows, attendanceSettingsRows, branchLeaveScopeRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
@@ -1255,9 +1289,9 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("leave_requests").select("*").eq("branch_id", branchId).limit(200)),
   ]);
 
+  const [branches, avatarUrl] = await Promise.all([branchesPromise, avatarUrlPromise]);
   const leaveBalance = buildLeaveBalanceSummary(entitlementRows.rows[0] ?? null, personalLeaveRows.rows);
   const nextHoliday = getNextHoliday(holidays.rows, branchId);
-  const avatarUrl = await getSignedAvatarUrl(supabase, String(context.profile?.avatar_url ?? ""));
   const todayBranchRows = branchRosterRows.rows.filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === today);
   const attendanceSnapshotRows = buildAttendanceSnapshotRows({
     rosterRows: branchRosterRows.rows,
@@ -1270,8 +1304,15 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
     date: today,
     branchScope: branchId,
   });
-  const todayDoctors = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "doctor").length;
-  const todaySupport = todayBranchRows.filter((row) => inferRoleOnShift(row, branchStaffRows.rows.find((staff) => String(staff.id ?? "") === String(row.staff_id ?? ""))) === "staff").length;
+  const branchStaffById = new Map(branchStaffRows.rows.map((row) => [String(row.id ?? ""), row]));
+  const todayRoleCounts = todayBranchRows.reduce<{ doctors: number; support: number }>((counts, row) => {
+    const roleOnShift = inferRoleOnShift(row, branchStaffById.get(String(row.staff_id ?? "")));
+    if (roleOnShift === "doctor") counts.doctors += 1;
+    else counts.support += 1;
+    return counts;
+  }, { doctors: 0, support: 0 });
+  const todayDoctors = todayRoleCounts.doctors;
+  const todaySupport = todayRoleCounts.support;
   const incompleteProfiles = branchStaffRows.rows.filter(isStaffRecordIncomplete);
   const branchOperationalIssues = dedupeRowsById(feedbackRows.rows.filter((row) => isBranchOperationalIssue(row, branchId)));
   const feedbackForMe = dedupeRowsById(feedbackRows.rows.filter((row) => isFeedbackForCurrentStaff(row, staffId, profileId)));
@@ -1359,7 +1400,7 @@ async function loadBranchPicDashboard(supabase: SupabaseClient, context: Dashboa
 async function loadHrDashboard(
   supabase: SupabaseClient,
   context: DashboardContextLike,
-  branches: BranchOption[],
+  branchesPromise: Promise<BranchOption[]>,
   options?: {
     attendanceBranchId?: string;
     attendanceDate?: string;
@@ -1378,6 +1419,7 @@ async function loadHrDashboard(
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
     queryRows(() => supabase.from("attendance_adjustments").select("*").eq("status", "pending").limit(120)),
   ]);
+  const branches = await branchesPromise;
 
   const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus);
   const pendingMc = pendingLeave.filter((row) => normalizeString(row.leave_type) === "medical_leave" || Boolean(row.attachment_url));
@@ -1468,7 +1510,7 @@ function getSearchParamValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
-async function loadOperationDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
+async function loadOperationDashboard(supabase: SupabaseClient, context: DashboardContextLike, branchesPromise: Promise<BranchOption[]>) {
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
   const branchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
   const startOfWeek = getStartOfWeek().toISOString();
@@ -1482,6 +1524,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
     queryRows(() => supabase.from("staff").select("*").limit(300)),
     queryRows(() => supabase.from("leave_requests").select("*").limit(300)),
   ]);
+  const branches = await branchesPromise;
 
   const operationVisibleFeedback = getOperationVisibleFeedback(feedbackRows.rows, profileId);
   const assignedIssues = operationVisibleFeedback.filter(
@@ -1560,7 +1603,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
   );
 }
 
-async function loadSuperAdminDashboard(supabase: SupabaseClient, context: DashboardContextLike, branches: BranchOption[]) {
+async function loadSuperAdminDashboard(supabase: SupabaseClient, context: DashboardContextLike, branchesPromise: Promise<BranchOption[]>) {
   const profileId = String(context.profile?.id ?? context.user?.id ?? "");
   const [notifications, staffCount, branchCount, staffRows, leaveRows, feedbackRows, staffDocs, clinicDocs, holidays, attendanceRows, rosterRows, attendanceSettingsRows] = await Promise.all([
     queryRows(() => supabase.from("notifications").select("*").eq("recipient_profile_id", profileId).order("created_at", { ascending: false }).limit(20)),
@@ -1576,6 +1619,7 @@ async function loadSuperAdminDashboard(supabase: SupabaseClient, context: Dashbo
     queryRows(() => supabase.from("rosters").select("*").eq("roster_date", getMalaysiaDateString()).limit(400)),
     queryRows(() => supabase.from("attendance_settings").select("*").limit(120)),
   ]);
+  const branches = await branchesPromise;
 
   const pendingLeave = leaveRows.rows.filter(isPendingLeaveStatus).length;
   const openIssues = feedbackRows.rows.filter((row) => !["resolved", "closed"].includes(normalizeString(row.status))).length;
@@ -1706,24 +1750,24 @@ export default async function DashboardPage({
   }
 
   const resolvedSearchParams = (await searchParams) ?? {};
-  const branchRows = await queryRows(() => context.supabase!.from("branches").select("*").limit(100));
-  const branches = toBranchOptions(branchRows.rows);
+  const branchesPromise = queryRows(() => context.supabase!.from("branches").select("*").limit(100))
+    .then((branchRows) => toBranchOptions(branchRows.rows));
 
   let content: React.ReactNode;
 
   if (context.role === "staff") {
-    content = await loadStaffDashboard(context.supabase, context, branches);
+    content = await loadStaffDashboard(context.supabase, context, branchesPromise);
   } else if (context.role === "branch_pic") {
-    content = await loadBranchPicDashboard(context.supabase, context, branches);
+    content = await loadBranchPicDashboard(context.supabase, context, branchesPromise);
   } else if (context.role === "hr") {
-    content = await loadHrDashboard(context.supabase, context, branches, {
+    content = await loadHrDashboard(context.supabase, context, branchesPromise, {
       attendanceBranchId: getSearchParamValue(resolvedSearchParams.attendance_branch) ?? "all",
       attendanceDate: getSearchParamValue(resolvedSearchParams.attendance_date) ?? getMalaysiaDateString(),
     });
   } else if (context.role === "operation") {
-    content = await loadOperationDashboard(context.supabase, context, branches);
+    content = await loadOperationDashboard(context.supabase, context, branchesPromise);
   } else {
-    content = await loadSuperAdminDashboard(context.supabase, context, branches);
+    content = await loadSuperAdminDashboard(context.supabase, context, branchesPromise);
   }
 
   return <div className="space-y-6">{content}</div>;

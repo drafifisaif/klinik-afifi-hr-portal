@@ -548,6 +548,53 @@ export function AttendancePage({
   const staffDirectory = useMemo(() => mapRowsWithId(staffRows), [staffRows]);
   const settingsRows = useMemo(() => mapRowsWithId(settingRows), [settingRows]);
   const clinicNetworkRows = useMemo(() => mapRowsWithId(networkRows), [networkRows]);
+  const attendanceByStaffDate = useMemo(() => {
+    const rowsByKey = new Map<string, TableRow>();
+    attendance.forEach((row) => {
+      const key = `${String(row.staff_id ?? "")}:${String(row.attendance_date ?? row.created_at ?? "").slice(0, 10)}`;
+      if (!rowsByKey.has(key)) rowsByKey.set(key, row);
+    });
+    return rowsByKey;
+  }, [attendance]);
+  const rosterByStaffDate = useMemo(() => {
+    const rowsByKey = new Map<string, TableRow>();
+    rosters.forEach((row) => {
+      const key = `${String(row.staff_id ?? "")}:${String(row.roster_date ?? row.date ?? "").slice(0, 10)}`;
+      if (!rowsByKey.has(key)) rowsByKey.set(key, row);
+    });
+    return rowsByKey;
+  }, [rosters]);
+  const staffById = useMemo(() => new Map(staffDirectory.map((row) => [String(row.id ?? ""), row])), [staffDirectory]);
+  const shiftTemplateById = useMemo(() => new Map(shiftTemplateRows.map((row) => [String(row.id ?? ""), row])), [shiftTemplateRows]);
+  const branchById = useMemo(() => new Map(branchRows.map((row) => [row.id, row])), [branchRows]);
+  const settingByBranchId = useMemo(() => {
+    const rowsByBranch = new Map<string, TableRow>();
+    let fallback: TableRow | null = null;
+    settingsRows.forEach((row) => {
+      const branchId = String(row.branch_id ?? "");
+      if (!branchId.trim()) {
+        fallback ??= row;
+      } else if (!rowsByBranch.has(branchId)) {
+        rowsByBranch.set(branchId, row);
+      }
+    });
+    return { rowsByBranch, fallback };
+  }, [settingsRows]);
+  const correctionsByRecordId = useMemo(() => {
+    const rowsByRecord = new Map<string, { row: TableRow; index: number }>();
+    const rowsByStaffDate = new Map<string, { row: TableRow; index: number }>();
+    adjustments.forEach((row, index) => {
+      const recordId = String(row.attendance_record_id ?? "");
+      if (!rowsByRecord.has(recordId)) rowsByRecord.set(recordId, { row, index });
+      const staffId = String(row.staff_id ?? "");
+      const date = String(row.created_at ?? "").slice(0, 10);
+      const staffDateKey = `${staffId}:${date}`;
+      if (staffId && date && !rowsByStaffDate.has(staffDateKey)) {
+        rowsByStaffDate.set(staffDateKey, { row, index });
+      }
+    });
+    return { rowsByRecord, rowsByStaffDate };
+  }, [adjustments]);
   const filteredBranchLocationRows = useMemo(() => {
     if (locationFilterBranchId === "all") {
       return branchRows;
@@ -585,11 +632,7 @@ export function AttendancePage({
 
     return clinicNetworkRows.filter((row) => String(row.branch_id ?? "") === networkFilterBranchId);
   }, [clinicNetworkRows, networkFilterBranchId]);
-  const todayRoster = rosters.find(
-    (row) =>
-      String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
-      String(row.roster_date ?? row.date ?? "").slice(0, 10) === today,
-  ) ?? null;
+  const todayRoster = rosterByStaffDate.get(`${String(currentStaff?.id ?? "")}:${today}`) ?? null;
   const nextRoster = rosters
     .filter(
       (row) =>
@@ -598,18 +641,12 @@ export function AttendancePage({
     )
     .sort((left, right) => String(left.roster_date ?? left.date ?? "").localeCompare(String(right.roster_date ?? right.date ?? "")))[0] ?? null;
   const activeRoster = todayRoster ?? nextRoster;
-  const activeShiftTemplate = shiftTemplateRows.find((row) => String(row.id ?? "") === String(activeRoster?.shift_template_id ?? "")) ?? null;
-  const activeBranchName = branchRows.find((branch) => branch.id === operationalBranchId)?.name ?? "No branch";
+  const activeShiftTemplate = shiftTemplateById.get(String(activeRoster?.shift_template_id ?? "")) ?? null;
+  const activeBranchName = branchById.get(operationalBranchId)?.name ?? "No branch";
 
-  const scopedTodaySetting = settingsRows.find((row) => String(row.branch_id ?? "") === operationalBranchId)
-    ?? settingsRows.find((row) => !String(row.branch_id ?? "").trim())
-    ?? null;
+  const scopedTodaySetting = settingByBranchId.rowsByBranch.get(operationalBranchId) ?? settingByBranchId.fallback;
   const graceMinutes = Number(scopedTodaySetting?.grace_minutes ?? 10) || 10;
-  const todayAttendance = attendance.find(
-    (row) =>
-      String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
-      String(row.attendance_date ?? row.created_at ?? "").slice(0, 10) === today,
-  ) ?? null;
+  const todayAttendance = attendanceByStaffDate.get(`${String(currentStaff?.id ?? "")}:${today}`) ?? null;
 
   const todayScheduledStart = buildScheduledDateTime(todayRoster, activeShiftTemplate, "start");
   const todayScheduledEnd = buildScheduledDateTime(todayRoster, activeShiftTemplate, "end");
@@ -623,7 +660,7 @@ export function AttendancePage({
   const todayLateMinutes = Number(todayAttendance?.late_minutes ?? computeLateMinutes(todayAttendance?.check_in_at, todayAttendance?.scheduled_start ?? todayScheduledStart, graceMinutes));
   const todayEarlyLeaveGraceMinutes = Number(scopedTodaySetting?.early_leave_grace_minutes ?? 10) || 10;
   const todayEarlyLeaveMinutes = Number(todayAttendance?.early_leave_minutes ?? computeEarlyLeaveMinutes(todayAttendance?.check_out_at, todayAttendance?.scheduled_end ?? todayScheduledEnd, todayEarlyLeaveGraceMinutes));
-  const activeBranch = branchRows.find((branch) => branch.id === operationalBranchId) ?? null;
+  const activeBranch = branchById.get(operationalBranchId) ?? null;
   const punchInVerificationExpired =
     role === "staff"
       && punchInVerification.status === "verified_location"
@@ -663,26 +700,18 @@ export function AttendancePage({
 
   const personalHistory = useMemo(() => personalHistoryDates
     .map((date) => {
-      const attendanceRow = attendance.find(
-        (row) =>
-          String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
-          String(row.attendance_date ?? row.created_at ?? "").slice(0, 10) === date,
-      ) ?? null;
-      const rosterRow = rosters.find(
-        (row) =>
-          String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
-          String(row.roster_date ?? row.date ?? "").slice(0, 10) === date,
-      ) ?? null;
-      const template = shiftTemplateRows.find((row) => String(row.id ?? "") === String(rosterRow?.shift_template_id ?? "")) ?? null;
-      const correction = adjustments.find(
-        (row) =>
-          String(row.attendance_record_id ?? "") === String(attendanceRow?.id ?? "") ||
-          (String(row.staff_id ?? "") === String(currentStaff?.id ?? "") &&
-            String(row.created_at ?? "").slice(0, 10) === date),
-      ) ?? null;
+      const staffId = String(currentStaff?.id ?? "");
+      const attendanceRow = attendanceByStaffDate.get(`${staffId}:${date}`) ?? null;
+      const rosterRow = rosterByStaffDate.get(`${staffId}:${date}`) ?? null;
+      const template = shiftTemplateById.get(String(rosterRow?.shift_template_id ?? "")) ?? null;
+      const recordCorrection = correctionsByRecordId.rowsByRecord.get(String(attendanceRow?.id ?? ""));
+      const staffDateCorrection = correctionsByRecordId.rowsByStaffDate.get(`${staffId}:${date}`);
+      const correction = recordCorrection && staffDateCorrection
+        ? (recordCorrection.index < staffDateCorrection.index ? recordCorrection.row : staffDateCorrection.row)
+        : recordCorrection?.row ?? staffDateCorrection?.row ?? null;
 
       const scheduleDetails = calculateNetScheduledMinutesDetails({
-        branchCode: getBranchCode(branchRows, operationalBranchId),
+        branchCode: String(branchById.get(operationalBranchId)?.code ?? ""),
         rosterDate: date,
         startTime: rosterRow?.custom_start_time ?? template?.start_time ?? null,
         endTime: rosterRow?.custom_end_time ?? template?.end_time ?? null,
@@ -700,14 +729,14 @@ export function AttendancePage({
       };
     })
     .filter((row) => row.attendanceRow || row.rosterRow || row.correction), [
-      adjustments,
-      attendance,
-      branchRows,
+      attendanceByStaffDate,
+      branchById,
+      correctionsByRecordId,
       currentStaff?.id,
       operationalBranchId,
       personalHistoryDates,
-      rosters,
-      shiftTemplateRows,
+      rosterByStaffDate,
+      shiftTemplateById,
       todayEarlyLeaveGraceMinutes,
     ]);
 
@@ -833,7 +862,7 @@ export function AttendancePage({
   const boardBranchLabel =
     boardBranchId === "all"
       ? "All visible branches"
-      : branchRows.find((branch) => branch.id === boardBranchId)?.name ?? "Selected branch";
+      : branchById.get(boardBranchId)?.name ?? "Selected branch";
 
   const visibleRosterRows = useMemo(() => rosters.filter((row) => {
     const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
@@ -863,25 +892,31 @@ export function AttendancePage({
 
     return String(row.branch_id ?? "") === boardBranchId;
   }), [boardBranchId, currentStaff?.id, operationalBranchId, role, staffDirectory]);
+  const visibleBranchStaffById = useMemo(
+    () => new Map(visibleBranchStaff.map((row) => [String(row.id ?? ""), row])),
+    [visibleBranchStaff],
+  );
+  const boardLeaveByStaffId = useMemo(() => {
+    const rowsByStaff = new Map<string, TableRow>();
+    leaveRows.forEach((row) => {
+      const staffId = String(row.staff_id ?? "");
+      if (staffId && !rowsByStaff.has(staffId) && isLeaveForDate(row, selectedBoardDate)) {
+        rowsByStaff.set(staffId, row);
+      }
+    });
+    return rowsByStaff;
+  }, [leaveRows, selectedBoardDate]);
 
   const boardRows = useMemo(() => visibleRosterRows.map((rosterRow) => {
-    const member = visibleBranchStaff.find((row) => String(row.id ?? "") === String(rosterRow.staff_id ?? ""))
-      ?? staffDirectory.find((row) => String(row.id ?? "") === String(rosterRow.staff_id ?? ""));
-    const template = shiftTemplateRows.find((row) => String(row.id ?? "") === String(rosterRow.shift_template_id ?? "")) ?? null;
-    const record = attendance.find(
-      (row) =>
-        String(row.staff_id ?? "") === String(rosterRow.staff_id ?? "") &&
-        String(row.attendance_date ?? row.created_at ?? "").slice(0, 10) === selectedBoardDate,
-    ) ?? null;
+    const staffId = String(rosterRow.staff_id ?? "");
+    const member = visibleBranchStaffById.get(staffId) ?? staffById.get(staffId) ?? null;
+    const template = shiftTemplateById.get(String(rosterRow.shift_template_id ?? "")) ?? null;
+    const record = attendanceByStaffDate.get(`${staffId}:${selectedBoardDate}`) ?? null;
     const branchId = String(rosterRow.branch_id ?? member?.branch_id ?? "");
-    const branchSetting = settingsRows.find((row) => String(row.branch_id ?? "") === branchId)
-      ?? settingsRows.find((row) => !String(row.branch_id ?? "").trim())
-      ?? null;
+    const branchSetting = settingByBranchId.rowsByBranch.get(branchId) ?? settingByBranchId.fallback;
     const rowGraceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
     const rowEarlyLeaveGraceMinutes = Number(branchSetting?.early_leave_grace_minutes ?? 10) || 10;
-    const approvedLeave = leaveRows.find(
-      (row) => String(row.staff_id ?? "") === String(rosterRow.staff_id ?? "") && isLeaveForDate(row, selectedBoardDate),
-    ) ?? null;
+    const approvedLeave = boardLeaveByStaffId.get(staffId) ?? null;
     const leaveType = normalizeString(approvedLeave?.leave_type);
     const derivedStatus = approvedLeave
       ? leaveType === "medical_leave"
@@ -891,7 +926,7 @@ export function AttendancePage({
     const scheduledStart = record?.scheduled_start ?? buildScheduledDateTime(rosterRow, template, "start");
     const scheduledEnd = record?.scheduled_end ?? buildScheduledDateTime(rosterRow, template, "end");
     const scheduleDetails = calculateNetScheduledMinutesDetails({
-      branchCode: getBranchCode(branchRows, branchId),
+      branchCode: String(branchById.get(branchId)?.code ?? ""),
       rosterDate: selectedBoardDate,
       startTime: rosterRow?.custom_start_time ?? template?.start_time ?? null,
       endTime: rosterRow?.custom_end_time ?? template?.end_time ?? null,
@@ -937,7 +972,7 @@ export function AttendancePage({
       checkOutLatitude: record?.check_out_latitude ?? null,
       checkOutLongitude: record?.check_out_longitude ?? null,
     };
-  }), [attendance, branchRows, leaveRows, selectedBoardDate, settingsRows, shiftTemplateRows, staffDirectory, today, visibleBranchStaff, visibleRosterRows]);
+  }), [attendanceByStaffDate, boardLeaveByStaffId, branchById, selectedBoardDate, settingByBranchId, shiftTemplateById, staffById, today, visibleBranchStaffById, visibleRosterRows]);
 
   const pendingAdjustments = adjustments.filter((row) => {
     if (normalizeString(row.status) !== "pending") {

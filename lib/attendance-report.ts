@@ -158,14 +158,6 @@ function resolveShiftName(rosterRow: TableRow | null, template: TableRow | null)
   return String(template?.name ?? rosterRow?.shift_name ?? "Shift belum diset");
 }
 
-function resolveBranchCode(branches: BranchOption[], branchId: string) {
-  return String(branches.find((branch) => branch.id === branchId)?.code ?? "");
-}
-
-function resolveBranchName(branches: BranchOption[], branchId: string) {
-  return branches.find((branch) => branch.id === branchId)?.name ?? "No branch";
-}
-
 function summarizeLocation(record: TableRow | null) {
   const checkIn = normalizeString(record?.check_in_location_status);
   const checkOut = normalizeString(record?.check_out_location_status);
@@ -192,17 +184,6 @@ function summarizeLocation(record: TableRow | null) {
   }
 
   return statuses.join(" / ");
-}
-
-function findCorrection(adjustments: TableRow[], staffId: string, date: string, recordId?: unknown) {
-  return adjustments.find((row) => {
-    if (recordId && String(row.attendance_record_id ?? "") === String(recordId)) {
-      return true;
-    }
-
-    const requestedDate = String(row.requested_check_in_at ?? row.requested_check_out_at ?? row.created_at ?? "").slice(0, 10);
-    return String(row.staff_id ?? "") === staffId && requestedDate === date;
-  }) ?? null;
 }
 
 function rowMatchesStatus(rowStatus: string, filterStatus?: string) {
@@ -247,6 +228,63 @@ export function buildAttendanceReportRows({
   const fromDate = String(filters.fromDate ?? "").slice(0, 10);
   const toDate = String(filters.toDate ?? "").slice(0, 10);
   const rowsByKey = new Map<string, { rosterRow: TableRow | null; attendanceRow: TableRow | null; staffId: string; date: string }>();
+  const staffById = new Map<string, TableRow>();
+  const branchById = new Map<string, BranchOption>();
+  const templateById = new Map<string, TableRow>();
+  const settingByBranchId = new Map<string, TableRow>();
+  const leaveRowsByStaffId = new Map<string, TableRow[]>();
+  const correctionByRecordId = new Map<string, { row: TableRow; index: number }>();
+  const correctionByStaffDate = new Map<string, { row: TableRow; index: number }>();
+  let defaultSetting: TableRow | null = null;
+
+  staffRows.forEach((row) => {
+    const id = String(row.id ?? "");
+    if (id && !staffById.has(id)) staffById.set(id, row);
+  });
+  branchRows.forEach((row) => {
+    if (!branchById.has(row.id)) branchById.set(row.id, row);
+  });
+  shiftTemplateRows.forEach((row) => {
+    const id = String(row.id ?? "");
+    if (id && !templateById.has(id)) templateById.set(id, row);
+  });
+  settingRows.forEach((row) => {
+    const branchId = String(row.branch_id ?? "");
+    if (!branchId.trim()) {
+      defaultSetting ??= row;
+    } else if (!settingByBranchId.has(branchId)) {
+      settingByBranchId.set(branchId, row);
+    }
+  });
+  leaveRows.forEach((row) => {
+    const staffId = String(row.staff_id ?? "");
+    if (!staffId) return;
+    const rows = leaveRowsByStaffId.get(staffId) ?? [];
+    rows.push(row);
+    leaveRowsByStaffId.set(staffId, rows);
+  });
+  adjustmentRows.forEach((row, index) => {
+    const recordId = String(row.attendance_record_id ?? "");
+    if (recordId && !correctionByRecordId.has(recordId)) {
+      correctionByRecordId.set(recordId, { row, index });
+    }
+
+    const requestedDate = String(row.requested_check_in_at ?? row.requested_check_out_at ?? row.created_at ?? "").slice(0, 10);
+    const staffId = String(row.staff_id ?? "");
+    const staffDateKey = `${staffId}:${requestedDate}`;
+    if (staffId && requestedDate && !correctionByStaffDate.has(staffDateKey)) {
+      correctionByStaffDate.set(staffDateKey, { row, index });
+    }
+  });
+
+  function findCorrection(staffId: string, date: string, recordId?: unknown) {
+    const recordMatch = recordId ? correctionByRecordId.get(String(recordId)) : undefined;
+    const staffDateMatch = correctionByStaffDate.get(`${staffId}:${date}`);
+    if (recordMatch && staffDateMatch) {
+      return recordMatch.index < staffDateMatch.index ? recordMatch.row : staffDateMatch.row;
+    }
+    return recordMatch?.row ?? staffDateMatch?.row ?? null;
+  }
 
   rosterRows.forEach((rosterRow) => {
     const date = String(rosterRow.roster_date ?? rosterRow.date ?? "").slice(0, 10);
@@ -272,19 +310,17 @@ export function buildAttendanceReportRows({
 
   return Array.from(rowsByKey.values())
     .map(({ rosterRow, attendanceRow, staffId, date }) => {
-      const staff = staffRows.find((row) => String(row.id ?? "") === staffId) ?? null;
+      const staff = staffById.get(staffId) ?? null;
       const branchId = String(rosterRow?.branch_id ?? attendanceRow?.branch_id ?? staff?.branch_id ?? "");
-      const branchSetting = settingRows.find((row) => String(row.branch_id ?? "") === branchId)
-        ?? settingRows.find((row) => !String(row.branch_id ?? "").trim())
-        ?? null;
+      const branchSetting = settingByBranchId.get(branchId) ?? defaultSetting;
       const graceMinutes = Number(branchSetting?.grace_minutes ?? 10) || 10;
-      const template = shiftTemplateRows.find((row) => String(row.id ?? "") === String(rosterRow?.shift_template_id ?? "")) ?? null;
-      const approvedLeave = leaveRows.find((row) => String(row.staff_id ?? "") === staffId && isLeaveForDate(row, date)) ?? null;
+      const template = templateById.get(String(rosterRow?.shift_template_id ?? "")) ?? null;
+      const approvedLeave = (leaveRowsByStaffId.get(staffId) ?? []).find((row) => isLeaveForDate(row, date)) ?? null;
       const leaveType = normalizeString(approvedLeave?.leave_type);
       const scheduledStart = attendanceRow?.scheduled_start ?? combineDateAndTime(date, rosterRow?.custom_start_time ?? template?.start_time);
       const scheduledEnd = attendanceRow?.scheduled_end ?? combineDateAndTime(date, rosterRow?.custom_end_time ?? template?.end_time);
       const scheduleDetails = calculateNetScheduledMinutesDetails({
-        branchCode: resolveBranchCode(branchRows, branchId),
+        branchCode: String(branchById.get(branchId)?.code ?? ""),
         rosterDate: date,
         startTime: rosterRow?.custom_start_time ?? template?.start_time ?? null,
         endTime: rosterRow?.custom_end_time ?? template?.end_time ?? null,
@@ -294,7 +330,7 @@ export function buildAttendanceReportRows({
           ? "mc"
           : "on_leave"
         : computeAttendanceStatus(attendanceRow, graceMinutes);
-      const correction = findCorrection(adjustmentRows, staffId, date, attendanceRow?.id);
+      const correction = findCorrection(staffId, date, attendanceRow?.id);
       const hasCompleteAttendance = Boolean(attendanceRow?.check_in_at && attendanceRow?.check_out_at);
       const hasApprovedCorrection = normalizeString(correction?.status) === "approved";
       const workedMinutes = hasCompleteAttendance || hasApprovedCorrection ? scheduleDetails.netMinutes : 0;
@@ -313,7 +349,7 @@ export function buildAttendanceReportRows({
         staffId,
         staffName: String(staff?.full_name ?? staff?.email ?? staffId),
         branchId,
-        branchName: resolveBranchName(branchRows, branchId),
+        branchName: branchById.get(branchId)?.name ?? "No branch",
         date,
         day: formatDateDay(date),
         scheduledShift: resolveShiftName(rosterRow, template),

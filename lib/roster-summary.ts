@@ -182,6 +182,7 @@ export function buildRosterWeeklySummaries({
   today?: string;
 }) {
   const branchNameMap = new Map(branches.map((branch) => [branch.id, branch.name]));
+  const branchCodeMap = new Map(branches.map((branch) => [branch.id, branch.code ?? ""]));
   const staffMap = new Map(staffRows.map((row) => [String(row.id ?? ""), row]));
   const profileMap = new Map(profileRows.map((row) => [String(row.id ?? ""), row]));
 
@@ -217,7 +218,7 @@ export function buildRosterWeeklySummaries({
     const attendanceRow = attendanceMap.get(`${staffId}:${rosterDate}`) ?? null;
     const startTime = rosterRow.custom_start_time ?? rosterRow.start_time ?? null;
     const endTime = rosterRow.custom_end_time ?? rosterRow.end_time ?? null;
-    const branchCode = String(branches.find((branch) => branch.id === branchId)?.code ?? "");
+    const branchCode = String(branchCodeMap.get(branchId) ?? "");
     const scheduleDetails = calculateNetScheduledMinutesDetails({
       branchCode,
       rosterDate,

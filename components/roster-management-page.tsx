@@ -93,9 +93,9 @@ function formatTimeRange(start: unknown, end: unknown) {
   return `${startValue || "-"} - ${endValue || "-"}`;
 }
 
-function compareRosterRows(left: TableRow, right: TableRow, staffRows: TableRow[]) {
-  const leftStaff = staffRows.find((item) => String(item.id ?? "") === String(left.staff_id ?? ""));
-  const rightStaff = staffRows.find((item) => String(item.id ?? "") === String(right.staff_id ?? ""));
+function compareRosterRows(left: TableRow, right: TableRow, staffById: Map<string, TableRow>) {
+  const leftStaff = staffById.get(String(left.staff_id ?? ""));
+  const rightStaff = staffById.get(String(right.staff_id ?? ""));
   const leftRoleWeight = inferRoleOnShift(left, leftStaff) === "doctor" ? 0 : 1;
   const rightRoleWeight = inferRoleOnShift(right, rightStaff) === "doctor" ? 0 : 1;
 
@@ -252,6 +252,9 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   });
 
   const rosterRows = useMemo(() => mapRowsWithId(rosters), [rosters]);
+  const staffById = useMemo(() => new Map(staff.map((row) => [String(row.id ?? ""), row])), [staff]);
+  const shiftTemplateById = useMemo(() => new Map(shiftTemplates.map((row) => [String(row.id ?? ""), row])), [shiftTemplates]);
+  const branchById = useMemo(() => new Map(branches.map((row) => [row.id, row])), [branches]);
   const scopedRosterRows = useMemo(() => {
     const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
     if (role === "staff" || role === "branch_pic") {
@@ -309,15 +312,19 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   }, [builderBranchId, scopedRosterRows, selectedDate]);
 
   const duplicateStaffIds = useMemo(() => {
-    const ids = [...doctorRows, ...staffRows].map((row) => row.staff_id).filter(Boolean);
-    return [...new Set(ids.filter((staffId, index) => ids.indexOf(staffId) !== index))];
+    const counts = new Map<string, number>();
+    [...doctorRows, ...staffRows].forEach((row) => {
+      if (row.staff_id) counts.set(row.staff_id, (counts.get(row.staff_id) ?? 0) + 1);
+    });
+    return [...counts].filter(([, count]) => count > 1).map(([staffId]) => staffId);
   }, [doctorRows, staffRows]);
 
   const viewerDates = useMemo(() => enumerateDates(viewerRange.start, viewerRange.end), [viewerRange.end, viewerRange.start]);
+  const viewerDateSet = useMemo(() => new Set(viewerDates), [viewerDates]);
   const visibleViewerRows = useMemo(() => {
     return scopedRosterRows.filter((row) => {
       const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
-      if (!viewerDates.includes(rosterDate)) {
+      if (!viewerDateSet.has(rosterDate)) {
         return false;
       }
 
@@ -327,20 +334,31 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
       return String(row.branch_id ?? "") === viewerBranchId;
     });
-  }, [scopedRosterRows, viewerBranchId, viewerDates]);
+  }, [scopedRosterRows, viewerBranchId, viewerDateSet]);
+  const viewerRowsByDate = useMemo(() => {
+    const rowsByDate = new Map<string, TableRow[]>();
+    visibleViewerRows.forEach((row) => {
+      const date = String(row.roster_date ?? row.date ?? "").slice(0, 10);
+      const rows = rowsByDate.get(date) ?? [];
+      rows.push(row);
+      rowsByDate.set(date, rows);
+    });
+    return rowsByDate;
+  }, [visibleViewerRows]);
 
   const viewerGroups = useMemo(() => {
     return viewerDates.map((date) => {
-      const dateRows = visibleViewerRows
-        .filter((row) => String(row.roster_date ?? row.date ?? "").slice(0, 10) === date)
-        .sort((left, right) => compareRosterRows(left, right, staff));
-      const doctors = dateRows.filter((row) => {
-        const staffRow = staff.find((member) => String(member.id ?? "") === String(row.staff_id ?? ""));
-        return inferRoleOnShift(row, staffRow) === "doctor";
-      });
-      const support = dateRows.filter((row) => {
-        const staffRow = staff.find((member) => String(member.id ?? "") === String(row.staff_id ?? ""));
-        return inferRoleOnShift(row, staffRow) === "staff";
+      const dateRows = [...(viewerRowsByDate.get(date) ?? [])]
+        .sort((left, right) => compareRosterRows(left, right, staffById));
+      const doctors: TableRow[] = [];
+      const support: TableRow[] = [];
+      const myShiftRows: TableRow[] = [];
+      dateRows.forEach((row) => {
+        const staffRow = staffById.get(String(row.staff_id ?? ""));
+        (inferRoleOnShift(row, staffRow) === "doctor" ? doctors : support).push(row);
+        if (currentStaff && String(row.staff_id ?? "") === String(currentStaff.id ?? "")) {
+          myShiftRows.push(row);
+        }
       });
 
       return {
@@ -348,10 +366,10 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
         doctors,
         support,
         teamRows: dateRows,
-        myShiftRows: currentStaff ? dateRows.filter((row) => String(row.staff_id ?? "") === String(currentStaff.id ?? "")) : [],
+        myShiftRows,
       };
     });
-  }, [currentStaff, staff, viewerDates, visibleViewerRows]);
+  }, [currentStaff, staffById, viewerDates, viewerRowsByDate]);
 
   useEffect(() => {
     const scopedBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
@@ -374,11 +392,9 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     const nextStaffRows: DraftRow[] = [];
 
     existingDailyRows.forEach((row) => {
-      const staffRow = staff.find((member) => String(member.id ?? "") === String(row.staff_id ?? ""));
+      const staffRow = staffById.get(String(row.staff_id ?? ""));
       const roleOnShift = inferRoleOnShift(row, staffRow);
-      const template = availableShiftTemplates.find(
-        (item) => String(item.id ?? "") === String(row.shift_template_id ?? ""),
-      ) ?? shiftTemplates.find((item) => String(item.id ?? "") === String(row.shift_template_id ?? ""));
+      const template = shiftTemplateById.get(String(row.shift_template_id ?? ""));
       const draft: DraftRow = {
         localId: `existing-${String(row.id ?? Math.random())}`,
         id: String(row.id ?? ""),
@@ -402,7 +418,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     setIsPublished(existingDailyRows.some((row) => row.is_published === true) ? "true" : "false");
     setMessage(null);
     setWarning(null);
-  }, [availableShiftTemplates, existingDailyRows, staff, shiftTemplates]);
+  }, [existingDailyRows, staffById, shiftTemplateById]);
 
   useEffect(() => {
     if (duplicateStaffIds.length) {
@@ -447,9 +463,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
         const nextRow = { ...row, ...updates };
         if (updates.shift_template_id) {
-          const template = availableShiftTemplates.find(
-            (item) => String(item.id ?? "") === String(updates.shift_template_id),
-          ) ?? shiftTemplates.find((item) => String(item.id ?? "") === String(updates.shift_template_id));
+          const template = shiftTemplateById.get(String(updates.shift_template_id));
           nextRow.custom_start_time = String(template?.start_time ?? "").slice(0, 5);
           nextRow.custom_end_time = String(template?.end_time ?? "").slice(0, 5);
         }
@@ -492,10 +506,10 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     setMessage(null);
 
     const existingById = new Map(existingDailyRows.map((row) => [String(row.id ?? ""), row]));
-    const submittedExistingIds = submittedRows.map((row) => row.id).filter(Boolean) as string[];
+    const submittedExistingIds = new Set(submittedRows.map((row) => row.id).filter(Boolean) as string[]);
     const idsToDelete = existingDailyRows
       .map((row) => String(row.id ?? ""))
-      .filter((id) => id && !submittedExistingIds.includes(id));
+      .filter((id) => id && !submittedExistingIds.has(id));
 
     if (idsToDelete.length) {
       const { error: deleteError } = await supabase.from("rosters").delete().in("id", idsToDelete);
@@ -630,9 +644,9 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     return (
       <div className="space-y-3">
         {rows.map((row) => {
-          const member = staff.find((item) => String(item.id ?? "") === String(row.staff_id ?? ""));
-          const template = shiftTemplates.find((item) => String(item.id ?? "") === String(row.shift_template_id ?? ""));
-          const branchName = branches.find((branch) => branch.id === String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-");
+          const member = staffById.get(String(row.staff_id ?? ""));
+          const template = shiftTemplateById.get(String(row.shift_template_id ?? ""));
+          const branchName = branchById.get(String(row.branch_id ?? ""))?.name ?? String(row.branch_id ?? "-");
           const isYou = String(row.staff_id ?? "") === String(currentStaff?.id ?? "");
 
           return (
@@ -759,7 +773,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
         <div className="mt-6 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
           {viewerGroups.length ? viewerGroups.map((group) => {
-            const branchLabel = viewerBranchId === "all" ? "All visible branches" : branches.find((branch) => branch.id === viewerBranchId)?.name ?? "Selected branch";
+            const branchLabel = viewerBranchId === "all" ? "All visible branches" : branchById.get(viewerBranchId)?.name ?? "Selected branch";
 
             return (
               <article key={group.date} className="rounded-[28px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
