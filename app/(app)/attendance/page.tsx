@@ -1,8 +1,9 @@
 import { AttendancePage } from "@/components/attendance-page";
 import { EmptyState } from "@/components/empty-state";
 import { requireRouteAccess } from "@/lib/auth";
-import { fetchRows } from "@/lib/data";
+import { fetchRows, resolveError } from "@/lib/data";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getMalaysiaDateString } from "@/lib/utils";
 import type { BranchOption, TableRow } from "@/lib/types";
 
 export default async function AttendanceRoute() {
@@ -56,6 +57,35 @@ export default async function AttendanceRoute() {
       rows: (branchStaffResult.data ?? []) as TableRow[],
       error: branchStaffResult.error?.message ?? staffRows.error,
     };
+  }
+
+  // Hydrate the signed-in user's own roster directly by staff_id. This keeps
+  // attendance usable when the branch-wide roster query is unavailable to the
+  // staff session and matches the lookup used by the punch API.
+  if ((context.role === "staff" || context.role === "branch_pic") && context.staff?.id) {
+    const rosterClient = adminClient ?? context.supabase;
+    if (rosterClient) {
+      const ownRosterResult = await rosterClient
+        .from("rosters")
+        .select("*")
+        .eq("staff_id", context.staff.id)
+        .gte("roster_date", getMalaysiaDateString())
+        .order("roster_date", { ascending: true })
+        .limit(120);
+
+      if (ownRosterResult.data?.length) {
+        const existingIds = new Set(rosterRows.rows.map((row) => String(row.id ?? "")));
+        rosterRows = {
+          rows: [
+            ...rosterRows.rows,
+            ...(ownRosterResult.data as TableRow[]).filter((row) => !existingIds.has(String(row.id ?? ""))),
+          ],
+          error: resolveError(ownRosterResult.error) ?? rosterRows.error,
+        };
+      } else if (ownRosterResult.error && !rosterRows.error) {
+        rosterRows = { ...rosterRows, error: resolveError(ownRosterResult.error) };
+      }
+    }
   }
 
   const branches = branchRows.rows
