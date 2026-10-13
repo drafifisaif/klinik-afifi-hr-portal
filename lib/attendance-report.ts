@@ -81,11 +81,13 @@ export function getMonthDateRange(year: string | number, month: string | number)
   return { startDate, endDate };
 }
 
+const dateDayFormatter = new Intl.DateTimeFormat("en-MY", {
+  weekday: "long",
+  timeZone: "Asia/Kuala_Lumpur",
+});
+
 export function formatDateDay(date: string) {
-  return new Intl.DateTimeFormat("en-MY", {
-    weekday: "long",
-    timeZone: "Asia/Kuala_Lumpur",
-  }).format(parseDateOnly(date));
+  return dateDayFormatter.format(parseDateOnly(date));
 }
 
 function combineDateAndTime(date: string, timeValue?: unknown) {
@@ -309,6 +311,12 @@ export function buildAttendanceReportRows({
   });
 
   return Array.from(rowsByKey.values())
+    .filter(({ rosterRow, attendanceRow, staffId }) => {
+      const branchId = String(rosterRow?.branch_id ?? attendanceRow?.branch_id ?? staffById.get(staffId)?.branch_id ?? "");
+      return (!filters.branchScopeId || branchId === filters.branchScopeId)
+        && (!filters.branchId || filters.branchId === "all" || branchId === filters.branchId)
+        && (!filters.staffId || filters.staffId === "all" || staffId === filters.staffId);
+    })
     .map(({ rosterRow, attendanceRow, staffId, date }) => {
       const staff = staffById.get(staffId) ?? null;
       const branchId = String(rosterRow?.branch_id ?? attendanceRow?.branch_id ?? staff?.branch_id ?? "");
@@ -367,18 +375,6 @@ export function buildAttendanceReportRows({
       } satisfies AttendanceReportRow;
     })
     .filter((row) => {
-      if (filters.branchScopeId && row.branchId !== filters.branchScopeId) {
-        return false;
-      }
-
-      if (filters.branchId && filters.branchId !== "all" && row.branchId !== filters.branchId) {
-        return false;
-      }
-
-      if (filters.staffId && filters.staffId !== "all" && row.staffId !== filters.staffId) {
-        return false;
-      }
-
       return rowMatchesStatus(row.attendanceStatus, filters.status) && rowMatchesLocation(row.locationStatus, filters.locationStatus);
     })
     .sort((left, right) => `${right.date}-${right.staffName}`.localeCompare(`${left.date}-${left.staffName}`));

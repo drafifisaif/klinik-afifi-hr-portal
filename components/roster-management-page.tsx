@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -20,11 +20,15 @@ import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
+import { useRangeData } from "@/components/use-range-data";
+import type { QueryResult } from "@/lib/data";
+import type { PortalDateRange } from "@/lib/portal-date-range";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { formatDate, getMalaysiaDateString, mapRowsWithId, normalizeString } from "@/lib/utils";
 
 interface RosterManagementPageProps {
-  rosters: TableRow[];
+  initialRosterData: QueryResult;
+  initialRanges: PortalDateRange[];
   shiftTemplates: TableRow[];
   staff: TableRow[];
   branches: BranchOption[];
@@ -170,7 +174,7 @@ function enumerateDates(startDate: string, endDate: string) {
   cursor.setHours(0, 0, 0, 0);
   end.setHours(0, 0, 0, 0);
 
-  while (cursor <= end) {
+  while (cursor <= end && dates.length < 370) {
     dates.push(toDateInput(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -213,7 +217,7 @@ function getDefaultBuilderBranchId(profile: Profile | null, currentStaff: TableR
   return String(branchOptions[0]?.id ?? "");
 }
 
-export function RosterManagementPage({ rosters, shiftTemplates, staff, branches, role, profile, currentStaff, error }: RosterManagementPageProps) {
+export function RosterManagementPage({ initialRosterData, initialRanges, shiftTemplates, staff, branches, role, profile, currentStaff, error }: RosterManagementPageProps) {
   const router = useRouter();
   const supabase = createClient();
   const canManage = role === "super_admin" || role === "hr" || role === "branch_pic";
@@ -231,8 +235,12 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   const defaultBuilderBranchId = getDefaultBuilderBranchId(profile, currentStaff, role, builderBranchOptions);
   const [viewerBranchId, setViewerBranchId] = useState(defaultViewerBranchId);
   const [builderBranchId, setBuilderBranchId] = useState(defaultBuilderBranchId);
-  const [selectedDate, setSelectedDate] = useState(getMalaysiaDateString());
-  const [viewerRange, setViewerRange] = useState(buildNext14DayRange());
+  const [selectedDate, setSelectedDate] = useState(initialRanges[0].start);
+  const [viewerRange, setViewerRange] = useState(initialRanges[0]);
+  const { data: rosterData, loading: isRangeLoading, error: rangeError } = useRangeData(
+    "/api/roster/data", initialRosterData, initialRanges,
+    [viewerRange, ...(canManage ? [{ start: selectedDate, end: selectedDate }] : [])],
+  );
   const [isPublished, setIsPublished] = useState("false");
   const [message, setMessage] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -251,7 +259,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     is_active: true,
   });
 
-  const rosterRows = useMemo(() => mapRowsWithId(rosters), [rosters]);
+  const rosterRows = useMemo(() => mapRowsWithId(rosterData.rows), [rosterData.rows]);
   const staffById = useMemo(() => new Map(staff.map((row) => [String(row.id ?? ""), row])), [staff]);
   const shiftTemplateById = useMemo(() => new Map(shiftTemplates.map((row) => [String(row.id ?? ""), row])), [shiftTemplates]);
   const branchById = useMemo(() => new Map(branches.map((row) => [row.id, row])), [branches]);
@@ -299,17 +307,20 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     );
   }, [builderBranchId, scopedTemplates]);
 
-  const existingDailyRows = useMemo(() => {
+  const dailyRowsJson = useMemo(() => {
     if (!builderBranchId || !selectedDate) {
-      return [];
+      return "[]";
     }
 
-    return scopedRosterRows.filter(
+    return JSON.stringify(scopedRosterRows.filter(
       (row) =>
         String(row.branch_id ?? "") === builderBranchId &&
         String(row.roster_date ?? row.date ?? "").slice(0, 10) === selectedDate,
-    );
+    ));
   }, [builderBranchId, scopedRosterRows, selectedDate]);
+  // Loading a different viewer range must not reset unchanged daily-builder drafts.
+  const existingDailyRows = useMemo(() => JSON.parse(dailyRowsJson) as TableRow[], [dailyRowsJson]);
+  const hydratedBuilder = useRef<{ key: string; rows: TableRow[]; staff: typeof staffById; templates: typeof shiftTemplateById } | null>(null);
 
   const duplicateStaffIds = useMemo(() => {
     const counts = new Map<string, number>();
@@ -388,6 +399,11 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   }, [currentStaff?.branch_id, profile?.branch_id, role]);
 
   useEffect(() => {
+    if (isRangeLoading || rangeError) return;
+    const key = `${builderBranchId}:${selectedDate}`;
+    const previous = hydratedBuilder.current;
+    if (previous?.key === key && previous.rows === existingDailyRows && previous.staff === staffById && previous.templates === shiftTemplateById) return;
+    hydratedBuilder.current = { key, rows: existingDailyRows, staff: staffById, templates: shiftTemplateById };
     const nextDoctors: DraftRow[] = [];
     const nextStaffRows: DraftRow[] = [];
 
@@ -418,7 +434,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
     setIsPublished(existingDailyRows.some((row) => row.is_published === true) ? "true" : "false");
     setMessage(null);
     setWarning(null);
-  }, [existingDailyRows, staffById, shiftTemplateById]);
+  }, [existingDailyRows, staffById, shiftTemplateById, builderBranchId, selectedDate, isRangeLoading, rangeError]);
 
   useEffect(() => {
     if (duplicateStaffIds.length) {
@@ -448,6 +464,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
   }
 
   function addRow(roleOnShift: "doctor" | "staff") {
+    if (isRangeLoading || rangeError) return;
     const setter = roleOnShift === "doctor" ? setDoctorRows : setStaffRows;
     setter((current) => [...current, createDraftRow(roleOnShift)]);
   }
@@ -479,6 +496,11 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
   async function handleSaveDailyRoster(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isRangeLoading || rangeError) {
+      setMessage("Wait for the selected dates to load successfully before saving.");
+      return;
+    }
 
     if (!supabase) {
       setMessage("Supabase is not configured.");
@@ -675,7 +697,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
 
   function renderDraftRows(title: string, roleOnShift: "doctor" | "staff", rows: DraftRow[], staffOptions: TableRow[]) {
     return (
-      <div className="space-y-4 rounded-[28px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
+      <fieldset disabled={isRangeLoading || Boolean(rangeError)} className="min-w-0 space-y-4 rounded-[28px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_45px_rgba(18,42,44,0.04)]">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-[var(--foreground)]">{title}</h3>
@@ -735,13 +757,15 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
         ) : (
           <EmptyState title={`No ${roleOnShift} rows yet`} description="Add the first row to start building the daily roster." />
         )}
-      </div>
+      </fieldset>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={isRangeLoading}>
       {error ? <EmptyState title="Unable to load roster data" description={error} /> : null}
+      {rangeError ? <EmptyState title="Unable to load selected dates" description={rangeError} /> : null}
+      {isRangeLoading ? <p role="status" className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">Loading selected dates… Please wait before editing the daily roster.</p> : null}
 
       <FormSection title="Roster viewer" description="Scan current and upcoming clinic coverage by branch and date range so teams can plan leave and coordinate support safely.">
         <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
@@ -862,7 +886,7 @@ export function RosterManagementPage({ rosters, shiftTemplates, staff, branches,
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <button type="button" onClick={() => addRow("doctor")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><Plus className="h-4 w-4" />Add Doctor</button>
               <button type="button" onClick={() => addRow("staff")} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-5 text-sm font-semibold text-[var(--foreground)] sm:w-auto"><Plus className="h-4 w-4" />Add Staff</button>
-              <button type="submit" disabled={isSaving || !builderBranchId || !selectedDate} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto"><Save className="h-4 w-4" />{isSaving ? "Saving..." : "Save Daily Roster"}</button>
+              <button type="submit" disabled={isSaving || isRangeLoading || Boolean(rangeError) || !builderBranchId || !selectedDate} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto"><Save className="h-4 w-4" />{isSaving ? "Saving..." : "Save Daily Roster"}</button>
             </div>
           </form>
 

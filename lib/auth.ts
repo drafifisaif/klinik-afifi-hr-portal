@@ -1,15 +1,17 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { canAccessRoute } from "@/lib/navigation";
 import { getCurrentUserContext } from "@/lib/workflows";
 import type { AppRouteKey } from "@/lib/types";
 
-export async function getCurrentSessionProfile() {
-  return getCurrentUserContext();
-}
+// React scopes this cache to one server render, never across users/requests.
+// Mutation workflows continue to call the uncached context reader directly.
+export const getCurrentSessionProfile = cache(getCurrentUserContext);
 
 export async function requireRouteAccess(routeKey: AppRouteKey) {
-  const context = await getCurrentUserContext();
+  const context = await getCurrentSessionProfile();
 
   if (!context.user) {
     return { ...context, unauthorized: true as const };

@@ -34,11 +34,10 @@ export async function getCurrentUserContext() {
     };
   }
 
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profileData }, { data: staffRows, error: staffLookupError }] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+    supabase.from("staff").select("*").eq("profile_id", user.id).order("updated_at", { ascending: false }).limit(20),
+  ]);
 
   const profile = profileData
     ? ({
@@ -52,13 +51,6 @@ export async function getCurrentUserContext() {
         full_name: user.user_metadata.full_name ?? null,
         role: "staff",
       } as Profile);
-
-  const { data: staffRows, error: staffLookupError } = await supabase
-    .from("staff")
-    .select("*")
-    .eq("profile_id", user.id)
-    .order("updated_at", { ascending: false })
-    .limit(20);
 
   if (staffLookupError) {
     console.error("[workflows] staff lookup failed for current user", {

@@ -8,6 +8,9 @@ import { EmptyState } from "@/components/empty-state";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { clickableMetricCardClassName } from "@/components/stat-card";
+import { useMinuteNow } from "@/components/use-minute-now";
+import { useRangeData } from "@/components/use-range-data";
+import type { PortalDateRange } from "@/lib/portal-date-range";
 import {
   buildAttendanceReportRows,
   buildDateRange,
@@ -33,14 +36,18 @@ import {
 } from "@/lib/utils";
 
 interface AttendancePageProps {
-  attendanceRows: TableRow[];
-  adjustmentRows: TableRow[];
+  initialRangeData: {
+    attendanceRows: TableRow[];
+    adjustmentRows: TableRow[];
+    rosterRows: TableRow[];
+    leaveRows: TableRow[];
+    error: string | null;
+  };
+  initialRanges: PortalDateRange[];
   settingRows: TableRow[];
   staffRows: TableRow[];
   branchRows: BranchOption[];
-  rosterRows: TableRow[];
   shiftTemplateRows: TableRow[];
-  leaveRows: TableRow[];
   networkRows: TableRow[];
   profile: Profile | null;
   currentStaff: TableRow | null;
@@ -391,20 +398,18 @@ function formatCountdownSeconds(totalSeconds: number) {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-function AttendanceClockCard({ now }: { now: Date }) {
+const clockWeekdayFormatter = new Intl.DateTimeFormat("en-MY", { weekday: "long", timeZone: "Asia/Kuala_Lumpur" });
+const clockMonthFormatter = new Intl.DateTimeFormat("en-MY", { month: "long", timeZone: "Asia/Kuala_Lumpur" });
+
+function AttendanceClockCard() {
+  const now = new Date(useMinuteNow());
   const parts = getMalaysiaDateTimeParts(now);
   const displayHour = Number(parts.hour);
   const suffix = displayHour >= 12 ? "PM" : "AM";
   const twelveHour = displayHour % 12 || 12;
   const timeLabel = `${String(twelveHour).padStart(2, "0")}:${parts.minute} ${suffix}`;
-  const weekday = new Intl.DateTimeFormat("en-MY", {
-    weekday: "long",
-    timeZone: "Asia/Kuala_Lumpur",
-  }).format(now);
-  const month = new Intl.DateTimeFormat("en-MY", {
-    month: "long",
-    timeZone: "Asia/Kuala_Lumpur",
-  }).format(now);
+  const weekday = clockWeekdayFormatter.format(now);
+  const month = clockMonthFormatter.format(now);
 
   return (
     <section className="rounded-[30px] border border-[#d5e9e6] bg-[linear-gradient(135deg,#EAF8F6_0%,#FFFFFF_60%,#F3FBFA_100%)] px-6 py-7 text-center shadow-[0_18px_45px_rgba(18,42,44,0.06)]">
@@ -444,14 +449,12 @@ function formatCoordinateValue(value: unknown) {
 }
 
 export function AttendancePage({
-  attendanceRows,
-  adjustmentRows,
+  initialRangeData,
+  initialRanges,
   settingRows,
   staffRows,
   branchRows,
-  rosterRows,
   shiftTemplateRows,
-  leaveRows,
   networkRows,
   profile,
   currentStaff,
@@ -461,8 +464,9 @@ export function AttendancePage({
   const router = useRouter();
   const supabase = createClient();
   const pendingCorrectionsRef = useRef<HTMLDivElement | null>(null);
-  const today = toDateInput();
-  const currentMalaysiaParts = getMalaysiaDateTimeParts();
+  const minuteNow = useMinuteNow();
+  const today = toDateInput(new Date(minuteNow));
+  const currentMalaysiaParts = getMalaysiaDateTimeParts(new Date(minuteNow));
   const currentMonth = currentMalaysiaParts.month;
   const currentYear = currentMalaysiaParts.year;
   const operationalBranchId = String(currentStaff?.branch_id ?? profile?.branch_id ?? "");
@@ -498,7 +502,6 @@ export function AttendancePage({
   const [isVerifyingPunchInLocation, setIsVerifyingPunchInLocation] = useState(false);
   const [punchInVerification, setPunchInVerification] = useState<PunchInVerificationState>(emptyPunchInVerificationState);
   const [verificationNow, setVerificationNow] = useState(() => Date.now());
-  const [clockNow, setClockNow] = useState(() => new Date());
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -528,6 +531,24 @@ export function AttendancePage({
   });
 
   const canReviewAdjustments = role === "super_admin" || role === "hr" || role === "branch_pic";
+  const canViewAttendanceReport = role === "super_admin" || role === "hr" || role === "operation";
+  const personalHistoryRange = useMemo(() => {
+    if (historyFromDate && historyToDate) return { startDate: historyFromDate, endDate: historyToDate };
+    return getMonthDateRange(historyYear, historyMonth);
+  }, [historyFromDate, historyMonth, historyToDate, historyYear]);
+  const reportRange = useMemo(() => {
+    if (reportFromDate && reportToDate) return { startDate: reportFromDate, endDate: reportToDate };
+    return getMonthDateRange(reportYear, reportMonth);
+  }, [reportFromDate, reportMonth, reportToDate, reportYear]);
+  const { data: rangeData, loading: isRangeLoading, error: rangeError } = useRangeData(
+    "/api/attendance/data", initialRangeData, initialRanges,
+    [
+      { start: personalHistoryRange.startDate, end: personalHistoryRange.endDate },
+      { start: selectedBoardDate, end: selectedBoardDate },
+      ...(canViewAttendanceReport ? [{ start: reportRange.startDate, end: reportRange.endDate }] : []),
+    ],
+  );
+  const { attendanceRows, adjustmentRows, rosterRows, leaveRows } = rangeData;
   const canManageSettings = role === "super_admin" || role === "hr";
   const canManageBranchGps = role === "super_admin" || role === "hr";
   const canViewBranchGps = canManageBranchGps || role === "operation";
@@ -611,16 +632,6 @@ export function AttendancePage({
     return branchRows;
   }, [branchRows, operationalBranchId, role]);
 
-  const personalHistoryRange = useMemo(() => {
-    if (historyFromDate && historyToDate) {
-      return {
-        startDate: historyFromDate,
-        endDate: historyToDate,
-      };
-    }
-
-    return getMonthDateRange(historyYear, historyMonth);
-  }, [historyFromDate, historyMonth, historyToDate, historyYear]);
   const personalHistoryDates = useMemo(
     () => buildDateRange(personalHistoryRange.startDate, personalHistoryRange.endDate, 370),
     [personalHistoryRange.endDate, personalHistoryRange.startDate],
@@ -679,14 +690,6 @@ export function AttendancePage({
       : 0;
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setClockNow(new Date());
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     if (role !== "staff" || punchInVerification.status !== "verified_location" || !punchInVerification.expiresAt) {
       return undefined;
     }
@@ -740,17 +743,6 @@ export function AttendancePage({
       todayEarlyLeaveGraceMinutes,
     ]);
 
-  const reportRange = useMemo(() => {
-    if (reportFromDate && reportToDate) {
-      return {
-        startDate: reportFromDate,
-        endDate: reportToDate,
-      };
-    }
-
-    return getMonthDateRange(reportYear, reportMonth);
-  }, [reportFromDate, reportMonth, reportToDate, reportYear]);
-  const canViewAttendanceReport = role === "super_admin" || role === "hr" || role === "operation";
   const reportStaffOptions = useMemo(() => {
     return staffDirectory
       .filter((row) => {
@@ -938,12 +930,11 @@ export function AttendancePage({
     let finalStatus = derivedStatus;
     const scheduledStartDate = parseIso(scheduledStart);
     const selectedIsToday = selectedBoardDate === today;
-    const now = new Date();
 
     if (!approvedLeave && !record && scheduledStartDate) {
       if (selectedBoardDate < today) {
         finalStatus = "absent";
-      } else if (selectedIsToday && now.getTime() > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
+      } else if (selectedIsToday && minuteNow > scheduledStartDate.getTime() + autoAbsentAfterMinutes * 60000) {
         finalStatus = "absent";
       }
     }
@@ -972,7 +963,7 @@ export function AttendancePage({
       checkOutLatitude: record?.check_out_latitude ?? null,
       checkOutLongitude: record?.check_out_longitude ?? null,
     };
-  }), [attendanceByStaffDate, boardLeaveByStaffId, branchById, selectedBoardDate, settingByBranchId, shiftTemplateById, staffById, today, visibleBranchStaffById, visibleRosterRows]);
+  }), [attendanceByStaffDate, boardLeaveByStaffId, branchById, minuteNow, selectedBoardDate, settingByBranchId, shiftTemplateById, staffById, today, visibleBranchStaffById, visibleRosterRows]);
 
   const pendingAdjustments = adjustments.filter((row) => {
     if (normalizeString(row.status) !== "pending") {
@@ -1558,6 +1549,10 @@ export function AttendancePage({
   }
 
   async function saveManualAttendance(row: (typeof boardRows)[number]) {
+    if (isRangeLoading || rangeError) {
+      setManualMessage("Wait for the selected dates to load successfully before editing attendance.");
+      return;
+    }
     if (!supabase || !profile?.id || role !== "super_admin" && role !== "hr") {
       setManualMessage("Manual updates are only available to HR and super admin.");
       return;
@@ -1628,6 +1623,10 @@ export function AttendancePage({
   }
 
   async function handleAdminRecordAction(row: (typeof boardRows)[number], action: "reset" | "delete") {
+    if (isRangeLoading || rangeError) {
+      setManualMessage("Wait for the selected dates to load successfully before editing attendance.");
+      return;
+    }
     if (!profile?.id || (role !== "hr" && role !== "super_admin") || !row.record?.id) {
       setManualMessage("Admin attendance action is not available for this record.");
       return;
@@ -2642,10 +2641,12 @@ export function AttendancePage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={isRangeLoading}>
       {error ? <EmptyState title="Unable to load attendance data" description={error} /> : null}
+      {rangeError ? <EmptyState title="Unable to load selected dates" description={rangeError} /> : null}
+      {isRangeLoading ? <p role="status" className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">Loading selected dates… Attendance totals will update when loading finishes.</p> : null}
 
-      <AttendanceClockCard now={clockNow} />
+      <AttendanceClockCard />
 
       {isHrAdmin ? (
         <>

@@ -3,6 +3,16 @@ import { twMerge } from "tailwind-merge";
 
 import type { TableRow } from "@/lib/types";
 
+// Formatters contain locale rules only, never user data. Reuse them across rows.
+const dateFormatter = new Intl.DateTimeFormat("en-MY", { day: "2-digit", month: "short", year: "numeric" });
+const dateTimeFormatter = new Intl.DateTimeFormat("en-MY", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const malaysiaDateTimeFormatter = new Intl.DateTimeFormat("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+const malaysiaTimeFormatter = new Intl.DateTimeFormat("en-MY", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", minute: "2-digit", hour12: true });
+const malaysiaDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" });
+const malaysiaPartsFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const malaysiaHourFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", hour12: false });
+const malaysiaWeekdayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kuala_Lumpur", weekday: "short" });
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -88,11 +98,7 @@ export function formatDate(value: unknown) {
     return String(value);
   }
 
-  return new Intl.DateTimeFormat("en-MY", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
+  return dateFormatter.format(date);
 }
 
 export function formatDateTime(value: unknown) {
@@ -106,13 +112,7 @@ export function formatDateTime(value: unknown) {
     return String(value);
   }
 
-  return new Intl.DateTimeFormat("en-MY", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return dateTimeFormatter.format(date);
 }
 
 export function formatMalaysiaDateTime(value: unknown) {
@@ -126,15 +126,7 @@ export function formatMalaysiaDateTime(value: unknown) {
     return String(value);
   }
 
-  return new Intl.DateTimeFormat("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  }).format(date);
+  return malaysiaDateTimeFormatter.format(date);
 }
 
 export function formatMalaysiaTime(value: unknown) {
@@ -152,12 +144,7 @@ export function formatMalaysiaTime(value: unknown) {
     return text;
   }
 
-  return new Intl.DateTimeFormat("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  }).format(date);
+  return malaysiaTimeFormatter.format(date);
 }
 
 export function formatDateInput(value: unknown) {
@@ -175,29 +162,11 @@ export function formatDateInput(value: unknown) {
 }
 
 export function getMalaysiaDateString(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kuala_Lumpur",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-
-  return formatter.format(date);
+  return malaysiaDateFormatter.format(date);
 }
 
 export function getMalaysiaDateTimeParts(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kuala_Lumpur",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-
-  const parts = formatter.formatToParts(date);
+  const parts = malaysiaPartsFormatter.formatToParts(date);
   const read = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
 
   return {
@@ -211,13 +180,7 @@ export function getMalaysiaDateTimeParts(date = new Date()) {
 }
 
 export function getMalaysiaHour(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kuala_Lumpur",
-    hour: "2-digit",
-    hour12: false,
-  });
-
-  return Number(formatter.format(date));
+  return Number(malaysiaHourFormatter.format(date));
 }
 
 export function getMalaysiaDateTimeLocalInput(date = new Date()) {
@@ -243,10 +206,7 @@ export function addDaysToDateString(dateString: string, days: number) {
 
 function getMalaysiaWeekday(dateString: string) {
   const date = parseDateOnly(dateString);
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kuala_Lumpur",
-    weekday: "short",
-  }).format(date);
+  return malaysiaWeekdayFormatter.format(date);
 }
 
 function parseClockToMinutes(value: string) {

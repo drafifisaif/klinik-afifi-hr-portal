@@ -599,6 +599,15 @@ export function countUnreadNotifications(rows: TableRow[], profileId: string) {
   return filterNotificationsForUser(rows, profileId).filter((row) => row.is_read !== true).length;
 }
 
+export async function fetchUnreadNotificationCount(supabase: SupabaseClient | null, profileId: string) {
+  if (!supabase) return 0;
+  const { count } = await supabase.from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("recipient_profile_id", profileId)
+    .or("is_read.eq.false,is_read.is.null");
+  return count ?? 0;
+}
+
 export function getNextHoliday(rows: TableRow[], branchId?: string | null) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);

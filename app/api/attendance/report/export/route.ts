@@ -7,6 +7,13 @@ import type { BranchOption, TableRow } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { choosePreferredStaffRow } from "@/lib/data";
 import { createXlsxWorkbookWithSheets } from "@/lib/xlsx";
+import { fetchPagedRows } from "@/lib/paged-query";
+import { normalizePortalRanges } from "@/lib/portal-date-range";
+
+async function exportRows(query: Parameters<typeof fetchPagedRows>[0]) {
+  const result = await fetchPagedRows(query);
+  return { data: result.rows, error: result.error ? { message: result.error } : null };
+}
 
 const DETAIL_HEADERS = [
   "No.",
@@ -117,19 +124,26 @@ export async function GET(request: Request) {
   const fromDate = String(url.searchParams.get("from") ?? monthRange.startDate).slice(0, 10);
   const toDate = String(url.searchParams.get("to") ?? monthRange.endDate).slice(0, 10);
 
-  if (!fromDate || !toDate || fromDate > toDate) {
-    return NextResponse.json({ error: "Invalid attendance report date range." }, { status: 400 });
+  try {
+    normalizePortalRanges([{ start: fromDate, end: toDate }]);
+  } catch {
+    return NextResponse.json({ error: "Choose a valid attendance report date range of up to 370 days." }, { status: 400 });
+  }
+
+  const branchId = sanitizeFilter(url.searchParams.get("branch"));
+  if (branchScopeId && branchId !== "all" && branchId !== branchScopeId) {
+    return NextResponse.json({ error: "Branch PIC can only export attendance for their own branch." }, { status: 403 });
   }
 
   const [attendanceResult, adjustmentResult, staffResult, branchResult, rosterResult, shiftTemplateResult, leaveResult, settingResult] = await Promise.all([
-    adminClient.from("attendance_records").select("*").gte("attendance_date", fromDate).lte("attendance_date", toDate).limit(5000),
-    adminClient.from("attendance_adjustments").select("*").limit(5000),
-    adminClient.from("staff").select("*").limit(1000),
-    adminClient.from("branches").select("*").limit(200),
-    adminClient.from("rosters").select("*").gte("roster_date", fromDate).lte("roster_date", toDate).limit(5000),
-    adminClient.from("shift_templates").select("*").limit(500),
-    adminClient.from("leave_requests").select("*").lte("start_date", toDate).gte("end_date", fromDate).limit(5000),
-    adminClient.from("attendance_settings").select("*").limit(500),
+    exportRows((from, to) => adminClient.from("attendance_records").select("*", from === 0 ? { count: "exact" } : {}).gte("attendance_date", fromDate).lte("attendance_date", toDate).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("attendance_adjustments").select("*", from === 0 ? { count: "exact" } : {}).order("created_at", { ascending: false }).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("staff").select("id,full_name,email,branch_id", from === 0 ? { count: "exact" } : {}).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("branches").select("*", from === 0 ? { count: "exact" } : {}).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("rosters").select("*", from === 0 ? { count: "exact" } : {}).gte("roster_date", fromDate).lte("roster_date", toDate).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("shift_templates").select("*", from === 0 ? { count: "exact" } : {}).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("leave_requests").select("*", from === 0 ? { count: "exact" } : {}).lte("start_date", toDate).gte("end_date", fromDate).order("id").range(from, to)),
+    exportRows((from, to) => adminClient.from("attendance_settings").select("*", from === 0 ? { count: "exact" } : {}).order("id").range(from, to)),
   ]);
 
   const loadError = attendanceResult.error
@@ -143,12 +157,6 @@ export async function GET(request: Request) {
 
   if (loadError) {
     return NextResponse.json({ error: loadError.message }, { status: 400 });
-  }
-
-  const branchId = sanitizeFilter(url.searchParams.get("branch"));
-
-  if (branchScopeId && branchId !== "all" && branchId !== branchScopeId) {
-    return NextResponse.json({ error: "Branch PIC can only export attendance for their own branch." }, { status: 403 });
   }
 
   const rows = buildAttendanceReportRows({
