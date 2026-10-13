@@ -47,14 +47,19 @@ export default async function RosterSummaryRoute({ searchParams }: { searchParam
   const startDate = getSearchParamValue(resolvedSearchParams.start) ?? defaultWeek.start;
   const endDate = getSearchParamValue(resolvedSearchParams.end) ?? defaultWeek.end;
 
-  const [rosterResult, attendanceResult, staffResult, branchResult, profileResult] = await Promise.all([
-    client
+  const rosterQuery = client
       .from("rosters")
       .select("*")
       .gte("roster_date", startDate)
       .lte("roster_date", endDate)
       .order("roster_date", { ascending: true })
-      .limit(2000),
+      .limit(2000);
+  if (selectedBranchId && selectedBranchId !== "all") {
+    rosterQuery.eq("branch_id", selectedBranchId);
+  }
+
+  const [rosterResult, attendanceResult, staffResult, branchResult, profileResult] = await Promise.all([
+    rosterQuery,
     client
       .from("attendance_records")
       .select("*")

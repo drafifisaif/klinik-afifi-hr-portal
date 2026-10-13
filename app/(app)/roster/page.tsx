@@ -2,9 +2,10 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { RosterManagementPage } from "@/components/roster-management-page";
 import { requireRouteAccess } from "@/lib/auth";
-import { fetchRows } from "@/lib/data";
+import { fetchRows, type QueryResult } from "@/lib/data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { TableRow } from "@/lib/types";
+import { addDaysToDateString, getMalaysiaDateString } from "@/lib/utils";
 
 export default async function RosterPage() {
   const context = await requireRouteAccess("roster");
@@ -21,22 +22,48 @@ export default async function RosterPage() {
   const adminClient = createAdminClient();
   const staffBranchId = String(context.staff?.branch_id ?? context.profile?.branch_id ?? "");
 
-  let rosters = await fetchRows(context.supabase, "rosters", 700);
-  let staffRows = await fetchRows(context.supabase, "staff", 300);
+  let rosters: QueryResult = { rows: [], error: null };
+  let staffRows: QueryResult = { rows: [], error: null };
+  const today = getMalaysiaDateString();
+  const rosterWindowStart = addDaysToDateString(today, -31);
+  const rosterWindowEnd = addDaysToDateString(today, 60);
 
-  if (context.role === "staff" && adminClient && staffBranchId) {
+  if (context.role === "staff" && adminClient && context.staff?.id) {
+    const [personalRosterResult, personalStaffResult] = await Promise.all([
+      adminClient
+        .from("rosters")
+        .select("*")
+        .eq("staff_id", context.staff.id)
+        .gte("roster_date", rosterWindowStart)
+        .lte("roster_date", rosterWindowEnd)
+        .order("roster_date", { ascending: true })
+        .limit(120),
+      adminClient.from("staff").select("*").eq("id", context.staff.id).limit(1),
+    ]);
+
+    rosters = {
+      rows: (personalRosterResult.data ?? []) as TableRow[],
+      error: personalRosterResult.error?.message ?? null,
+    };
+    staffRows = {
+      rows: (personalStaffResult.data ?? []) as TableRow[],
+      error: personalStaffResult.error?.message ?? null,
+    };
+  } else if (context.role === "branch_pic" && adminClient && staffBranchId) {
     const [branchRosterResult, branchStaffResult] = await Promise.all([
       adminClient
         .from("rosters")
         .select("*")
         .eq("branch_id", staffBranchId)
+        .gte("roster_date", rosterWindowStart)
+        .lte("roster_date", rosterWindowEnd)
         .order("roster_date", { ascending: true })
-        .limit(700),
+        .limit(300),
       adminClient
         .from("staff")
         .select("*")
         .eq("branch_id", staffBranchId)
-        .limit(300),
+        .limit(200),
     ]);
 
     rosters = {
@@ -47,6 +74,11 @@ export default async function RosterPage() {
       rows: (branchStaffResult.data ?? []) as TableRow[],
       error: branchStaffResult.error?.message ?? staffRows.error,
     };
+  } else {
+    [rosters, staffRows] = await Promise.all([
+      fetchRows(context.supabase, "rosters", 700),
+      fetchRows(context.supabase, "staff", 300),
+    ]);
   }
 
   const [shiftTemplates, branches] = await Promise.all([

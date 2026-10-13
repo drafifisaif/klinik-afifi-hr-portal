@@ -1,9 +1,9 @@
 import { AttendancePage } from "@/components/attendance-page";
 import { EmptyState } from "@/components/empty-state";
 import { requireRouteAccess } from "@/lib/auth";
-import { fetchRows, resolveError } from "@/lib/data";
+import { fetchRows, type QueryResult } from "@/lib/data";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getMalaysiaDateString } from "@/lib/utils";
+import { addDaysToDateString, getMalaysiaDateString } from "@/lib/utils";
 import type { BranchOption, TableRow } from "@/lib/types";
 
 export default async function AttendanceRoute() {
@@ -31,22 +31,47 @@ export default async function AttendanceRoute() {
     fetchRows(context.supabase, "clinic_network_ips", 200),
   ]);
 
-  let rosterRows = await fetchRows(context.supabase, "rosters", 700);
-  let staffRows = await fetchRows(context.supabase, "staff", 300);
+  let rosterRows: QueryResult = { rows: [], error: null };
+  let staffRows: QueryResult = { rows: [], error: null };
+  const rosterWindowStart = addDaysToDateString(getMalaysiaDateString(), -31);
+  const rosterWindowEnd = addDaysToDateString(getMalaysiaDateString(), 31);
 
-  if ((context.role === "staff" || context.role === "branch_pic") && adminClient && staffBranchId) {
+  if (context.role === "staff" && context.staff?.id && adminClient) {
+    const [personalRosterResult, personalStaffResult] = await Promise.all([
+      adminClient
+        .from("rosters")
+        .select("*")
+        .eq("staff_id", context.staff.id)
+        .gte("roster_date", rosterWindowStart)
+        .lte("roster_date", rosterWindowEnd)
+        .order("roster_date", { ascending: true })
+        .limit(120),
+      adminClient.from("staff").select("*").eq("id", context.staff.id).limit(1),
+    ]);
+
+    rosterRows = {
+      rows: (personalRosterResult.data ?? []) as TableRow[],
+      error: personalRosterResult.error?.message ?? null,
+    };
+    staffRows = {
+      rows: (personalStaffResult.data ?? []) as TableRow[],
+      error: personalStaffResult.error?.message ?? null,
+    };
+  } else if (context.role === "branch_pic" && adminClient && staffBranchId) {
     const [branchRosterResult, branchStaffResult] = await Promise.all([
       adminClient
         .from("rosters")
         .select("*")
         .eq("branch_id", staffBranchId)
+        .gte("roster_date", rosterWindowStart)
+        .lte("roster_date", rosterWindowEnd)
         .order("roster_date", { ascending: true })
-        .limit(700),
+        .limit(300),
       adminClient
         .from("staff")
         .select("*")
         .eq("branch_id", staffBranchId)
-        .limit(300),
+        .limit(200),
     ]);
 
     rosterRows = {
@@ -57,35 +82,11 @@ export default async function AttendanceRoute() {
       rows: (branchStaffResult.data ?? []) as TableRow[],
       error: branchStaffResult.error?.message ?? staffRows.error,
     };
-  }
-
-  // Hydrate the signed-in user's own roster directly by staff_id. This keeps
-  // attendance usable when the branch-wide roster query is unavailable to the
-  // staff session and matches the lookup used by the punch API.
-  if ((context.role === "staff" || context.role === "branch_pic") && context.staff?.id) {
-    const rosterClient = adminClient ?? context.supabase;
-    if (rosterClient) {
-      const ownRosterResult = await rosterClient
-        .from("rosters")
-        .select("*")
-        .eq("staff_id", context.staff.id)
-        .gte("roster_date", getMalaysiaDateString())
-        .order("roster_date", { ascending: true })
-        .limit(120);
-
-      if (ownRosterResult.data?.length) {
-        const existingIds = new Set(rosterRows.rows.map((row) => String(row.id ?? "")));
-        rosterRows = {
-          rows: [
-            ...rosterRows.rows,
-            ...(ownRosterResult.data as TableRow[]).filter((row) => !existingIds.has(String(row.id ?? ""))),
-          ],
-          error: resolveError(ownRosterResult.error) ?? rosterRows.error,
-        };
-      } else if (ownRosterResult.error && !rosterRows.error) {
-        rosterRows = { ...rosterRows, error: resolveError(ownRosterResult.error) };
-      }
-    }
+  } else {
+    [rosterRows, staffRows] = await Promise.all([
+      fetchRows(context.supabase, "rosters", 700),
+      fetchRows(context.supabase, "staff", 300),
+    ]);
   }
 
   const branches = branchRows.rows

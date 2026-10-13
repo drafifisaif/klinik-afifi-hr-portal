@@ -235,7 +235,7 @@ function parseDateOnly(dateString: string) {
   return new Date(Date.UTC(year || 1970, Math.max((month || 1) - 1, 0), day || 1));
 }
 
-function addDaysToDateString(dateString: string, days: number) {
+export function addDaysToDateString(dateString: string, days: number) {
   const date = parseDateOnly(dateString);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);

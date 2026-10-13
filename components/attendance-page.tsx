@@ -661,7 +661,7 @@ export function AttendancePage({
     return () => window.clearInterval(timer);
   }, [punchInVerification.expiresAt, punchInVerification.status, role]);
 
-  const personalHistory = personalHistoryDates
+  const personalHistory = useMemo(() => personalHistoryDates
     .map((date) => {
       const attendanceRow = attendance.find(
         (row) =>
@@ -699,7 +699,17 @@ export function AttendancePage({
         workedMinutes: attendanceRow?.check_in_at ? scheduleDetails.netMinutes : 0,
       };
     })
-    .filter((row) => row.attendanceRow || row.rosterRow || row.correction);
+    .filter((row) => row.attendanceRow || row.rosterRow || row.correction), [
+      adjustments,
+      attendance,
+      branchRows,
+      currentStaff?.id,
+      operationalBranchId,
+      personalHistoryDates,
+      rosters,
+      shiftTemplateRows,
+      todayEarlyLeaveGraceMinutes,
+    ]);
 
   const reportRange = useMemo(() => {
     if (reportFromDate && reportToDate) {
@@ -825,7 +835,7 @@ export function AttendancePage({
       ? "All visible branches"
       : branchRows.find((branch) => branch.id === boardBranchId)?.name ?? "Selected branch";
 
-  const visibleRosterRows = rosters.filter((row) => {
+  const visibleRosterRows = useMemo(() => rosters.filter((row) => {
     const rosterDate = String(row.roster_date ?? row.date ?? "").slice(0, 10);
     if (rosterDate !== selectedBoardDate) {
       return false;
@@ -836,9 +846,9 @@ export function AttendancePage({
     }
 
     return String(row.branch_id ?? "") === boardBranchId;
-  });
+  }), [boardBranchId, canViewAllBranches, rosters, selectedBoardDate]);
 
-  const visibleBranchStaff = staffDirectory.filter((row) => {
+  const visibleBranchStaff = useMemo(() => staffDirectory.filter((row) => {
     if (role === "branch_pic") {
       return String(row.branch_id ?? "") === operationalBranchId;
     }
@@ -852,9 +862,9 @@ export function AttendancePage({
     }
 
     return String(row.branch_id ?? "") === boardBranchId;
-  });
+  }), [boardBranchId, currentStaff?.id, operationalBranchId, role, staffDirectory]);
 
-  const boardRows = visibleRosterRows.map((rosterRow) => {
+  const boardRows = useMemo(() => visibleRosterRows.map((rosterRow) => {
     const member = visibleBranchStaff.find((row) => String(row.id ?? "") === String(rosterRow.staff_id ?? ""))
       ?? staffDirectory.find((row) => String(row.id ?? "") === String(rosterRow.staff_id ?? ""));
     const template = shiftTemplateRows.find((row) => String(row.id ?? "") === String(rosterRow.shift_template_id ?? "")) ?? null;
@@ -927,7 +937,7 @@ export function AttendancePage({
       checkOutLatitude: record?.check_out_latitude ?? null,
       checkOutLongitude: record?.check_out_longitude ?? null,
     };
-  });
+  }), [attendance, branchRows, leaveRows, selectedBoardDate, settingsRows, shiftTemplateRows, staffDirectory, today, visibleBranchStaff, visibleRosterRows]);
 
   const pendingAdjustments = adjustments.filter((row) => {
     if (normalizeString(row.status) !== "pending") {
@@ -947,15 +957,15 @@ export function AttendancePage({
 
   const branchSettingsSelection = settingsRows.find((row) => String(row.branch_id ?? "") === String(settingsForm.branch_id ?? ""))
     ?? null;
-  const boardCounts = {
+  const boardCounts = useMemo(() => ({
     present: boardRows.filter((row) => row.status === "present").length,
     late: boardRows.filter((row) => row.status === "late").length,
     absent: boardRows.filter((row) => row.status === "absent").length,
     incomplete: boardRows.filter((row) => row.status === "incomplete").length,
     notPunchedIn: boardRows.filter((row) => row.status === "not_punched_in").length,
     outsideLocation: boardRows.filter((row) => row.checkInLocationStatus === "outside_location" || row.checkOutLocationStatus === "outside_location").length,
-  };
-  const filteredBoardRows = boardRows.filter((row) => {
+  }), [boardRows]);
+  const filteredBoardRows = useMemo(() => boardRows.filter((row) => {
     if (selectedSummaryFilter === "all") {
       return true;
     }
@@ -981,7 +991,7 @@ export function AttendancePage({
     }
 
     return true;
-  });
+  }), [boardRows, selectedSummaryFilter]);
 
   function getStaffName(staffId: unknown) {
     const row = staffDirectory.find((item) => String(item.id ?? "") === String(staffId ?? ""));
