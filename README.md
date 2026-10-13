@@ -105,6 +105,10 @@ Deploy-ready HR portal foundation with Batch 2 and Batch 3B workflow modules bui
 - `/circulars`
 - `/settings`
 
+## API
+
+The read-only, versioned integration API uses Supabase bearer access tokens and preserves the portal's role and branch access rules. See [HR API v1](docs/hr-api-v1.md) and the [OpenAPI specification](openapi/hr-api-v1.json) for authentication, endpoints, query limits, and response formats.
+
 ## Environment variables
 
 Only the public Supabase variables are required in this project:

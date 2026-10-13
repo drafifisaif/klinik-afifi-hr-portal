@@ -1,0 +1,121 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Klinik Afifi HR API",
+    "version": "1.0.0",
+    "description": "Read-only API for authenticated Klinik Afifi HR Portal users. Role and row access follow the portal permissions."
+  },
+  "servers": [{ "url": "https://hr.klinikafifi.com.my/api/v1" }],
+  "security": [{ "supabaseBearer": [] }],
+  "components": {
+    "securitySchemes": {
+      "supabaseBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "Supabase access token" }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "required": ["page", "per_page", "total", "total_pages"],
+        "properties": {
+          "page": { "type": "integer", "minimum": 1 },
+          "per_page": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "total": { "type": ["integer", "null"] },
+          "total_pages": { "type": ["integer", "null"] }
+        }
+      },
+      "PagedResponse": {
+        "type": "object",
+        "required": ["data", "pagination"],
+        "properties": { "data": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "pagination": { "$ref": "#/components/schemas/Pagination" } }
+      }
+    },
+    "parameters": {
+      "Page": { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 10000 }, "default": 1 },
+      "PerPage": { "name": "per_page", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 }, "default": 100 },
+      "FromDate": { "name": "from", "in": "query", "description": "Required with to unless ranges is supplied.", "schema": { "type": "string", "format": "date" } },
+      "ToDate": { "name": "to", "in": "query", "description": "Required with from unless ranges is supplied.", "schema": { "type": "string", "format": "date" } },
+      "Ranges": { "name": "ranges", "in": "query", "description": "JSON-encoded array of 1–4 inclusive {start,end} date ranges, each no longer than 370 days.", "schema": { "type": "string" } }
+    },
+    "responses": {
+      "BadRequest": { "description": "Invalid query parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+      "Unauthorized": { "description": "Missing, invalid, or expired bearer token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+      "Forbidden": { "description": "Portal role does not have access to this resource", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+    }
+  },
+  "paths": {
+    "/me": {
+      "get": {
+        "summary": "Get the authenticated user's portal identity",
+        "responses": {
+          "200": { "description": "Identity and access context", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "user_id": { "type": "string" }, "email": { "type": ["string", "null"] }, "role": { "type": "string", "enum": ["staff", "branch_pic", "operation", "hr", "super_admin"] }, "full_name": { "type": ["string", "null"] }, "branch_id": { "type": ["string", "null"] }, "staff_id": { "type": ["string", "number", "null"] } } } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/staff": {
+      "get": {
+        "summary": "List staff directory entries",
+        "description": "Requires the portal Staff permission. Branch PIC results are restricted to their linked branch.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": { "description": "Paginated staff directory", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/attendance": {
+      "get": {
+        "summary": "List attendance records",
+        "description": "Inclusive date range of at most 370 days. IP addresses and exact GPS coordinates are not returned.",
+        "parameters": [
+          { "$ref": "#/components/parameters/FromDate" },
+          { "$ref": "#/components/parameters/ToDate" },
+          { "$ref": "#/components/parameters/Ranges" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": { "description": "Paginated attendance records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/roster": {
+      "get": {
+        "summary": "List roster entries",
+        "description": "Inclusive date range of at most 370 days. Staff and Branch PIC results are restricted to their own record or linked branch.",
+        "parameters": [
+          { "$ref": "#/components/parameters/FromDate" },
+          { "$ref": "#/components/parameters/ToDate" },
+          { "$ref": "#/components/parameters/Ranges" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": { "description": "Paginated roster entries", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    }
+  }
+}
+}
