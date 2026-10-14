@@ -6,6 +6,13 @@ export type MakeFeedbackNotification = {
   assignedTo: string | null;
   assignedDepartment: string | null;
   branchId: string | null;
+  recipientStaffId: string;
+  recipientProfileId: string | null;
+  recipientRole: string | null;
+  recipientPhone: string;
+  senderName: string;
+  feedbackTitle: string | null;
+  feedbackContent: string;
 };
 
 export async function sendFeedbackNotificationToMake(payload: MakeFeedbackNotification) {
@@ -29,13 +36,28 @@ export async function sendFeedbackNotificationToMake(payload: MakeFeedbackNotifi
   }
 
   try {
+    const eventLabel = payload.eventType === "feedback_new"
+      ? "Feedback baharu"
+      : payload.eventType === "feedback_assignment"
+        ? "Kemaskini assignment feedback"
+        : "Balasan feedback";
+    const message = [
+      eventLabel,
+      `Dihantar oleh: ${payload.senderName}`,
+      payload.feedbackTitle ? `Tajuk: ${payload.feedbackTitle}` : null,
+      "Kandungan penuh:",
+      payload.feedbackContent || "(Tiada kandungan)",
+      "",
+      "Notifikasi emel sudah dihantar. Sila semak emel dan HR Portal.",
+    ].filter((line): line is string => line !== null).join("\n");
+
     const response = await fetch(parsedUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         source: "klinik_afifi_hr_portal",
         ...payload,
-        message: "Ada notifikasi baharu. Sila buka HR Portal.",
+        message,
         portalUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
       }),
       signal: AbortSignal.timeout(8000),

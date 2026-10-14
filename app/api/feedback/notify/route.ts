@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { filterFeedbackForManageView, getOperationVisibleFeedback } from "@/lib/data";
 import { triggerFeedbackEmailNotifications, type FeedbackEmailEvent } from "@/lib/feedback-email";
 import { sendFeedbackNotificationToMake } from "@/lib/make-notification";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
@@ -74,15 +75,59 @@ export async function POST(request: Request) {
       commentText: body?.commentText ?? null,
     });
 
-    const makeResult = await sendFeedbackNotificationToMake({
-      eventType,
-      feedbackId,
-      targetType: String(feedback.target_type ?? "") || null,
-      targetStaffId: String(feedback.target_staff_id ?? "") || null,
-      assignedTo: String(feedback.assigned_to ?? "") || null,
-      assignedDepartment: String(feedback.assigned_department ?? "") || null,
-      branchId: String(feedback.branch_id ?? "") || null,
-    });
+    const eligibleRecipients = (result.results ?? []).filter(
+      (recipient) => recipient.emailStatus === "sent" && recipient.staffId,
+    );
+    const staffIds = [...new Set(eligibleRecipients.map((recipient) => recipient.staffId as string))];
+    const adminClient = createAdminClient();
+    const submitterProfileId = String(feedback.submitted_by ?? "").trim();
+    const [submitterProfileResult, submitterStaffResult] = adminClient && submitterProfileId
+      ? await Promise.all([
+          adminClient.from("profiles").select("full_name,email").eq("id", submitterProfileId).maybeSingle(),
+          adminClient.from("staff").select("full_name,email").eq("profile_id", submitterProfileId).maybeSingle(),
+        ])
+      : [{ data: null, error: null }, { data: null, error: null }];
+    const senderName = eventType === "feedback_reply"
+      ? String(staff?.full_name ?? profile?.full_name ?? staff?.email ?? profile?.email ?? "Staf Portal HR")
+      : String(
+          submitterStaffResult.data?.full_name ??
+          submitterProfileResult.data?.full_name ??
+          submitterStaffResult.data?.email ??
+          submitterProfileResult.data?.email ??
+          "Staf Portal HR",
+        );
+    const feedbackContent = eventType === "feedback_reply"
+      ? String(body?.commentText ?? "").trim()
+      : String(feedback.message ?? "").trim();
+    const staffResult = adminClient && staffIds.length
+      ? await adminClient.from("staff").select("id,profile_id,phone,position").in("id", staffIds)
+      : { data: [], error: null };
+    if (staffResult.error) {
+      console.error("[make-notifications] Could not resolve recipient phone numbers.");
+    }
+
+    const staffById = new Map((staffResult.data ?? []).map((row) => [String(row.id), row]));
+    const makeResults = await Promise.all(eligibleRecipients.flatMap((recipient) => {
+      const staffRow = staffById.get(String(recipient.staffId));
+      const recipientPhone = String(staffRow?.phone ?? "").replace(/[^\d+]/g, "");
+      if (!recipientPhone) return [];
+      return [sendFeedbackNotificationToMake({
+        eventType,
+        feedbackId,
+        targetType: String(feedback.target_type ?? "") || null,
+        targetStaffId: String(feedback.target_staff_id ?? "") || null,
+        assignedTo: String(feedback.assigned_to ?? "") || null,
+        assignedDepartment: String(feedback.assigned_department ?? "") || null,
+        branchId: String(feedback.branch_id ?? "") || null,
+        recipientStaffId: String(recipient.staffId),
+        recipientProfileId: recipient.profileId,
+        recipientRole: String(staffRow?.position ?? "") || null,
+        recipientPhone,
+        senderName,
+        feedbackTitle: String(feedback.title ?? "").trim() || null,
+        feedbackContent,
+      })];
+    }));
 
     return NextResponse.json({
       success: true,
@@ -91,8 +136,8 @@ export async function POST(request: Request) {
       failed: result.counts?.emailsFailed ?? 0,
       noEmail: result.counts?.noEmail ?? 0,
       skipped: result.skipped ?? false,
-      makeWebhookConfigured: makeResult.configured,
-      makeWebhookDelivered: makeResult.delivered,
+      makeWebhookConfigured: makeResults.some((item) => item.configured),
+      makeWebhookDelivered: makeResults.some((item) => item.delivered),
       results: result.results ?? [],
     });
   } catch (error) {
