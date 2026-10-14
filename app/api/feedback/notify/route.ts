@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { filterFeedbackForManageView, getOperationVisibleFeedback } from "@/lib/data";
 import { triggerFeedbackEmailNotifications, type FeedbackEmailEvent } from "@/lib/feedback-email";
+import { sendFeedbackNotificationToMake } from "@/lib/make-notification";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
@@ -73,6 +74,16 @@ export async function POST(request: Request) {
       commentText: body?.commentText ?? null,
     });
 
+    const makeResult = await sendFeedbackNotificationToMake({
+      eventType,
+      feedbackId,
+      targetType: String(feedback.target_type ?? "") || null,
+      targetStaffId: String(feedback.target_staff_id ?? "") || null,
+      assignedTo: String(feedback.assigned_to ?? "") || null,
+      assignedDepartment: String(feedback.assigned_department ?? "") || null,
+      branchId: String(feedback.branch_id ?? "") || null,
+    });
+
     return NextResponse.json({
       success: true,
       sent: result.counts?.emailsSent ?? 0,
@@ -80,6 +91,8 @@ export async function POST(request: Request) {
       failed: result.counts?.emailsFailed ?? 0,
       noEmail: result.counts?.noEmail ?? 0,
       skipped: result.skipped ?? false,
+      makeWebhookConfigured: makeResult.configured,
+      makeWebhookDelivered: makeResult.delivered,
       results: result.results ?? [],
     });
   } catch (error) {
