@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
 import { createClient } from "@/lib/supabase/client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
+import { feedbackTargetLabels, getFeedbackTargetOptions, getSelectableFeedbackStaff } from "@/lib/feedback-targets";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { cn, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
@@ -30,18 +31,6 @@ const inputClass =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
 const textareaClass =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--ring)]";
-
-function getTargetOptions(role: UserRole) {
-  if (role === "operation") {
-    return ["staff", "hr", "portal_system"];
-  }
-
-  if (role === "hr") {
-    return ["staff", "operation", "portal_system"];
-  }
-
-  return ["hr", "operation", "portal_system"];
-}
 
 function getCommentRoleTone(role: string) {
   const normalized = normalizeString(role);
@@ -93,7 +82,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
     title: "",
     category: "general",
     message: "",
-    target_type: getTargetOptions(role)[0] ?? "hr",
+    target_type: getFeedbackTargetOptions(role)[0] ?? "hr",
     target_staff_id: "",
     portal_area: "",
     expected_action: "",
@@ -103,7 +92,8 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
 
   const feedbackForMe = useMemo(() => mapRowsWithId(assignedRows), [assignedRows]);
   const submittedFeedback = useMemo(() => mapRowsWithId(submittedRows), [submittedRows]);
-  const targetOptions = getTargetOptions(role);
+  const targetOptions = getFeedbackTargetOptions(role);
+  const selectableStaffRows = useMemo(() => getSelectableFeedbackStaff(staffRows, branches), [staffRows, branches]);
 
   function getLatestFeedbackActivity(row: TableRow) {
     const comments = getComments(String(row.id ?? ""));
@@ -323,6 +313,16 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       return;
     }
 
+    if (role === "staff" && form.target_type === "staff") {
+      setMessage("Staff accounts can route feedback only to Portal System, Human Resource (HR) Manager, or Operation Manager.");
+      return;
+    }
+
+    if (form.target_type === "staff" && !selectableStaffRows.some((row) => String(row.id ?? "") === form.target_staff_id)) {
+      setMessage("Choose an active staff member assigned to a branch.");
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage(null);
 
@@ -430,7 +430,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                 "Route to",
                 <select value={form.target_type} onChange={(event) => setForm((current) => ({ ...current, target_type: event.target.value, target_staff_id: "", portal_area: "" }))} className={inputClass}>
                   {targetOptions.map((option) => (
-                    <option key={option} value={option}>{option.replaceAll("_", " ")}</option>
+                    <option key={option} value={option}>{feedbackTargetLabels[option] ?? option}</option>
                   ))}
                 </select>,
               )}
@@ -439,7 +439,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                     "Target staff",
                     <select value={form.target_staff_id} onChange={(event) => setForm((current) => ({ ...current, target_staff_id: event.target.value }))} className={inputClass} required>
                       <option value="">Select target staff</option>
-                      {staffRows.map((row) => (
+                      {selectableStaffRows.map((row) => (
                         <option key={String(row.id)} value={String(row.id ?? "")}>{String(row.full_name ?? row.email ?? row.id)}</option>
                       ))}
                     </select>,

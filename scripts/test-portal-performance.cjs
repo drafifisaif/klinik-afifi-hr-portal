@@ -31,6 +31,23 @@ function loader(mocks = {}, globals = {}) {
 const load = loader();
 const { normalizePortalRanges, parsePortalRangeQuery, portalRangeQuery } = load("lib/portal-date-range.ts");
 const { fetchPagedRows } = load("lib/paged-query.ts");
+const { getFeedbackTargetOptions, getSelectableFeedbackStaff } = load("lib/feedback-targets.ts");
+
+test("feedback targets use manager labels and only active, branched, non-Lokum staff", () => {
+  assert.deepEqual(getFeedbackTargetOptions("staff"), ["hr", "operation", "portal_system"]);
+  assert.deepEqual(getFeedbackTargetOptions("hr"), ["staff", "operation", "portal_system"]);
+  assert.deepEqual(getFeedbackTargetOptions("operation"), ["staff", "hr", "portal_system"]);
+
+  const branches = [{ id: "branch-1", name: "Ranau" }];
+  const rows = [
+    { id: "active", full_name: "Active Staff", status: "active", branch_id: "branch-1" },
+    { id: "inactive", full_name: "Inactive Staff", status: "resigned", branch_id: "branch-1" },
+    { id: "no-branch", full_name: "Unassigned Staff", status: "active", branch_id: null },
+    { id: "wrong-branch", full_name: "Orphaned Staff", status: "active", branch_id: "missing-branch" },
+    { id: "lokum", full_name: "Dr Lokum Kinabatangan", status: "active", branch_id: "branch-1" },
+  ];
+  assert.deepEqual(getSelectableFeedbackStaff(rows, branches).map((row) => row.id), ["active"]);
+});
 
 test("date ranges reject invalid/injected/unbounded input and merge overlaps", () => {
   for (const value of [[], [{ start: "2026-02-30", end: "2026-03-01" }], [{ start: "2025-01-01", end: "2026-12-31" }], [{ start: "2026-10-14),id.neq.0", end: "2026-10-15" }]]) {
