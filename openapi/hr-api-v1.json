@@ -53,6 +53,57 @@
     }
   },
   "paths": {
+    "/owner-summary": {
+      "get": {
+        "summary": "Get an aggregate owner briefing",
+        "description": "Super Admin only. Returns workforce counts and critical open feedback counts without staff identifiers, names, phone numbers, or feedback text. Staff profile creation dates are not verified employment start dates. Payroll, reliable exit history, and formal owner decisions are not currently tracked.",
+        "responses": {
+          "200": {
+            "description": "Owner-level aggregate summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": ["generated_at", "scope", "workforce", "attention", "data_gaps"],
+                      "properties": {
+                        "generated_at": { "type": "string", "format": "date-time" },
+                        "scope": { "const": "owner" },
+                        "workforce": {
+                          "type": "object",
+                          "properties": {
+                            "active_people_count": { "type": "integer", "minimum": 0 },
+                            "configured_clinic_count": { "type": "integer", "minimum": 0 },
+                            "new_staff_profiles_last_30_days": { "type": "integer", "minimum": 0 },
+                            "new_staff_profiles_previous_30_days": { "type": "integer", "minimum": 0 },
+                            "staff_profile_creation_change_vs_previous_30_days": { "type": "integer" }
+                          }
+                        },
+                        "attention": {
+                          "type": "object",
+                          "properties": {
+                            "critical_open_feedback_count": { "type": "integer", "minimum": 0 },
+                            "critical_open_feedback_assigned_to_owner_count": { "type": "integer", "minimum": 0 },
+                            "feedback_path": { "type": "string" }
+                          }
+                        },
+                        "data_gaps": { "type": "array", "items": { "type": "string" } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "description": "Owner summary query failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
     "/me": {
       "get": {
         "summary": "Get the authenticated user's portal identity",

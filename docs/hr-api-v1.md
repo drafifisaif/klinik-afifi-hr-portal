@@ -20,6 +20,7 @@ The token must belong to an active portal user. Do not put it in a URL, browser 
 | Method | Path | Permission | Description |
 | --- | --- | --- | --- |
 | GET | `/me` | Any authenticated portal user | Minimal identity and role context |
+| GET | `/owner-summary` | Super Admin only | Owner-level workforce trends and critical attention counts; aggregate only, no staff names or feedback text |
 | GET | `/staff` | Roles allowed to open Staff | Staff directory, paginated; Branch PIC sees own branch |
 | GET | `/attendance` | Roles allowed to open Attendance | Attendance rows for a date range, paginated |
 | GET | `/roster` | Roles allowed to open Roster | Roster rows for a date range, paginated |
@@ -38,6 +39,34 @@ curl --get 'https://hr.klinikafifi.com.my/api/v1/attendance' \
 ```
 
 Paginated endpoints return `{ "data": [], "pagination": { "page": 1, "per_page": 100, "total": 0, "total_pages": 0 } }`. Attendance omits IP addresses and exact GPS coordinates. Staff returns only directory fields; it does not return identity-card numbers, addresses, or emergency contacts.
+
+### Owner summary
+
+`GET /owner-summary` is restricted to `super_admin` and returns a compact, read-only aggregate suitable for an owner briefing. It includes active people and configured clinic counts, staff profiles first created in the latest and previous rolling 30-day windows, and counts of open urgent/escalated feedback. Profile creation dates are not verified employment start dates, so these counts must not be presented as hires. It does not return staff identifiers, names, phone numbers, or feedback content. The `feedback_path` is an in-portal link for authorized follow-up.
+
+The response also declares current data gaps: payroll/staff-cost data, reliable staff exit history, verified employment start dates, and a formal owner-decision marker are not available in the current portal schema. Do not infer those metrics from the returned counts.
+
+```json
+{
+  "data": {
+    "generated_at": "2026-10-14T08:00:00.000Z",
+    "scope": "owner",
+    "workforce": {
+      "active_people_count": 0,
+      "configured_clinic_count": 0,
+      "new_staff_profiles_last_30_days": 0,
+      "new_staff_profiles_previous_30_days": 0,
+      "staff_profile_creation_change_vs_previous_30_days": 0
+    },
+    "attention": {
+      "critical_open_feedback_count": 0,
+      "critical_open_feedback_assigned_to_owner_count": 0,
+      "feedback_path": "/feedback/manage"
+    },
+    "data_gaps": []
+  }
+}
+```
 
 ## Responses and errors
 

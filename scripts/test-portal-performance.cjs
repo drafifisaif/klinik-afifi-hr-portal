@@ -32,6 +32,40 @@ const load = loader();
 const { normalizePortalRanges, parsePortalRangeQuery, portalRangeQuery } = load("lib/portal-date-range.ts");
 const { fetchPagedRows } = load("lib/paged-query.ts");
 const { getFeedbackTargetOptions, getSelectableFeedbackStaff } = load("lib/feedback-targets.ts");
+const { buildOwnerSummary } = load("lib/owner-summary.ts");
+
+test("owner summary is aggregate-only and reports measured trends and critical attention", () => {
+  const now = new Date("2026-10-14T08:00:00.000Z");
+  const summary = buildOwnerSummary({
+    now,
+    staffRows: [
+      { id: "s1", profile_id: "p1", status: "active", created_at: "2026-10-10T00:00:00.000Z", full_name: "Private Name" },
+      { id: "s2", profile_id: "p1", status: "active", created_at: "2026-10-12T00:00:00.000Z" },
+      { id: "s3", profile_id: "p2", status: "active", created_at: "2026-09-01T00:00:00.000Z" },
+      { id: "s4", profile_id: "p3", status: "resigned", created_at: "2026-10-13T00:00:00.000Z" },
+    ],
+    branchRows: [{ id: "b1" }, { id: "b2" }],
+    feedbackRows: [
+      { id: "f1", status: "new", priority: "urgent", assigned_to_owner: true, message: "Private feedback" },
+      { id: "f2", status: "escalated", priority: "normal", assigned_to_owner: false },
+      { id: "f3", status: "resolved", priority: "urgent" },
+      { id: "f4", status: "assigned", priority: "high" },
+    ],
+  });
+
+  assert.deepEqual(summary.workforce, {
+    active_people_count: 2,
+    configured_clinic_count: 2,
+    new_staff_profiles_last_30_days: 2,
+    new_staff_profiles_previous_30_days: 1,
+    staff_profile_creation_change_vs_previous_30_days: 1,
+  });
+  assert.equal(summary.attention.critical_open_feedback_count, 2);
+  assert.equal(summary.attention.critical_open_feedback_assigned_to_owner_count, 1);
+  assert.equal(JSON.stringify(summary).includes("Private Name"), false);
+  assert.equal(JSON.stringify(summary).includes("Private feedback"), false);
+  assert.equal(JSON.stringify(summary).includes("f1"), false);
+});
 
 test("feedback targets use manager labels and only active, branched, non-Lokum staff", () => {
   assert.deepEqual(getFeedbackTargetOptions("staff"), ["hr", "operation", "portal_system"]);
