@@ -70,6 +70,11 @@ function getEntitlementForStaff(rows: TableRow[], staffId?: string | null) {
     .sort((left, right) => Number(right.entitlement_year ?? 0) - Number(left.entitlement_year ?? 0))[0] ?? null;
 }
 
+function isActiveStaffRow(row: TableRow) {
+  const normalizedStatus = String(row.status ?? "active").trim().toLowerCase();
+  return normalizedStatus !== "inactive" && normalizedStatus !== "resigned";
+}
+
 export function StaffManagementPage({
   rows,
   branches,
@@ -132,11 +137,6 @@ export function StaffManagementPage({
     [getLinkedProfileForStaff],
   );
 
-  function isActiveStaffRow(row: TableRow) {
-    const normalizedStatus = String(row.status ?? "active").trim().toLowerCase();
-    return normalizedStatus !== "inactive" && normalizedStatus !== "resigned";
-  }
-
   const scopedRows = useMemo(() => {
     if (role === "staff") {
       return currentStaff ? staffRows.filter((row) => String(row.id ?? "") === String(currentStaff.id ?? "")) : [];
@@ -157,6 +157,8 @@ export function StaffManagementPage({
     return scopedRows.filter((row) => isActiveStaffRow(row) && getMissingProfileFieldsForStaff(row).length > 0);
   }, [getMissingProfileFieldsForStaff, isIncompleteProfileView, scopedRows]);
 
+  const activeStaffRows = useMemo(() => filteredRows.filter(isActiveStaffRow), [filteredRows]);
+
   const selectedStaff =
     filteredRows.find((row) => String(row.id ?? "") === editingId) ??
     filteredRows[0] ??
@@ -165,7 +167,7 @@ export function StaffManagementPage({
     const branchMap = new Map<string, { branchId: string; branchName: string; rows: TableRow[] }>();
     const branchNameForId = (branchId: string) => branches.find((branch) => branch.id === branchId)?.name ?? "No branch";
 
-    for (const row of filteredRows) {
+    for (const row of activeStaffRows) {
       const branchId = String(row.branch_id ?? "");
       const branchName = branchNameForId(branchId);
       const existing = branchMap.get(branchId || branchName) ?? {
@@ -191,7 +193,7 @@ export function StaffManagementPage({
         }
         return left.branchName.localeCompare(right.branchName);
       });
-  }, [branches, filteredRows]);
+  }, [activeStaffRows, branches]);
 
   useEffect(() => {
     if (editingId) {
