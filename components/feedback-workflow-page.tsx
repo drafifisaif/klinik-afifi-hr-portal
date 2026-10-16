@@ -1,13 +1,15 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { ChevronDown, MessageSquarePlus, MessagesSquare } from "lucide-react";
+import { ChevronDown, MessageSquarePlus, MessagesSquare, Paperclip, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
+import { FeedbackAttachmentList, FeedbackDetails, FeedbackMessageCard } from "@/components/feedback-content";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
+import { FEEDBACK_ATTACHMENT_BUCKET, MAX_FEEDBACK_FILE_SIZE, MAX_FEEDBACK_FILES, safeFeedbackFilename, type FeedbackAttachment } from "@/lib/feedback-attachments";
 import { createClient } from "@/lib/supabase/client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import { feedbackTargetLabels, getFeedbackTargetOptions, getSelectableFeedbackStaff } from "@/lib/feedback-targets";
@@ -75,6 +77,8 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
   const [message, setMessage] = useState<string | null>(null);
   const [commentMessage, setCommentMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [submitProgress, setSubmitProgress] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [localComments, setLocalComments] = useState<TableRow[]>(commentRows);
   const [submittedExpanded, setSubmittedExpanded] = useState(false);
@@ -250,7 +254,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                     {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
                   </div>
                   <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
-                  <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
                 </div>
               );
             })
@@ -274,23 +278,6 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
     );
   }
 
-  function renderMessageCard(messageValue: unknown) {
-    return (
-      <div className="mt-4 rounded-3xl border border-teal-100/80 bg-[linear-gradient(135deg,#f2fbfa_0%,#ecf8f6_100%)] px-5 py-5">
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Feedback Message</p>
-        <p className="mt-3 text-base leading-7 text-[var(--foreground)]">{String(messageValue ?? "-")}</p>
-      </div>
-    );
-  }
-
-  function renderMetadataSummary(content: string) {
-    return (
-      <div className="mt-4 rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
-        {content}
-      </div>
-    );
-  }
-
   function renderField(label: string, input: React.ReactNode) {
     return (
       <label className="space-y-2">
@@ -298,6 +285,22 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
         {input}
       </label>
     );
+  }
+
+  function addFiles(files: FileList | null) {
+    const incoming = Array.from(files ?? []);
+    if (!incoming.length) return;
+    if (selectedFiles.length + incoming.length > MAX_FEEDBACK_FILES) {
+      setMessage(`You can attach up to ${MAX_FEEDBACK_FILES} files.`);
+      return;
+    }
+    const invalid = incoming.find((file) => file.size === 0 || file.size > MAX_FEEDBACK_FILE_SIZE);
+    if (invalid) {
+      setMessage(`${invalid.name} must be larger than 0 bytes and no more than 10 MB.`);
+      return;
+    }
+    setSelectedFiles((current) => [...current, ...incoming]);
+    setMessage(null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -323,8 +326,38 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       return;
     }
 
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     setMessage(null);
+
+    const attachments: FeedbackAttachment[] = [];
+    const uploadedPaths: string[] = [];
+    const cleanUpUploads = async () => {
+      if (uploadedPaths.length) {
+        await supabase.storage.from(FEEDBACK_ATTACHMENT_BUCKET).remove(uploadedPaths);
+      }
+    };
+
+    for (const [index, file] of selectedFiles.entries()) {
+      setSubmitProgress(`Uploading attachment ${index + 1} of ${selectedFiles.length}...`);
+      const filePath = `feedback/${profile.id}/${crypto.randomUUID()}/${safeFeedbackFilename(file.name)}`;
+      const { error: uploadError } = await supabase.storage.from(FEEDBACK_ATTACHMENT_BUCKET).upload(filePath, file, {
+        contentType: file.type || "application/octet-stream",
+        upsert: false,
+      });
+      if (uploadError) {
+        await cleanUpUploads();
+        setIsSubmitting(false);
+        setSubmitProgress(null);
+        setMessage(`Attachment upload failed: ${uploadError.message}`);
+        return;
+      }
+      uploadedPaths.push(filePath);
+      attachments.push({ path: filePath, name: file.name, size: file.size, content_type: file.type || "application/octet-stream" });
+    }
+
+    setSubmitProgress("Saving feedback...");
 
     const payload = {
       title: form.title,
@@ -341,6 +374,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
       source_type: role,
       status: "new",
+      ...(attachments.length ? { attachments } : {}),
     };
 
     const { data, error: insertError } = await supabase
@@ -350,7 +384,9 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       .single();
 
     if (insertError) {
+      await cleanUpUploads();
       setIsSubmitting(false);
+      setSubmitProgress(null);
       setMessage(insertError.message);
       return;
     }
@@ -383,7 +419,9 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
     });
 
     setIsSubmitting(false);
+    setSubmitProgress(null);
     setMessage("Feedback submitted.");
+    setSelectedFiles([]);
     setForm({
       title: "",
       category: "general",
@@ -459,6 +497,32 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
               "Description",
               <textarea value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} rows={5} placeholder="Describe the issue, suggestion, or workflow clearly" className={textareaClass} required />,
             )}
+            <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--card-muted)] p-4 sm:p-5">
+              <label htmlFor="feedback-files" className="flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                <Paperclip className="h-4 w-4 text-[var(--accent)]" /> Attach files (optional)
+              </label>
+              <input
+                id="feedback-files"
+                type="file"
+                multiple
+                disabled={isSubmitting}
+                onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }}
+                className="mt-3 block w-full text-sm text-[var(--muted-foreground)] file:mr-4 file:rounded-xl file:border-0 file:bg-white file:px-4 file:py-2 file:font-semibold file:text-[var(--foreground)]"
+              />
+              <p className="mt-2 text-xs text-[var(--muted-foreground)]">Up to 5 files, 10 MB each. Files are visible to people who can view this feedback.</p>
+              {selectedFiles.length ? (
+                <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {selectedFiles.map((file, index) => (
+                    <li key={`${file.name}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-sm">
+                      <span className="min-w-0 truncate">{file.name}</span>
+                      <button type="button" disabled={isSubmitting} onClick={() => setSelectedFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`} className="rounded-lg p-1 text-[var(--muted-foreground)] hover:text-rose-700 disabled:opacity-50">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
             <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)]">
               <input type="checkbox" checked={form.is_anonymous} onChange={(event) => setForm((current) => ({ ...current, is_anonymous: event.target.checked }))} />
               Submit anonymously to viewers where supported
@@ -466,7 +530,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
             {message ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{message}</p> : null}
             <button type="submit" disabled={isSubmitting} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lg shadow-teal-500/25 disabled:opacity-70 sm:w-auto">
               <MessageSquarePlus className="h-4 w-4" />
-              {isSubmitting ? "Submitting..." : "Submit Feedback"}
+              {submitProgress ?? (isSubmitting ? "Submitting..." : "Submit Feedback")}
             </button>
           </form>
         ) : (
@@ -481,7 +545,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
               <article key={String(row.id)} className={cn("rounded-3xl border px-5 py-5", getFeedbackCardTone(String(row.status ?? "new"), String(row.priority ?? "normal")))}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h3 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
+                    <h3 className="max-w-[70ch] break-words text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
                     <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                       {(() => {
                         const submitter = getSubmitterMeta(row);
@@ -495,10 +559,13 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                     <StatusBadge value={String(row.priority ?? "normal")} />
                   </div>
                 </div>
-                {renderMessageCard(row.message)}
-                {renderMetadataSummary(
-                  `${getAssignedFeedbackBadge(row)} · Priority: ${String(row.priority ?? "normal").replaceAll("_", " ")} · Expected action: ${String(row.expected_action ?? "-")} · Target branch: ${getBranchName(row.branch_id)} · Submitted: ${formatDateTime(row.created_at)}`,
-                )}
+                <FeedbackMessageCard message={row.message} expectedAction={row.expected_action} />
+                <FeedbackAttachmentList feedbackId={row.id} value={row.attachments} />
+                <FeedbackDetails items={[
+                  { label: "For", value: getAssignedFeedbackBadge(row) },
+                  { label: "Target branch", value: getBranchName(row.branch_id) },
+                  { label: "Submitted", value: formatDateTime(row.created_at) },
+                ]} />
                 {renderCommentThread(row)}
               </article>
             ))}
@@ -545,9 +612,9 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                   <article key={String(row.id)} className={cn("rounded-3xl border px-5 py-5", getFeedbackCardTone(String(row.status ?? "new"), String(row.priority ?? "normal")))}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 className="text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
+                        <h3 className="max-w-[70ch] break-words text-xl font-semibold tracking-tight text-[var(--foreground)]">{String(row.title ?? row.subject ?? "Untitled feedback")}</h3>
                         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                          Submitted {formatDateTime(row.created_at)} · Target {String(row.target_type ?? "-").replaceAll("_", " ")}
+                          Submitted {formatDateTime(row.created_at)} · {feedbackTargetLabels[String(row.target_type ?? "")] ?? String(row.target_type ?? "-").replaceAll("_", " ")}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -556,17 +623,14 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
                         <StatusBadge value={String(row.status ?? "new")} />
                       </div>
                     </div>
-                    {renderMessageCard(row.message)}
-                    {renderMetadataSummary(
-                      [
-                        `Priority: ${String(row.priority ?? "normal").replaceAll("_", " ")}`,
-                        `Target: ${String(row.target_type ?? "-").replaceAll("_", " ")}${String(row.target_type ?? "") === "staff" ? ` → ${getStaffName(row.target_staff_id) ?? "Target staff not selected"}` : ""}`,
-                        `Expected action: ${String(row.expected_action ?? "-")}`,
-                        `Target branch: ${String(row.target_type ?? "") === "staff" ? getStaffBranchName(row.target_staff_id) ?? "No branch" : getBranchName(row.branch_id)}`,
-                        `Updated: ${formatDateTime(latestActivity.updatedAt)}`,
-                        `Latest reply: ${latestActivity.latestReply || "No reply yet"}`,
-                      ].join(" · "),
-                    )}
+                    <FeedbackMessageCard message={row.message} expectedAction={row.expected_action} />
+                    <FeedbackAttachmentList feedbackId={row.id} value={row.attachments} />
+                    <FeedbackDetails items={[
+                      { label: "Target", value: `${feedbackTargetLabels[String(row.target_type ?? "")] ?? String(row.target_type ?? "-").replaceAll("_", " ")}${String(row.target_type ?? "") === "staff" ? ` · ${getStaffName(row.target_staff_id) ?? "Target staff not selected"}` : ""}` },
+                      { label: "Target branch", value: String(row.target_type ?? "") === "staff" ? getStaffBranchName(row.target_staff_id) ?? "No branch" : getBranchName(row.branch_id) },
+                      { label: "Last updated", value: formatDateTime(latestActivity.updatedAt) },
+                      { label: "Latest reply", value: latestActivity.latestReply ? `${latestActivity.latestReply.slice(0, 160)}${latestActivity.latestReply.length > 160 ? "…" : ""}` : "No reply yet" },
+                    ]} />
                     {renderCommentThread(row)}
                   </article>
                 );

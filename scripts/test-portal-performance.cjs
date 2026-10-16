@@ -33,6 +33,30 @@ const { normalizePortalRanges, parsePortalRangeQuery, portalRangeQuery } = load(
 const { fetchPagedRows } = load("lib/paged-query.ts");
 const { getFeedbackTargetOptions, getSelectableFeedbackStaff } = load("lib/feedback-targets.ts");
 const { buildOwnerSummary } = load("lib/owner-summary.ts");
+const { canViewFeedbackAttachment, getFeedbackAttachments, isFeedbackAttachmentPath, safeFeedbackFilename } = load("lib/feedback-attachments.ts");
+
+test("feedback attachment metadata and download paths reject malformed files", () => {
+  const batch = "97528d32-1b98-450a-8535-03beab78c5a2";
+  const owner = "profile-1";
+  assert.equal(safeFeedbackFilename("memo: HR/agenda?.pdf"), "agenda_.pdf");
+  assert.equal(isFeedbackAttachmentPath(`feedback/${owner}/${batch}/agenda.pdf`, owner), true);
+  assert.equal(isFeedbackAttachmentPath(`feedback/another/${batch}/agenda.pdf`, owner), false);
+  assert.equal(isFeedbackAttachmentPath(`feedback/${owner}/${batch}/../agenda.pdf`, owner), false);
+  assert.deepEqual(getFeedbackAttachments([{ path: "a", name: "a.pdf", size: 10, content_type: "application/pdf" }, { path: null }]), [
+    { path: "a", name: "a.pdf", size: 10, content_type: "application/pdf" },
+  ]);
+});
+
+test("feedback files follow the same viewer scope as feedback cards", () => {
+  const feedback = { submitted_by: "owner", assigned_to: "assignee", target_type: "hr", branch_id: "branch-1", is_anonymous: true, category: "salary" };
+  const viewer = (id, role = "staff", branchId = "") => ({ role, profile: { id, role, branch_id: branchId }, staffId: "", branchId });
+  assert.equal(canViewFeedbackAttachment(feedback, viewer("owner")), true);
+  assert.equal(canViewFeedbackAttachment(feedback, viewer("assignee")), true);
+  assert.equal(canViewFeedbackAttachment(feedback, viewer("outsider")), false);
+  assert.equal(canViewFeedbackAttachment(feedback, viewer("hr-user", "hr")), true);
+  assert.equal(canViewFeedbackAttachment(feedback, viewer("operation-user", "operation")), false);
+  assert.equal(canViewFeedbackAttachment(feedback, viewer("branch-user", "branch_pic", "branch-1")), false);
+});
 
 test("owner summary is aggregate-only and reports measured trends and critical attention", () => {
   const now = new Date("2026-10-14T08:00:00.000Z");

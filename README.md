@@ -164,8 +164,10 @@ pnpm lint
 - `clinic-compliance`
 - `staff-documents`
 - `circular-attachments`
+- `feedback-attachments` (private feedback files; apply `sql/2026-10-16-feedback-attachments.sql` before uploads)
 
 Files are not exposed publicly in this batch. The app stores the Supabase Storage path in the database and shows filename/status in the UI.
+Feedback files are attached to feedback records and opened through a short-lived download link after the portal checks the viewer's access. This download route requires the server-only `SUPABASE_SERVICE_ROLE_KEY`.
 
 ### Notifications and email
 

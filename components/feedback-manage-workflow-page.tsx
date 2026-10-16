@@ -5,10 +5,12 @@ import { ArrowRightCircle, ChevronDown, MessageSquareReply } from "lucide-react"
 import { useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
+import { FeedbackAttachmentList, FeedbackDetails, FeedbackMessageCard } from "@/components/feedback-content";
 import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { filterFeedbackForManageView } from "@/lib/data";
 import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
+import { feedbackTargetLabels } from "@/lib/feedback-targets";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
@@ -412,7 +414,7 @@ export function FeedbackManageWorkflowPage({
             ) : (
               <div className="mt-4 grid gap-2 text-sm text-[var(--muted-foreground)] md:grid-cols-2 xl:grid-cols-3">
                 <p><span className="font-semibold text-[var(--foreground)]">Submitted by:</span> {submitterSummary}</p>
-                <p><span className="font-semibold text-[var(--foreground)]">Target / department:</span> {String(feedback.target_type ?? "-").replaceAll("_", " ")}{String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ` · ${String(feedback.assigned_department ?? "-").replaceAll("_", " ")}`}</p>
+                <p><span className="font-semibold text-[var(--foreground)]">Target / department:</span> {feedbackTargetLabels[String(feedback.target_type ?? "")] ?? String(feedback.target_type ?? "-").replaceAll("_", " ")}{String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ` · ${String(feedback.assigned_department ?? "-").replaceAll("_", " ")}`}</p>
                 <p><span className="font-semibold text-[var(--foreground)]">Assigned user:</span> {assignedUserName || "Unassigned"}</p>
                 <p><span className="font-semibold text-[var(--foreground)]">Branch:</span> {getBranchName(feedback.branch_id)}</p>
                 <p><span className="font-semibold text-[var(--foreground)]">Submitted:</span> {formatDateTime(feedback.created_at)}</p>
@@ -428,19 +430,17 @@ export function FeedbackManageWorkflowPage({
           <div className="border-t border-white/70 px-5 pb-5 pt-5">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1">
-                <div className="rounded-3xl border border-teal-100/80 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-600">
-                  <p><span className="font-semibold text-slate-800">Submitted by:</span> {submitterSummary}</p>
-                  <p className="mt-1"><span className="font-semibold text-slate-800">Target:</span> {String(feedback.target_type ?? "-").replaceAll("_", " ")}{String(feedback.target_type ?? "") === "staff" ? ` → ${targetSummary}` : ""}</p>
-                  <p className="mt-1"><span className="font-semibold text-slate-800">Assigned department:</span> {String(feedback.assigned_department ?? "-").replaceAll("_", " ")}</p>
-                  <p className="mt-1"><span className="font-semibold text-slate-800">Assigned user:</span> {assignedUserName || "Unassigned"}</p>
-                  <p className="mt-1"><span className="font-semibold text-slate-800">Branch:</span> {getBranchName(feedback.branch_id)}</p>
-                  <p className="mt-1"><span className="font-semibold text-slate-800">Submitted:</span> {formatDateTime(feedback.created_at)}</p>
-                  <p className="mt-1"><span className="font-semibold text-slate-800">Last updated:</span> {formatDateTime(lastUpdatedAt)}</p>
-                </div>
-                <div className="mt-4 rounded-3xl border border-white/80 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(18,42,44,0.04)]">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Feedback Message</p>
-                  <p className="mt-3 text-base leading-7 text-[var(--foreground)]">{String(feedback.message ?? "-")}</p>
-                </div>
+                <FeedbackMessageCard message={feedback.message} expectedAction={feedback.expected_action} />
+                <FeedbackAttachmentList feedbackId={feedback.id} value={feedback.attachments} />
+                <FeedbackDetails items={[
+                  { label: "Submitted by", value: submitterSummary },
+                  { label: "Target", value: `${feedbackTargetLabels[String(feedback.target_type ?? "")] ?? String(feedback.target_type ?? "-").replaceAll("_", " ")}${String(feedback.target_type ?? "") === "staff" ? ` · ${targetSummary}` : ""}` },
+                  { label: "Assigned department", value: String(feedback.assigned_department ?? "Unassigned").replaceAll("_", " ") },
+                  { label: "Assigned user", value: assignedUserName || "Unassigned" },
+                  { label: "Branch", value: getBranchName(feedback.branch_id) },
+                  { label: "Submitted", value: formatDateTime(feedback.created_at) },
+                  { label: "Last updated", value: formatDateTime(lastUpdatedAt) },
+                ]} />
               </div>
               <div className="grid gap-3 lg:min-w-[280px] lg:max-w-[300px]">
                 <select value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, assigned_department: event.target.value } }))} className={inputClass}>
@@ -496,7 +496,7 @@ export function FeedbackManageWorkflowPage({
                           {comment.is_internal === true ? <StatusBadge value="Internal" /> : null}
                         </div>
                         <p className="mt-2 text-xs text-[var(--muted-foreground)]">{formatDateTime(comment.created_at)}</p>
-                        <p className="mt-3 text-sm text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
+                        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-[var(--foreground)]">{String(comment.comment ?? "-")}</p>
                       </div>
                     );
                   })

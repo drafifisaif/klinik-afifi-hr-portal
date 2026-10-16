@@ -1131,7 +1131,7 @@ function renderFeedbackItem(
             {" · "}
             {formatDateTime(row.created_at)}
           </p>
-          <p className="mt-3 text-sm text-[var(--foreground)]">{String(row.message ?? "-")}</p>
+          <p className="mt-3 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">{String(row.message ?? "-")}</p>
           {label ? <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]">{label}</p> : null}
         </div>
         <div className="flex flex-col items-end gap-2">
@@ -1590,7 +1590,7 @@ async function loadOperationDashboard(supabase: SupabaseClient, context: Dashboa
           items={recentReplies.slice(0, 5).map((row) => (
             <div key={String(row.id ?? row.created_at)} className="rounded-3xl border border-[var(--border)] bg-[var(--card-muted)]/55 px-5 py-4">
               <p className="text-sm font-semibold text-[var(--foreground)]">Feedback #{String(row.feedback_id ?? "-")}</p>
-              <p className="mt-2 text-sm text-[var(--foreground)]">{String(row.message ?? row.comment ?? "-")}</p>
+              <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">{String(row.message ?? row.comment ?? "-")}</p>
               <p className="mt-2 text-xs text-[var(--muted-foreground)]">{formatDateTime(row.created_at)}</p>
             </div>
           ))}
