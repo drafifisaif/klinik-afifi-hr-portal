@@ -10,7 +10,7 @@ import { FormSection } from "@/components/form-section";
 import { StatusBadge } from "@/components/status-badge";
 import { filterFeedbackForManageView } from "@/lib/data";
 import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
-import { feedbackTargetLabels } from "@/lib/feedback-targets";
+import { feedbackTargetLabels, isStaffFeedbackSource } from "@/lib/feedback-targets";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
 import { createClient } from "@/lib/supabase/client";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
@@ -160,10 +160,11 @@ export function FeedbackManageWorkflowPage({
         return {
           value: String(candidate.id),
           role: candidateRole,
+          activeStaff: staffStatus === "active",
           label: `${fullName} · ${candidateRole.replaceAll("_", " ")} · ${branchName}`,
         };
       })
-      .filter((option): option is { value: string; role: string; label: string } => Boolean(option))
+      .filter((option): option is { value: string; role: string; activeStaff: boolean; label: string } => Boolean(option))
       .sort((left, right) => left.label.localeCompare(right.label));
   }, [assignmentProfiles, getBranchName, staffRows]);
 
@@ -215,8 +216,10 @@ export function FeedbackManageWorkflowPage({
   }
 
   function getAssignedUserName(assignedTo: unknown) {
-    const assignedProfile = assignmentProfiles.find((item) => String(item.id ?? "") === String(assignedTo ?? ""));
-    const assignedStaff = staffRows.find((row) => String(row.profile_id ?? "") === String(assignedTo ?? ""));
+    const profileId = String(assignedTo ?? "").trim();
+    if (!profileId) return "";
+    const assignedProfile = assignmentProfiles.find((item) => String(item.id ?? "") === profileId);
+    const assignedStaff = staffRows.find((row) => String(row.profile_id ?? "") === profileId);
     return String(assignedProfile?.full_name ?? assignedStaff?.full_name ?? assignedProfile?.email ?? "").trim();
   }
 
@@ -232,9 +235,17 @@ export function FeedbackManageWorkflowPage({
       status: String(feedback.status ?? "assigned"),
     };
 
+    const staffSubmission = isStaffFeedbackSource(normalizeString(feedback.source_type));
+    const selectedManager = assignmentOptions.find((option) => option.value === draft.assigned_to && option.activeStaff && ["hr", "operation"].includes(option.role));
+    if (staffSubmission && !selectedManager) {
+      setMessage("Choose the HR Manager or Operation Manager before saving this staff feedback.");
+      return;
+    }
+
     const updatePayload = {
-      assigned_department: draft.assigned_department || null,
+      assigned_department: selectedManager && staffSubmission ? selectedManager.role : draft.assigned_department || null,
       assigned_to: draft.assigned_to || null,
+      ...(selectedManager && staffSubmission ? { target_type: selectedManager.role, target_staff_id: null } : {}),
       assigned_by: profile.id,
       assigned_at: new Date().toISOString(),
       status: draft.status,
@@ -248,7 +259,8 @@ export function FeedbackManageWorkflowPage({
     }
 
     const recipients = await resolveFeedbackNotificationRecipients(supabase, {
-      targetType: String(feedback.target_type ?? ""),
+      targetType: selectedManager && staffSubmission ? selectedManager.role : String(feedback.target_type ?? ""),
+      sourceType: String(feedback.source_type ?? ""),
       targetStaffId: String(feedback.target_staff_id ?? "") || null,
       submitterProfileId: String(feedback.submitted_by ?? "") || null,
       assignedTo: draft.assigned_to || null,
@@ -318,6 +330,7 @@ export function FeedbackManageWorkflowPage({
 
     const recipients = await resolveFeedbackNotificationRecipients(supabase, {
       targetType: String(feedback.target_type ?? ""),
+      sourceType: String(feedback.source_type ?? ""),
       targetStaffId: String(feedback.target_staff_id ?? "") || null,
       submitterProfileId: String(feedback.submitted_by ?? "") || null,
       assignedTo: String(feedback.assigned_to ?? "") || null,
@@ -371,6 +384,10 @@ export function FeedbackManageWorkflowPage({
       assigned_to: String(feedback.assigned_to ?? ""),
       status: String(feedback.status ?? "new"),
     };
+    const staffSubmission = isStaffFeedbackSource(normalizeString(feedback.source_type));
+    const availableAssignmentOptions = staffSubmission
+      ? assignmentOptions.filter((option) => option.activeStaff && ["hr", "operation"].includes(option.role))
+      : assignmentOptions;
     const latestComment = comments[comments.length - 1] ?? null;
     const assignedUserName = getAssignedUserName(feedback.assigned_to);
     const lastUpdatedAt = String(latestComment?.created_at ?? feedback.updated_at ?? feedback.created_at ?? "");
@@ -443,15 +460,17 @@ export function FeedbackManageWorkflowPage({
                 ]} />
               </div>
               <div className="grid gap-3 lg:min-w-[280px] lg:max-w-[300px]">
-                <select value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, assigned_department: event.target.value } }))} className={inputClass}>
-                  <option value="">Assigned department</option>
-                  {["staff", "branch_pic", "operation", "hr"].map((department) => (
-                    <option key={department} value={department}>{department.replaceAll("_", " ")}</option>
-                  ))}
-                </select>
-                <select value={draft.assigned_to} onChange={(event) => {
+                {!staffSubmission ? (
+                  <select value={draft.assigned_department} onChange={(event) => setAssignmentDrafts((current) => ({ ...current, [feedbackId]: { ...draft, assigned_department: event.target.value } }))} className={inputClass}>
+                    <option value="">Assigned department</option>
+                    {["staff", "branch_pic", "operation", "hr"].map((department) => (
+                      <option key={department} value={department}>{department.replaceAll("_", " ")}</option>
+                    ))}
+                  </select>
+                ) : null}
+                <select value={availableAssignmentOptions.some((option) => option.value === draft.assigned_to) ? draft.assigned_to : ""} onChange={(event) => {
                   const selectedProfileId = event.target.value;
-                  const selectedOption = assignmentOptions.find((option) => option.value === selectedProfileId);
+                  const selectedOption = availableAssignmentOptions.find((option) => option.value === selectedProfileId);
                   setAssignmentDrafts((current) => ({
                     ...current,
                     [feedbackId]: {
@@ -461,8 +480,8 @@ export function FeedbackManageWorkflowPage({
                     },
                   }));
                 }} className={inputClass}>
-                  <option value="">Assign to user (optional)</option>
-                  {assignmentOptions.map((option) => (
+                  <option value="">{staffSubmission ? "Assign to HR or Operation Manager" : "Assign to user (optional)"}</option>
+                  {availableAssignmentOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>

@@ -1,18 +1,7 @@
 export type MakeFeedbackNotification = {
   eventType: "feedback_new" | "feedback_assignment" | "feedback_reply";
   feedbackId: string;
-  targetType: string | null;
-  targetStaffId: string | null;
-  assignedTo: string | null;
-  assignedDepartment: string | null;
-  branchId: string | null;
-  recipientStaffId: string;
-  recipientProfileId: string | null;
-  recipientRole: string | null;
   recipientPhone: string;
-  senderName: string;
-  feedbackTitle: string | null;
-  feedbackContent: string;
 };
 
 export async function sendFeedbackNotificationToMake(payload: MakeFeedbackNotification) {
@@ -36,29 +25,26 @@ export async function sendFeedbackNotificationToMake(payload: MakeFeedbackNotifi
   }
 
   try {
-    const eventLabel = payload.eventType === "feedback_new"
-      ? "Feedback baharu"
-      : payload.eventType === "feedback_assignment"
-        ? "Kemaskini assignment feedback"
-        : "Balasan feedback";
+    const portalUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") || null;
     const message = [
-      eventLabel,
-      `Dihantar oleh: ${payload.senderName}`,
-      payload.feedbackTitle ? `Tajuk: ${payload.feedbackTitle}` : null,
-      "Kandungan penuh:",
-      payload.feedbackContent || "(Tiada kandungan)",
-      "",
-      "Notifikasi emel sudah dihantar. Sila semak emel dan HR Portal.",
-    ].filter((line): line is string => line !== null).join("\n");
+      payload.eventType === "feedback_new"
+        ? "Feedback baharu. E-mel notifikasi sudah dihantar."
+        : payload.eventType === "feedback_assignment"
+          ? "Feedback dikemas kini. E-mel notifikasi sudah dihantar."
+          : "Balasan feedback baharu. E-mel notifikasi sudah dihantar.",
+      portalUrl ? `Butiran: ${portalUrl}/feedback/manage` : "Sila semak HR Portal untuk butiran.",
+    ].join(" ");
 
     const response = await fetch(parsedUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         source: "klinik_afifi_hr_portal",
-        ...payload,
+        eventType: payload.eventType,
+        feedbackId: payload.feedbackId,
+        recipientPhone: payload.recipientPhone,
         message,
-        portalUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
+        portalUrl,
       }),
       signal: AbortSignal.timeout(8000),
     });

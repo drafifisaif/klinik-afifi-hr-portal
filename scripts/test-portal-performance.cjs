@@ -31,7 +31,8 @@ function loader(mocks = {}, globals = {}) {
 const load = loader();
 const { normalizePortalRanges, parsePortalRangeQuery, portalRangeQuery } = load("lib/portal-date-range.ts");
 const { fetchPagedRows } = load("lib/paged-query.ts");
-const { getFeedbackTargetOptions, getSelectableFeedbackStaff } = load("lib/feedback-targets.ts");
+const { getFeedbackTargetOptions, getSelectableFeedbackStaff, isStaffFeedbackSource } = load("lib/feedback-targets.ts");
+const { resolveFeedbackNotificationRecipients } = load("lib/notification-helpers.ts");
 const { buildOwnerSummary } = load("lib/owner-summary.ts");
 const { canViewFeedbackAttachment, getFeedbackAttachments, isFeedbackAttachmentPath, safeFeedbackFilename } = load("lib/feedback-attachments.ts");
 
@@ -92,9 +93,13 @@ test("owner summary is aggregate-only and reports measured trends and critical a
 });
 
 test("feedback targets use manager labels and only active, branched, non-Lokum staff", () => {
-  assert.deepEqual(getFeedbackTargetOptions("staff"), ["hr", "operation", "portal_system"]);
+  assert.deepEqual(getFeedbackTargetOptions("staff"), ["hr", "operation"]);
+  assert.deepEqual(getFeedbackTargetOptions("branch_pic"), ["hr", "operation"]);
+  assert.equal(isStaffFeedbackSource("staff"), true);
+  assert.equal(isStaffFeedbackSource("operation"), false);
   assert.deepEqual(getFeedbackTargetOptions("hr"), ["staff", "operation", "portal_system"]);
   assert.deepEqual(getFeedbackTargetOptions("operation"), ["staff", "hr", "portal_system"]);
+  assert.deepEqual(getFeedbackTargetOptions("super_admin"), ["hr", "operation", "portal_system"]);
 
   const branches = [{ id: "branch-1", name: "Ranau" }];
   const rows = [
@@ -105,6 +110,89 @@ test("feedback targets use manager labels and only active, branched, non-Lokum s
     { id: "lokum", full_name: "Dr Lokum Kinabatangan", status: "active", branch_id: "branch-1" },
   ];
   assert.deepEqual(getSelectableFeedbackStaff(rows, branches).map((row) => row.id), ["active"]);
+});
+
+test("staff feedback notifications go only to the chosen manager, not owner or legacy assignee", async () => {
+  const requestedRoles = [];
+  const supabase = {
+    from(table) {
+      if (table === "staff") {
+        return {
+          select() {
+            return {
+              in() {
+                return {
+                  async eq(_column, status) {
+                    assert.equal(status, "active");
+                    return { data: [{ profile_id: "operation-active" }] };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      assert.equal(table, "profiles");
+      return {
+        select() {
+          return {
+            async in(_column, roles) {
+              requestedRoles.push(...roles);
+              return {
+                data: roles.includes("operation")
+                  ? [
+                      { id: "operation-active", email: "operation@example.test" },
+                      { id: "operation-stale", email: "old-operation@example.test" },
+                    ]
+                  : [{ id: "hr-manager", email: "hr@example.test" }],
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+  const recipients = await resolveFeedbackNotificationRecipients(supabase, {
+    targetType: "operation",
+    sourceType: "staff",
+    submitterProfileId: "staff-sender",
+    assignedTo: "operation-stale",
+    sourceProfile: { id: "staff-sender", role: "staff" },
+  });
+  assert.deepEqual(requestedRoles, ["operation"]);
+  assert.deepEqual(recipients, [{ profile_id: "operation-active", email: "operation@example.test" }]);
+});
+
+test("WhatsApp webhook gets a short portal notice without feedback details", async () => {
+  const previousWebhook = process.env.MAKE_HR_NOTIFICATIONS_WEBHOOK_URL;
+  const previousAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  process.env.MAKE_HR_NOTIFICATIONS_WEBHOOK_URL = "https://hook.make.example/test";
+  process.env.NEXT_PUBLIC_APP_URL = "https://hr.example.test/";
+  let sentPayload;
+  try {
+    const loadWithFetch = loader({}, {
+      fetch: async (_url, options) => {
+        sentPayload = JSON.parse(options.body);
+        return { ok: true };
+      },
+    });
+    const { sendFeedbackNotificationToMake } = loadWithFetch("lib/make-notification.ts");
+    const result = await sendFeedbackNotificationToMake({
+      eventType: "feedback_new",
+      feedbackId: "feedback-1",
+      recipientPhone: "+60100000000",
+    });
+    assert.deepEqual(result, { configured: true, delivered: true });
+    assert.equal(sentPayload.message, "Feedback baharu. E-mel notifikasi sudah dihantar. Butiran: https://hr.example.test/feedback/manage");
+    assert.deepEqual(Object.keys(sentPayload).sort(), ["eventType", "feedbackId", "message", "portalUrl", "recipientPhone", "source"]);
+    assert.equal(JSON.stringify(sentPayload).includes("feedbackContent"), false);
+    assert.equal(JSON.stringify(sentPayload).includes("feedbackTitle"), false);
+  } finally {
+    if (previousWebhook === undefined) delete process.env.MAKE_HR_NOTIFICATIONS_WEBHOOK_URL;
+    else process.env.MAKE_HR_NOTIFICATIONS_WEBHOOK_URL = previousWebhook;
+    if (previousAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = previousAppUrl;
+  }
 });
 
 test("date ranges reject invalid/injected/unbounded input and merge overlaps", () => {

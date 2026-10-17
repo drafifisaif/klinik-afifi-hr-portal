@@ -12,7 +12,7 @@ import { triggerFeedbackEmailNotification } from "@/lib/feedback-email-client";
 import { FEEDBACK_ATTACHMENT_BUCKET, MAX_FEEDBACK_FILE_SIZE, MAX_FEEDBACK_FILES, safeFeedbackFilename, type FeedbackAttachment } from "@/lib/feedback-attachments";
 import { createClient } from "@/lib/supabase/client";
 import { insertNotificationRows, resolveFeedbackNotificationRecipients } from "@/lib/notification-helpers";
-import { feedbackTargetLabels, getFeedbackTargetOptions, getSelectableFeedbackStaff } from "@/lib/feedback-targets";
+import { feedbackTargetLabels, getFeedbackTargetOptions, getSelectableFeedbackStaff, isStaffFeedbackSource } from "@/lib/feedback-targets";
 import type { BranchOption, Profile, TableRow, UserRole } from "@/lib/types";
 import { cn, formatDateTime, mapRowsWithId, normalizeString } from "@/lib/utils";
 
@@ -200,6 +200,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
 
     const recipients = await resolveFeedbackNotificationRecipients(supabase, {
       targetType: String(feedback.target_type ?? ""),
+      sourceType: String(feedback.source_type ?? ""),
       targetStaffId: String(feedback.target_staff_id ?? "") || null,
       submitterProfileId: String(feedback.submitted_by ?? "") || null,
       assignedTo: String(feedback.assigned_to ?? "") || null,
@@ -316,8 +317,8 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       return;
     }
 
-    if (role === "staff" && form.target_type === "staff") {
-      setMessage("Staff accounts can route feedback only to Portal System, Human Resource (HR) Manager, or Operation Manager.");
+    if (!targetOptions.includes(form.target_type)) {
+      setMessage("Choose an available feedback recipient.");
       return;
     }
 
@@ -330,6 +331,27 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
 
     setIsSubmitting(true);
     setMessage(null);
+
+    let managerProfileId: string | null = null;
+    if (isStaffFeedbackSource(role)) {
+      const { data: managers, error: managerError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("role", form.target_type);
+      const { data: activeManagerRows, error: staffError } = managerError || !managers?.length
+        ? { data: null, error: null }
+        : await supabase.from("staff")
+          .select("profile_id")
+          .in("profile_id", managers.map((manager) => manager.id))
+          .eq("status", "active");
+      const activeManagerIds = new Set((activeManagerRows ?? []).map((row) => String(row.profile_id ?? "")));
+      if (managerError || staffError || activeManagerIds.size !== 1) {
+        setIsSubmitting(false);
+        setMessage(managerError?.message ?? staffError?.message ?? "Active manager account is unavailable or ambiguous. Please contact HR before sending feedback.");
+        return;
+      }
+      managerProfileId = [...activeManagerIds][0];
+    }
 
     const attachments: FeedbackAttachment[] = [];
     const uploadedPaths: string[] = [];
@@ -373,6 +395,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
       staff_id: currentStaff.id,
       branch_id: currentStaff.branch_id ?? profile.branch_id ?? null,
       source_type: role,
+      ...(managerProfileId ? { assigned_department: form.target_type, assigned_to: managerProfileId } : {}),
       status: "new",
       ...(attachments.length ? { attachments } : {}),
     };
@@ -393,8 +416,10 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
 
     const recipients = await resolveFeedbackNotificationRecipients(supabase, {
       targetType: form.target_type,
+      sourceType: role,
       targetStaffId: form.target_staff_id || null,
       submitterProfileId: profile.id,
+      assignedTo: managerProfileId,
       sourceProfile: profile,
     });
 
@@ -440,7 +465,7 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
     <div className="space-y-6">
       {error ? <EmptyState title="Unable to load feedback data" description={error} /> : null}
       {commentMessage ? <p className="rounded-2xl bg-[var(--card-muted)] px-4 py-3 text-sm text-[var(--foreground)]">{commentMessage}</p> : null}
-      <FormSection title="Submit Feedback" description="Route feedback to HR, operations, a specific staff member, or the portal system queue.">
+      <FormSection title="Submit Feedback" description={isStaffFeedbackSource(role) ? "Choose HR Manager or Operation Manager. Your feedback goes directly to the selected manager." : "Route feedback to HR, operations, a specific staff member, or the portal system queue."}>
         {currentStaff ? (
           <form className="space-y-5" onSubmit={handleSubmit}>
             {renderField(

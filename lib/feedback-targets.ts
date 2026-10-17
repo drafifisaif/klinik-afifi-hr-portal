@@ -8,7 +8,15 @@ export const feedbackTargetLabels: Record<string, string> = {
   portal_system: "Portal System",
 };
 
+export function isStaffFeedbackSource(role: unknown) {
+  return role === "staff" || role === "branch_pic";
+}
+
 export function getFeedbackTargetOptions(role: UserRole) {
+  if (isStaffFeedbackSource(role)) {
+    return ["hr", "operation"];
+  }
+
   if (role === "operation") {
     return ["staff", "hr", "portal_system"];
   }
@@ -17,7 +25,7 @@ export function getFeedbackTargetOptions(role: UserRole) {
     return ["staff", "operation", "portal_system"];
   }
 
-  // Staff accounts can route feedback only to the portal queue or managers.
+  // Super admin can route feedback to the portal queue or managers.
   return ["hr", "operation", "portal_system"];
 }
 

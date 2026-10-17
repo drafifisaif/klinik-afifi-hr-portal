@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Profile, TableRow, UserRole } from "@/lib/types";
+import { isStaffFeedbackSource } from "@/lib/feedback-targets";
 import { formatDateTime, normalizeString } from "@/lib/utils";
 
 export type FeedbackEmailEvent = "feedback_new" | "feedback_assignment" | "feedback_reply";
@@ -45,6 +46,7 @@ function isOperationalCategory(value: unknown) {
 }
 
 function isBranchIssue(feedback: TableRow) {
+  if (isStaffFeedbackSource(normalizeString(feedback.source_type))) return false;
   return Boolean(
     String(feedback.branch_id ?? "").trim() &&
       (normalizeString(feedback.target_type) === "operation" ||
@@ -363,6 +365,11 @@ async function collectFeedbackRecipients(
   const profiles = [...(roleProfiles ?? []), ...(extraProfiles ?? [])] as Profile[];
   const profileMap = new Map(profiles.map((profile) => [String(profile.id), profile]));
   const staffRows = (allStaffResult.data ?? []) as TableRow[];
+  const activeManagerProfileIds = new Set(
+    staffRows
+      .filter((row) => normalizeString(row.status) === "active" && String(row.profile_id ?? "").trim())
+      .map((row) => String(row.profile_id)),
+  );
   const staffByProfileId = new Map(
     staffRows
       .filter((row) => String(row.profile_id ?? "").trim())
@@ -417,16 +424,19 @@ async function collectFeedbackRecipients(
   }
 
   const targetType = normalizeString(feedback.target_type);
+  const managerTargetRole = targetType === "portal_system" ? "hr" : targetType;
 
   if (targetType === "hr" || targetType === "portal_system") {
     (roleProfiles ?? [])
-      .filter((profile) => normalizeString(profile.role) === "hr")
+      .filter((profile) => normalizeString(profile.role) === "hr" && (!isStaffFeedbackSource(normalizeString(feedback.source_type)) || activeManagerProfileIds.has(String(profile.id))))
       .forEach((profile) => addRecipient(profile as Profile));
   }
 
-  if (targetType === "operation" || normalizeString(feedback.assigned_department) === "operation") {
+  if (isStaffFeedbackSource(normalizeString(feedback.source_type))
+    ? managerTargetRole === "operation"
+    : targetType === "operation" || normalizeString(feedback.assigned_department) === "operation") {
     (roleProfiles ?? [])
-      .filter((profile) => normalizeString(profile.role) === "operation")
+      .filter((profile) => normalizeString(profile.role) === "operation" && (!isStaffFeedbackSource(normalizeString(feedback.source_type)) || activeManagerProfileIds.has(String(profile.id))))
       .forEach((profile) => addRecipient(profile as Profile));
   }
 
@@ -435,7 +445,12 @@ async function collectFeedbackRecipients(
   }
 
   if (assignedTo) {
-    addRecipient(profileMap.get(assignedTo) ?? null);
+    const assignedProfile = profileMap.get(assignedTo) ?? null;
+    if (!isStaffFeedbackSource(normalizeString(feedback.source_type)) || (
+      normalizeString(assignedProfile?.role) === managerTargetRole && activeManagerProfileIds.has(assignedTo)
+    )) {
+      addRecipient(assignedProfile);
+    }
   }
 
   if (isBranchIssue(feedback) && branchId) {

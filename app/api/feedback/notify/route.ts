@@ -80,27 +80,8 @@ export async function POST(request: Request) {
     );
     const staffIds = [...new Set(eligibleRecipients.map((recipient) => recipient.staffId as string))];
     const adminClient = createAdminClient();
-    const submitterProfileId = String(feedback.submitted_by ?? "").trim();
-    const [submitterProfileResult, submitterStaffResult] = adminClient && submitterProfileId
-      ? await Promise.all([
-          adminClient.from("profiles").select("full_name,email").eq("id", submitterProfileId).maybeSingle(),
-          adminClient.from("staff").select("full_name,email").eq("profile_id", submitterProfileId).maybeSingle(),
-        ])
-      : [{ data: null, error: null }, { data: null, error: null }];
-    const senderName = eventType === "feedback_reply"
-      ? String(staff?.full_name ?? profile?.full_name ?? staff?.email ?? profile?.email ?? "Staf Portal HR")
-      : String(
-          submitterStaffResult.data?.full_name ??
-          submitterProfileResult.data?.full_name ??
-          submitterStaffResult.data?.email ??
-          submitterProfileResult.data?.email ??
-          "Staf Portal HR",
-        );
-    const feedbackContent = eventType === "feedback_reply"
-      ? String(body?.commentText ?? "").trim()
-      : String(feedback.message ?? "").trim();
     const staffResult = adminClient && staffIds.length
-      ? await adminClient.from("staff").select("id,profile_id,phone,position").in("id", staffIds)
+      ? await adminClient.from("staff").select("id,phone").in("id", staffIds)
       : { data: [], error: null };
     if (staffResult.error) {
       console.error("[make-notifications] Could not resolve recipient phone numbers.");
@@ -114,18 +95,7 @@ export async function POST(request: Request) {
       return [sendFeedbackNotificationToMake({
         eventType,
         feedbackId,
-        targetType: String(feedback.target_type ?? "") || null,
-        targetStaffId: String(feedback.target_staff_id ?? "") || null,
-        assignedTo: String(feedback.assigned_to ?? "") || null,
-        assignedDepartment: String(feedback.assigned_department ?? "") || null,
-        branchId: String(feedback.branch_id ?? "") || null,
-        recipientStaffId: String(recipient.staffId),
-        recipientProfileId: recipient.profileId,
-        recipientRole: String(staffRow?.position ?? "") || null,
         recipientPhone,
-        senderName,
-        feedbackTitle: String(feedback.title ?? "").trim() || null,
-        feedbackContent,
       })];
     }));
 
