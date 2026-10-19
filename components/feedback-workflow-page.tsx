@@ -334,23 +334,19 @@ export function FeedbackWorkflowPage({ assignedRows, submittedRows, commentRows,
 
     let managerProfileId: string | null = null;
     if (isStaffFeedbackSource(role)) {
-      const { data: managers, error: managerError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("role", form.target_type);
-      const { data: activeManagerRows, error: staffError } = managerError || !managers?.length
-        ? { data: null, error: null }
-        : await supabase.from("staff")
-          .select("profile_id")
-          .in("profile_id", managers.map((manager) => manager.id))
-          .eq("status", "active");
-      const activeManagerIds = new Set((activeManagerRows ?? []).map((row) => String(row.profile_id ?? "")));
-      if (managerError || staffError || activeManagerIds.size !== 1) {
+      const response = await fetch("/api/feedback/resolve-manager", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetType: form.target_type }),
+      });
+      const result = await response.json().catch(() => null) as { managerProfileId?: string; error?: string } | null;
+
+      if (!response.ok || !result?.managerProfileId) {
         setIsSubmitting(false);
-        setMessage(managerError?.message ?? staffError?.message ?? "Active manager account is unavailable or ambiguous. Please contact HR before sending feedback.");
+        setMessage(result?.error ?? "Could not identify the selected manager. Please try again.");
         return;
       }
-      managerProfileId = [...activeManagerIds][0];
+      managerProfileId = result.managerProfileId;
     }
 
     const attachments: FeedbackAttachment[] = [];
